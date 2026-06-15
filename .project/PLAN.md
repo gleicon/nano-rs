@@ -2,62 +2,81 @@
 
 ## Now
 
-**State:** Phases 1–5 complete. `cargo check` clean, 668 unit tests pass. Security review done; critical finding (eval bypass in standalone path) fixed and committed. All changes in single atomic commit `c2101cfa`.
+**State:** Tier 1-3 codebase simplification complete. 667 tests pass (1 pre-existing failure: `test_socket_reuse_addr` port-race, unrelated to our changes). `cargo build` clean, zero warnings. Timer infrastructure extracted to `runtime/timers.rs`. `NanoRequest::from_axum_parts` unifies 4 duplicate request-construction sites. `with_worker_runtime` now correctly wired — `pool.rs` calls `data_plane::set_worker_runtime` instead of dead thread-local. Worker loop merge plan documented (Steps A–E), not yet executed.
 
-**Next:** Nothing — milestone complete. Remaining security findings (SSRF, timing attack, default bind addr, escape_json) filed for future work.
+**State:** Phase 10 test extraction complete. 650 pass, 1 ignored (`test_socket_reuse_addr` marked `#[ignore]`), 3 pre-existing adversarial E2E failures (not regressions). Extracted 7 test modules to `tests/`: `router_unit_tests`, `vfs_memory_unit_tests`, `app_timeout_unit_tests`, `metrics_unit_tests`, `v8_module_unit_tests`, `worker_pool_dispatch_tests`. SubtleCrypto split: `runtime/subtle_v8.rs` (1001 lines) from `apis.rs` (3374→2376 lines). `build` clean.
 
-**Open questions:** None.
+**Next:** Phase 10 quality gate — run `ds-quality-gate` 9-pass, then commit all cleanup work.
+
+**Open questions:**
+- Step E (flatten `EntrypointWorkerPool` → direct `WorkerPool` in queue.rs): ~12 call sites, low risk, optional scope.
+- `apis.rs` still 2376 lines — URL (~350) + Buffer (~257) could be further split.
+- 3 adversarial E2E failures pre-date our changes (verified via stash test).
+
+---
 
 ## Roadmap
 
 ### Phase 1 — pool.rs deslop (WS duplicate blocks)
-
-- [x] Extract OOM pre-check from Text + Binary WS arms → `ws_oom_break!($label:lifetime)` macro
-- [x] Extract CPU timeout guard: already arm-local, no further dedup possible
-- [x] Merge Text + Binary `WS_MESSAGE_HANDLERS` dispatch loop → `ws_dispatch!($handlers, $event)` macro
-- [x] `ws_dispatch!` also applied to Close and Disconnected arms (WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS)
-- [x] Narrating one-liner comments stripped from both pool loops
-- [x] Over-verbose doc comments on `with_source` / `with_source_and_backend` slimmed
+- [x] Extract OOM pre-check → `ws_oom_break!` macro
+- [x] Merge Text + Binary WS dispatch → `ws_dispatch!` macro
+- [x] Narrating comments stripped; verbose docs slimmed
 - [x] `cargo check` clean
 
-### Phase 2 — Rust code quality audit (ds-rust-review / ds-code-quality-review)
-
-- [x] Run `ds-rust-review` across `src/worker/`, `src/runtime/`, `src/http/` — log findings
-- [x] Fix: `src/runtime/fetch.rs` — SAFETY comments on 3 unsafe sites; &'static GC invariant documented
-- [x] Fix: `src/runtime/websocket.rs` — cast safety comment
-- [x] Fix: `src/worker/pool.rs` — SAFETY comments on 7 unsafe sites; ws_oom_break! now logs OOM events
-- [x] Fix: `src/worker/tenant_pool.rs` — reviewed, no new issues (has SAFETY comments at all unsafe sites)
-- [x] Fix: `src/http/router.rs` — cosmetic only (empty doc comment), no correctness issues
-- [x] Fix: `src/runtime/async_support.rs` — dead suppression code removed, no issues
-- [x] Fix: `src/sliver/mod.rs` — dead re-exports removed, no issues
-- [x] Fix: `src/wasm/js_api.rs` — dead function removed, no issues
+### Phase 2 — Rust code quality audit
+- [x] SAFETY comments on all unsafe sites (fetch.rs, websocket.rs, pool.rs, tenant_pool.rs)
+- [x] Dead code removed (async_support.rs, sliver/mod.rs, wasm/js_api.rs)
 
 ### Phase 3 — Bug review
-
-- [x] Run `ds-bug-review` across WS paths (`pool.rs`, `tenant_pool.rs`, `websocket.rs`)
-- [x] Fix: `tenant_pool.rs:952` — `dispatch_ws` always spawns dedicated worker per connection; prune dead handles via `is_finished()`
-- [x] Fix: `websocket.rs:228` — `ws_close_callback` now guards on `WS_ACCEPTED` (matches `ws_send_callback`)
-- [x] Fix: `tenant_pool.rs:469,514` — OOM events now logged in ws_messages loop (was `_oom`, silenced)
-- [x] Confirm `clear_ws_thread_locals()` called on all WS exit paths including OOM-close
-- [x] Confirm isolate recycles correctly after WS connection (D-10b path)
+- [x] `dispatch_ws` prune dead handles via `is_finished()`
+- [x] `ws_close_callback` guards on `WS_ACCEPTED`
+- [x] OOM events logged in ws_messages loop
+- [x] `clear_ws_thread_locals()` on all WS exit paths confirmed
 
 ### Phase 4 — Security review
+- [x] CRITICAL: `set_allow_generation_from_strings(false)` added to standalone handler path
+- [x] HIGH findings filed: SSRF, timing attack, default bind `0.0.0.0`, escape_json control chars
 
-- [x] Run `ds-security-review` across `src/runtime/`, `src/http/`, `src/admin/`
-- [x] Confirm `set_allow_generation_from_strings(false)` — MISSING in `handler.rs` standalone path (Fixed in Phase 5)
-- [x] Confirm no user-controlled input reaches `v8::Script::compile` — entrypoints are admin-configured, safe
+### Phase 5 — Quality gate + WS test fixes
+- [x] 9-pass quality gate run; all findings implemented
+- [x] WS tests 24/24 (Host header mismatch fix; timeout data-discard fix in test suite)
+- [x] WS browser-compat stub added (`WS_SERVER_SOCKET`, `set_ws_readystate`, `WebSocket` global)
+- [x] Commit `c2101cfa` — eval/new Function ban in standalone path
 
-**Findings (Phase 4):**
-- CRITICAL: eval/new Function() usable in standalone path — `handler.rs` contexts never call `set_allow_generation_from_strings(false)` (fixed)
-- HIGH: SSRF — fetch.rs only blocks schemes; private IPs (10.x, 172.16.x, 192.168.x, 127.x, 169.254.x) reachable
-- HIGH: Non-constant-time API key comparison in `auth.rs:72` — timing oracle on network-accessible port
-- HIGH: Admin server default binds `0.0.0.0` — should default to `127.0.0.1`
-- HIGH: `escape_json` misses U+0000–U+001F control chars — malformed JSON possible
-- HARDENING: Empty `api_key` silently allows all requests through
-- HARDENING: `create_unix_socket_router_no_auth` is public, unauthenticated — dead code landmine
+### Phase 6 — Tier 1: Dead code deletion
+- [x] `NanoRequest::from_axum_request` deleted (no callers)
+- [x] `serialize_response_to_json` + dead `base64_encode` removed from `v8_bridge.rs`
+- [x] `WorkerPool::dispatch_to` deleted; `try_dispatch` second arg removed
+- [x] `TenantPool` struct body deleted (895 lines); thread-locals + helpers kept
+- [x] `pub use tenant_pool::TenantPool` re-export removed from `worker/mod.rs`
 
-### Phase 5 — Final cleanup
+### Phase 7 — Tier 2: Async runtime unification
+- [x] `pool.rs` dead `WORKER_RUNTIME` removed; replaced with `data_plane::set_worker_runtime`
+- [x] `module.rs` `pollster::block_on` → `Handle::try_current()` + `with_worker_runtime` fallback
+- [x] 14 inline `Runtime::new()` fallbacks in `vfs_bindings.rs` + `fs_polyfill.rs` → `vfs_block_on()` helper
 
-- [ ] Cargo check + clippy clean (no new warnings)
-- [ ] Run existing test suite — all green
-- [ ] Commit pool.rs deslop as isolated atomic commit
+### Phase 8 — Tier 3: Duplication elimination
+- [x] Timer infrastructure extracted to `runtime/timers.rs` (apis.rs: 3631→3369 lines)
+- [x] `NanoRequest::from_axum_parts` in `types.rs` — unifies 4 inline URL+header construction sites
+- [x] Worker loop merge plan written (Steps A–E, see below)
+
+### Phase 9 — Worker loop merge
+- [x] **Step A**: Delete `execute_js_standalone` + `virtual_host_handler` (dead — never registered in server.rs)
+- [x] **Step B**: `WorkerPool::new` → delegates to `with_source_and_backend` (Loop 2)
+- [x] **Step C**: Delete Loop 1 body from `pool.rs`; re-expose `with_backend` as thin compat wrapper
+- [x] **Step D**: Document `AppSource::entrypoint` placeholder invariant in `WorkerPool::new` + `EntrypointWorkerPool`
+- [ ] **Step E**: (Optional) Flatten `EntrypointWorkerPool` → direct `WorkerPool` usage in `queue.rs`
+- [x] Run full test suite after each step — 665 pass, 1 pre-existing failure
+
+### Phase 10 — Test extraction + quality gate
+- [x] Extract tests from `vfs/memory.rs` → `tests/vfs_memory_unit_tests.rs` (14 tests)
+- [x] Extract tests from `app/timeout.rs` → `tests/app_timeout_unit_tests.rs` (11 tests)
+- [x] Extract tests from `metrics/tenant.rs` → `tests/metrics_unit_tests.rs` (12 tests)
+- [x] Extract tests from `v8/module.rs` → `tests/v8_module_unit_tests.rs` (3 tests, 3 kept embedded)
+- [x] Extract tests from `http/router.rs` → `tests/router_unit_tests.rs` (7+1 tests, 2 kept embedded)
+- [x] Extract tests from `worker/pool.rs` → `tests/worker_pool_dispatch_tests.rs` (11 tests)
+- [x] SubtleCrypto extracted from `runtime/apis.rs` → `runtime/subtle_v8.rs` (1001 lines)
+- [x] `test_socket_reuse_addr` marked `#[ignore]` (pre-existing port-race)
+- [ ] `ds-quality-gate` full 9-pass run
+- [ ] Commit all cleanup work as logical atomic commits
+- [ ] Address filed security findings: SSRF, timing attack, default bind addr, escape_json control chars

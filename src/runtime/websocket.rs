@@ -174,7 +174,13 @@ fn websocket_client_constructor(
     let bt_val = v8::String::new(scope, "arraybuffer").unwrap();
     obj.set(scope, bt_key.into(), bt_val.into());
 
-    for method in &["send", "close", "addEventListener", "removeEventListener"] {
+    // send() must throw on a CLOSED socket (readyState=3) per WebSocket spec.
+    if let Some(f) = v8::Function::new(scope, ws_client_send_closed) {
+        let key = v8::String::new(scope, "send").unwrap();
+        obj.set(scope, key.into(), f.into());
+    }
+    // close/addEventListener/removeEventListener are spec-correct no-ops for readyState=3.
+    for method in &["close", "addEventListener", "removeEventListener"] {
         if let Some(f) = v8::Function::new(scope, ws_client_noop) {
             let key = v8::String::new(scope, method).unwrap();
             obj.set(scope, key.into(), f.into());
@@ -182,6 +188,16 @@ fn websocket_client_constructor(
     }
 
     retval.set(obj.into());
+}
+
+fn ws_client_send_closed(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    _args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let msg = v8::String::new(scope, "WebSocket is already in CLOSED state").unwrap();
+    let err = v8::Exception::error(scope, msg);
+    scope.throw_exception(err);
 }
 
 fn ws_client_noop(
@@ -427,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn test_websocket_stub_noop_methods_do_not_throw() {
+    fn test_websocket_stub_send_throws_on_closed() {
         init_platform();
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
         v8::scope!(handle_scope, isolate.isolate());
@@ -440,6 +456,31 @@ mod tests {
             try {
                 const ws = new WebSocket('ws://x');
                 ws.send('hello');
+            } catch (e) {
+                threw = e.message.includes('CLOSED');
+            }
+            threw
+        "#;
+        let code_string = v8::String::new(ctx_scope, code).unwrap();
+        let script = v8::Script::compile(ctx_scope, code_string, None).expect("compile");
+        let result = script.run(ctx_scope).expect("run");
+        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        assert_eq!(result_str, "true", "send() on CLOSED WebSocket stub must throw");
+    }
+
+    #[test]
+    fn test_websocket_stub_noop_methods_do_not_throw() {
+        init_platform();
+        let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+        bind_websocket_pair(ctx_scope, context);
+
+        let code = r#"
+            let threw = false;
+            try {
+                const ws = new WebSocket('ws://x');
                 ws.close();
                 ws.addEventListener('message', () => {});
                 ws.removeEventListener('message', () => {});
@@ -452,6 +493,6 @@ mod tests {
         let script = v8::Script::compile(ctx_scope, code_string, None).expect("compile");
         let result = script.run(ctx_scope).expect("run");
         let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
-        assert_eq!(result_str, "true", "WebSocket stub no-op methods must not throw");
+        assert_eq!(result_str, "true", "close/addEventListener/removeEventListener on CLOSED stub must not throw");
     }
 }

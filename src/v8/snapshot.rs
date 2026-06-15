@@ -132,15 +132,16 @@ pub fn is_snapshot_valid() -> bool {
 
 /// Build-time snapshot creation from a NanoIsolate.
 ///
-/// This is used by the `sliver build` command to create deployable snapshots.
-/// NOTE: In v147, runtime snapshot creation has limitations. This function
-/// returns empty data as a placeholder. Pre-generated snapshots should be
-/// created using a separate build-time tool.
+/// # Errors
+///
+/// Returns an error because runtime snapshot extraction is not supported in
+/// the v147 V8 API. Slivers must be built with the `sliver pack` tool which
+/// uses V8's `SnapshotCreator` at build time, not at runtime.
 pub fn create_snapshot_from_nano(_isolate: crate::v8::NanoIsolate) -> anyhow::Result<Vec<u8>> {
-    // v147 API doesn't support easy runtime snapshot extraction
-    // Snapshots should be pre-generated at build time using V8's snapshot_creator
-    tracing::warn!("Runtime snapshot creation not implemented for v147 - returning empty snapshot");
-    Ok(Vec::new())
+    anyhow::bail!(
+        "Runtime snapshot creation is not supported with the v147 V8 bindings. \
+         Use `nano sliver pack` to build slivers at compile time via V8's SnapshotCreator API."
+    )
 }
 
 #[cfg(test)]
