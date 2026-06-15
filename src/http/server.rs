@@ -50,12 +50,20 @@ async fn create_reuse_listener(addr: &std::net::SocketAddr) -> Result<TcpListene
     socket.set_reuseport(true)
         .context("Failed to set SO_REUSEPORT on socket")?;
     
+    if addr.ip().is_unspecified() {
+        tracing::warn!(
+            "Binding to {} — all network interfaces exposed. \
+             Set server.host to a specific IP or add firewall rules in production.",
+            addr
+        );
+    }
+
     socket.bind(*addr)
         .with_context(|| format!("Failed to bind to {}", addr))?;
-    
+
     let listener = socket.listen(128)
         .context("Failed to listen on socket")?;
-    
+
     Ok(listener)
 }
 

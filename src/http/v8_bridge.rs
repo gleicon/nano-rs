@@ -99,11 +99,23 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 fn escape_json(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"'  => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                // Remaining ASCII control chars (\x00–\x1F) must be \uXXXX-escaped.
+                // Unescaped control bytes in JSON string literals are invalid per RFC 8259 §7.
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 
@@ -170,6 +182,20 @@ mod tests {
         assert!(result.contains(&token_g), "Escaped output missing token_g: {}", result);
         assert!(result.contains("\\\\"), "Escaped output missing escaped backslash: {}", result);
         assert!(result.contains(&token_h), "Escaped output missing token_h: {}", result);
+
+        // Control chars (RFC 8259 §7: must be \u00XX-escaped)
+        assert_eq!(escape_json("\x00"), "\\u0000");
+        assert_eq!(escape_json("\x01"), "\\u0001");
+        assert_eq!(escape_json("\x1f"), "\\u001f");
+        // \n, \r, \t use short forms
+        assert_eq!(escape_json("\n"), "\\n");
+        assert_eq!(escape_json("\r"), "\\r");
+        assert_eq!(escape_json("\t"), "\\t");
+        // Injection attempt: null byte + closing quote
+        let injected = "value\x00\"}evil";
+        let escaped = escape_json(injected);
+        assert!(escaped.contains("\\u0000"), "null byte must be escaped");
+        assert!(!escaped.contains('\x00'), "raw null byte must not appear in output");
     }
 
     #[test]

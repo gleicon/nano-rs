@@ -327,20 +327,29 @@ fn is_dangerous_header(name: &str) -> bool {
     matches!(lower.as_str(), "host" | "content-length" | "transfer-encoding")
 }
 
-/// Check if a host is a private IP address (SSRF prevention)
+/// Check if a host is a private/internal address (SSRF prevention).
+///
+/// Blocks literal IP addresses in RFC1918/loopback/link-local/unspecified ranges
+/// and well-known cloud metadata hostnames. Note: hostname→IP resolution is not
+/// performed here; a hostname that resolves to a private IP at DNS lookup time
+/// can still bypass this check (DNS rebinding). Defence-in-depth via network
+/// egress controls is recommended for full SSRF prevention.
 fn is_private_ip(host: &str) -> bool {
-    // Handle IPv6 bracket notation - remove brackets if present
+    // Strip IPv6 bracket notation
     let host_clean = if host.starts_with('[') && host.ends_with(']') {
         &host[1..host.len()-1]
     } else {
         host
     };
 
-    // Check if host is an IP address
     if let Ok(ip) = host_clean.parse::<std::net::IpAddr>() {
         match ip {
             std::net::IpAddr::V4(ipv4) => {
                 let octets = ipv4.octets();
+                // 0.0.0.0 — unspecified, routes to loopback on many OSes
+                if octets == [0, 0, 0, 0] {
+                    return true;
+                }
                 // 10.0.0.0/8
                 if octets[0] == 10 {
                     return true;
@@ -357,13 +366,21 @@ fn is_private_ip(host: &str) -> bool {
                 if octets[0] == 127 {
                     return true;
                 }
-                // 169.254.0.0/16 (link-local)
+                // 169.254.0.0/16 (link-local / cloud metadata endpoint)
                 if octets[0] == 169 && octets[1] == 254 {
+                    return true;
+                }
+                // 100.64.0.0/10 (CGNAT / shared address space)
+                if octets[0] == 100 && (64..=127).contains(&octets[1]) {
                     return true;
                 }
             }
             std::net::IpAddr::V6(ipv6) => {
                 let segments = ipv6.segments();
+                // :: (unspecified)
+                if segments == [0, 0, 0, 0, 0, 0, 0, 0] {
+                    return true;
+                }
                 // ::1 (loopback)
                 if segments == [0, 0, 0, 0, 0, 0, 0, 1] {
                     return true;
@@ -372,12 +389,34 @@ fn is_private_ip(host: &str) -> bool {
                 if (segments[0] & 0xffc0) == 0xfe80 {
                     return true;
                 }
+                // fc00::/7 (unique-local, RFC4193 — equivalent of RFC1918)
+                if (segments[0] & 0xfe00) == 0xfc00 {
+                    return true;
+                }
+                // ::ffff:0:0/96 (IPv4-mapped — check the embedded IPv4)
+                if segments[0..5] == [0, 0, 0, 0, 0] && segments[5] == 0xffff {
+                    let v4_octets = [
+                        (segments[6] >> 8) as u8,
+                        (segments[6] & 0xff) as u8,
+                        (segments[7] >> 8) as u8,
+                        (segments[7] & 0xff) as u8,
+                    ];
+                    let mapped = std::net::Ipv4Addr::from(v4_octets);
+                    // Recurse via string to reuse IPv4 logic
+                    return is_private_ip(&mapped.to_string());
+                }
             }
         }
     }
 
-    // Check for localhost
-    if host_clean.eq_ignore_ascii_case("localhost") {
+    // Well-known internal hostnames
+    let lower = host_clean.to_ascii_lowercase();
+    if lower == "localhost"
+        || lower == "metadata"
+        || lower == "metadata.google.internal"
+        || lower == "metadata.internal"
+        || lower == "instance-data"
+    {
         return true;
     }
 
@@ -610,6 +649,23 @@ mod tests {
 
         // IPv6 loopback (without brackets - this is how hyper parses it)
         assert!(is_private_ip("::1"));
+
+        // New: unspecified addresses
+        assert!(is_private_ip("0.0.0.0"));
+        assert!(is_private_ip("::"));
+        // New: CGNAT shared space
+        assert!(is_private_ip("100.64.0.1"));
+        assert!(is_private_ip("100.127.255.255"));
+        // New: IPv6 unique-local (fc00::/7)
+        assert!(is_private_ip("fc00::1"));
+        assert!(is_private_ip("fd12:3456:789a::1"));
+        // New: IPv4-mapped IPv6 loopback
+        assert!(is_private_ip("::ffff:127.0.0.1"));
+        assert!(is_private_ip("::ffff:192.168.1.1"));
+        // New: cloud metadata hostnames
+        assert!(is_private_ip("metadata.google.internal"));
+        assert!(is_private_ip("metadata.internal"));
+        assert!(is_private_ip("instance-data"));
 
         // Public ranges
         assert!(!is_private_ip("8.8.8.8"));
