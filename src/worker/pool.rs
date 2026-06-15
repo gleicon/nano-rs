@@ -9,14 +9,9 @@ use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use base64::Engine as _;
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{anyhow, Result};
-
-thread_local! {
-    static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = RefCell::new(None);
-}
 
 pub use crate::data_plane::with_worker_runtime;
 
@@ -77,613 +72,37 @@ impl std::fmt::Debug for WorkerPool {
 }
 
 impl WorkerPool {
-    /// # Panics
+    /// Create a pool with an explicit VFS backend.
     ///
-    /// Panics if the V8 platform is not initialized.
-    pub fn new(hostname: String, worker_count: u32, memory_limit_mb: u32) -> Self {
-        Self::with_backend(hostname, worker_count, memory_limit_mb, crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()))
-    }
-
-    /// # Panics
-    ///
-    /// Panics if the V8 platform is not initialized.
+    /// Uses an `Entrypoint` source — the actual JS file is resolved from
+    /// `task.entrypoint` at dispatch time, not from the placeholder here.
     pub fn with_backend(
         hostname: String,
         worker_count: u32,
         memory_limit_mb: u32,
         vfs_backend: crate::vfs::VfsBackendEnum,
     ) -> Self {
-        if !crate::v8::is_initialized() {
-            initialize_platform().expect("Failed to initialize V8 platform");
-        }
-
-        assert!(worker_count > 0, "Worker count must be at least 1");
-
-        let hostname_for_workers = hostname.clone();
-        let vfs_backend_for_workers = vfs_backend.clone();
-
-        let mut workers = Vec::with_capacity(worker_count as usize);
-
-        for id in 0..worker_count {
-            let worker_hostname = hostname_for_workers.clone();
-            let worker_vfs_backend = vfs_backend_for_workers.clone();
-            let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
-
-            // Spawn worker thread with persistent V8 scope lifecycle.
-            //
-            // Architecture: Cloudflare Workers / Deno Deploy pattern.
-            //   - HandleScope + ContextScope stay alive on the thread stack
-            //     for ALL requests within one isolate's lifetime.
-            //   - Handler script compiled ONCE per entrypoint, cached as Global<Function>.
-            //   - Per request: Local::new(&mut ctx_scope, &cached_global) → call.
-            //   - After MAX_REQUESTS_PER_ISOLATE: drop scopes, drop isolate, create fresh.
-            //
-            // This eliminates the 50ms per-request cold start (script compilation + scope
-            // creation) and reduces request latency to <1ms for cached handlers.
-            let thread = thread::spawn(move || {
-                info!("Worker {} starting for '{}'", id, worker_hostname);
-
-                let rt = match tokio::runtime::Runtime::new() {
-                    Ok(r) => r,
-                    Err(e) => { error!("Worker {}: tokio runtime failed: {}", id, e); return; }
-                };
-                WORKER_RUNTIME.with(|r| *r.borrow_mut() = Some(rt.handle().clone()));
-
-                let oom_monitor = if memory_limit_mb > 0 {
-                    Some(
-                        OomMonitorBuilder::new(format!("worker_{}_{}", worker_hostname, id))
-                            .with_limit_mb(memory_limit_mb)
-                            .for_hostname(&worker_hostname)
-                            .build(),
-                    )
-                } else {
-                    None
-                };
-
-                const MAX_REQUESTS_PER_ISOLATE: u32 = 10_000;
-
-                'isolate: loop {
-                    let vfs = IsolateVfs::new(
-                        VfsNamespace::from_hostname(&worker_hostname),
-                        worker_vfs_backend.clone(),
-                    );
-                    let mut nano = match NanoIsolate::new_with_vfs(vfs) {
-                        Ok(iso) => iso,
-                        Err(e) => { error!("Worker {}: isolate create failed: {}", id, e); return; }
-                    };
-                    if memory_limit_mb > 0 {
-                        let bytes = memory_limit_mb as usize * 1024 * 1024;
-                        nano.set_heap_limits(bytes / 2, bytes);
-                    }
-
-                    // Raw pointer for CPU timeout guards.
-                    // SAFETY: nano lives for the entire scope block below.
-                    let iso_ptr: *mut v8::Isolate = &mut **nano.isolate();
-
-                    // === PERSISTENT SCOPE BLOCK ===
-                    // HandleScope and ContextScope live on the thread stack.
-                    // The V8 context stays entered for ALL requests in this isolate.
-                    {
-                        let scope_pin = std::pin::pin!(v8::HandleScope::new(nano.isolate()));
-                        let mut scope = scope_pin.init();
-                        let context = v8::Context::new(&scope, Default::default());
-
-                        // Security: block eval() and new Function() — matches Cloudflare Workers.
-                        context.set_allow_generation_from_strings(false);
-
-                        crate::runtime::apis::RuntimeAPIs::bind_all(&mut scope, context);
-
-                        // Enter context — NEVER dropped between requests
-                        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
-
-                        let mut handler_cache: std::collections::HashMap<
-                            String, v8::Global<v8::Function>
-                        > = std::collections::HashMap::new();
-
-                        let mut served: u32 = 0;
-                        let isolate_id = format!("{}:{}", worker_hostname, id);
-
-                        // State-leaking note (Task C):
-                        // No per-request context reset fires here — this is intentional.
-                        // Module-level globals (vars declared outside the handler function)
-                        // persist across requests within one isolate lifetime, matching
-                        // Cloudflare Workers / Deno Deploy behaviour. Handler-local state
-                        // is fresh per call. Isolate is fully recycled after
-                        // MAX_REQUESTS_PER_ISOLATE, which bounds any accumulated global state.
-                        // Handlers MUST be written statelessly (state in KV/Durable Objects)
-                        // rather than relying on module globals being reset per request.
-                        'requests: loop {
-                            if served >= MAX_REQUESTS_PER_ISOLATE {
-                                info!("Worker {}: recycling isolate after {} requests", id, served);
-                                break 'requests;
-                            }
-
-                            let task = match task_rx.recv() {
-                                Ok(t) => t,
-                                Err(_) => {
-                                    debug!("Worker {}: channel closed", id);
-                                    break 'isolate;
-                                }
-                            };
-
-                            if let Some(ref mon) = oom_monitor {
-                                // SAFETY: iso_ptr valid for scope block duration
-                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                if let Err(oom) = mon.check(iso_ref) {
-                                    mon.log_oom_event(&oom, &task.request_id);
-                                    let _ = task.response_tx.send(Ok(mon.create_oom_response(&oom)));
-                                    break 'requests;
-                                }
-                            }
-
-                            let t0 = std::time::Instant::now();
-                            let request_id = task.request_id.clone();
-
-                            if !handler_cache.contains_key(&task.entrypoint) {
-                                let code = match crate::data_plane::read_code_cached(&task.entrypoint) {
-                                    Ok(c) => c,
-                                    Err(e) => {
-                                        let _ = task.response_tx.send(Err(e));
-                                        continue 'requests;
-                                    }
-                                };
-                                let transformed = if crate::v8::module::is_esm_module(&code) {
-                                    crate::v8::module::transform_module_code(&code)
-                                } else {
-                                    code.to_string()
-                                };
-
-                                let code_v8 = match v8::String::new(&mut ctx_scope, &transformed) {
-                                    Some(s) => s,
-                                    None => {
-                                        let _ = task.response_tx.send(Err(anyhow!("V8 string alloc failed")));
-                                        continue 'requests;
-                                    }
-                                };
-                                let script = match v8::Script::compile(&ctx_scope, code_v8, None) {
-                                    Some(s) => s,
-                                    None => {
-                                        let _ = task.response_tx.send(Err(anyhow!("Script compile failed for '{}'", task.entrypoint)));
-                                        continue 'requests;
-                                    }
-                                };
-                                if script.run(&ctx_scope).is_none() {
-                                    let _ = task.response_tx.send(Err(anyhow!("Script execution failed for '{}'", task.entrypoint)));
-                                    continue 'requests;
-                                }
-
-                                let global_obj = context.global(&mut ctx_scope);
-                                let nano_k = v8::String::new(&mut ctx_scope, "__nano_user_fetch").unwrap();
-                                let fetch_k = v8::String::new(&mut ctx_scope, "fetch").unwrap();
-                                let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
-                                    .filter(|v| v.is_function())
-                                    .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
-
-                                match handler_val {
-                                    Some(f) => {
-                                        let g = v8::Global::new(&**ctx_scope, f.cast::<v8::Function>());
-                                        handler_cache.insert(task.entrypoint.clone(), g);
-                                        info!("Worker {}: handler cached for '{}'", id, task.entrypoint);
-                                    }
-                                    None => {
-                                        let _ = task.response_tx.send(Err(anyhow!(
-                                            "No fetch handler found in '{}'. Export a 'fetch' function.",
-                                            task.entrypoint
-                                        )));
-                                        continue 'requests;
-                                    }
-                                }
-                            }
-
-                            if let Some(ws_channels) = task.ws {
-                                use crate::worker::tenant_pool::{
-                                    WS_OUTBOUND, WS_ACCEPTED, WS_MESSAGE_HANDLERS,
-                                    WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS,
-                                    set_ws_readystate, clear_ws_thread_locals,
-                                };
-
-                                WS_OUTBOUND.with(|tx| *tx.borrow_mut() = Some(ws_channels.outbound_tx.clone()));
-                                WS_ACCEPTED.with(|a| a.set(false));
-                                WS_MESSAGE_HANDLERS.with(|h| h.borrow_mut().clear());
-                                WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
-                                WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
-
-                                let handler_g = handler_cache.get(&task.entrypoint).unwrap();
-                                let global_obj = context.global(&mut ctx_scope);
-                                let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
-                                if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
-                                    let tc_s = v8::TryCatch::new(&mut *ctx_scope);
-                                    let tc_pin = std::pin::pin!(tc_s);
-                                    let tc = tc_pin.init();
-                                    let _ = handler_local.call(&tc, global_obj.into(), &[url_str.into()]);
-                                }
-
-                                set_ws_readystate(&mut ctx_scope, 1);
-                                let _ = task.response_tx; // 101 already sent by router
-
-                                info!("Worker {}: entering ws_messages loop for '{}'", id, task.entrypoint);
-
-                                let idle_dur = std::time::Duration::from_millis(30_000);
-
-                                // Expands to: OOM check → log → send Close(Error/OOM) → break $label.
-                                macro_rules! ws_oom_break {
-                                    ($label:lifetime) => {
-                                        if let Some(ref mon) = oom_monitor {
-                                            // SAFETY: iso_ptr valid for scope block duration
-                                            let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                            if let Err(oom) = mon.check(iso_ref) {
-                                                mon.log_oom_event(&oom, &task.request_id);
-                                                let _ = ws_channels.outbound_tx.send(tungstenite::Message::Close(Some(
-                                                    tungstenite::protocol::CloseFrame {
-                                                        code: tungstenite::protocol::frame::coding::CloseCode::Error,
-                                                        reason: std::borrow::Cow::Borrowed("OOM"),
-                                                    }
-                                                )));
-                                                break $label;
-                                            }
-                                        }
-                                    };
-                                }
-
-                                // Expands to: call every handler in $handlers with $event as argument.
-                                macro_rules! ws_dispatch {
-                                    ($handlers:expr, $event:expr) => {{
-                                        let gobj = context.global(&mut ctx_scope);
-                                        $handlers.with(|cell| {
-                                            for hg in cell.borrow().iter() {
-                                                let hl = v8::Local::new(&mut ctx_scope, hg);
-                                                let tc_s = v8::TryCatch::new(&mut *ctx_scope);
-                                                let tc_pin = std::pin::pin!(tc_s);
-                                                let tc = tc_pin.init();
-                                                let _ = hl.call(&tc, gobj.into(), &[$event.into()]);
-                                            }
-                                        });
-                                    }};
-                                }
-
-                                'ws_messages: loop {
-                                    match ws_channels.inbound_rx.recv_timeout(idle_dur) {
-                                        Ok(tungstenite::Message::Text(s)) => {
-                                            ws_oom_break!('ws_messages);
-                                            let _timeout = if task.cpu_time_limit_ms > 0 {
-                                                // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
-                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                                Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
-                                            } else { None };
-                                            let event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (
-                                                v8::String::new(&mut ctx_scope, "type"),
-                                                v8::String::new(&mut ctx_scope, "message"),
-                                                v8::String::new(&mut ctx_scope, "data"),
-                                                v8::String::new(&mut ctx_scope, s.as_str()),
-                                            ) {
-                                                event.set(&mut ctx_scope, tk.into(), tv.into());
-                                                event.set(&mut ctx_scope, dk.into(), dv.into());
-                                                ws_dispatch!(WS_MESSAGE_HANDLERS, event);
-                                            }
-                                        }
-
-                                        Ok(tungstenite::Message::Binary(b)) => {
-                                            ws_oom_break!('ws_messages);
-                                            let _timeout = if task.cpu_time_limit_ms > 0 {
-                                                // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
-                                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                                Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
-                                            } else { None };
-                                            let ab_store = v8::ArrayBuffer::new_backing_store_from_vec(b);
-                                            let shared = ab_store.make_shared();
-                                            let ab = v8::ArrayBuffer::with_backing_store(&mut ctx_scope, &shared);
-                                            let event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tk), Some(tv), Some(dk)) = (
-                                                v8::String::new(&mut ctx_scope, "type"),
-                                                v8::String::new(&mut ctx_scope, "message"),
-                                                v8::String::new(&mut ctx_scope, "data"),
-                                            ) {
-                                                event.set(&mut ctx_scope, tk.into(), tv.into());
-                                                event.set(&mut ctx_scope, dk.into(), ab.into());
-                                                ws_dispatch!(WS_MESSAGE_HANDLERS, event);
-                                            }
-                                        }
-
-                                        Ok(tungstenite::Message::Close(frame)) => {
-                                            set_ws_readystate(&mut ctx_scope, 3);
-                                            let (code_val, reason_str) = frame
-                                                .map(|f| (u16::from(f.code), f.reason.into_owned()))
-                                                .unwrap_or((1000, String::new()));
-                                            let close_event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
-                                                v8::String::new(&mut ctx_scope, "type"),
-                                                v8::String::new(&mut ctx_scope, "close"),
-                                                v8::String::new(&mut ctx_scope, "code"),
-                                                v8::String::new(&mut ctx_scope, "reason"),
-                                                v8::String::new(&mut ctx_scope, &reason_str),
-                                                v8::String::new(&mut ctx_scope, "wasClean"),
-                                            ) {
-                                                let code_int = v8::Integer::new(&mut ctx_scope, code_val as i32);
-                                                let was_clean = v8::Boolean::new(&mut ctx_scope, true);
-                                                close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
-                                                close_event.set(&mut ctx_scope, ck.into(), code_int.into());
-                                                close_event.set(&mut ctx_scope, rk.into(), rv.into());
-                                                close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
-                                                ws_dispatch!(WS_CLOSE_HANDLERS, close_event);
-                                            }
-                                            break 'ws_messages;
-                                        }
-
-                                        Ok(tungstenite::Message::Ping(_)) | Ok(tungstenite::Message::Pong(_)) => {
-                                            continue 'ws_messages;
-                                        }
-
-                                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                            info!("Worker {}: WS idle timeout, recycling isolate", id);
-                                            break 'ws_messages;
-                                        }
-
-                                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                            set_ws_readystate(&mut ctx_scope, 3);
-                                            let error_event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tyk), Some(tyv)) = (
-                                                v8::String::new(&mut ctx_scope, "type"),
-                                                v8::String::new(&mut ctx_scope, "error"),
-                                            ) {
-                                                error_event.set(&mut ctx_scope, tyk.into(), tyv.into());
-                                                ws_dispatch!(WS_ERROR_HANDLERS, error_event);
-                                            }
-                                            // 1006 = Abnormal Closure (relay disconnected).
-                                            let close_event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
-                                                v8::String::new(&mut ctx_scope, "type"),
-                                                v8::String::new(&mut ctx_scope, "close"),
-                                                v8::String::new(&mut ctx_scope, "code"),
-                                                v8::String::new(&mut ctx_scope, "reason"),
-                                                v8::String::new(&mut ctx_scope, ""),
-                                                v8::String::new(&mut ctx_scope, "wasClean"),
-                                            ) {
-                                                let code_int = v8::Integer::new(&mut ctx_scope, 1006);
-                                                let was_clean = v8::Boolean::new(&mut ctx_scope, false);
-                                                close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
-                                                close_event.set(&mut ctx_scope, ck.into(), code_int.into());
-                                                close_event.set(&mut ctx_scope, rk.into(), rv.into());
-                                                close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
-                                                ws_dispatch!(WS_CLOSE_HANDLERS, close_event);
-                                            }
-                                            break 'ws_messages;
-                                        }
-
-                                        Ok(_) => continue 'ws_messages,
-                                    }
-                                }
-
-                                clear_ws_thread_locals();
-                                break 'requests; // D-10b: fresh isolate per WS connection
-                            }
-
-                            let _timeout = if task.cpu_time_limit_ms > 0 {
-                                // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
-                                let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
-                            } else {
-                                None
-                            };
-
-                            let handler_g = handler_cache.get(&task.entrypoint).unwrap();
-                            let global_obj = context.global(&mut ctx_scope);
-                            // Global→Local works because the same context is still entered
-                            let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
-
-                            let result: anyhow::Result<crate::http::NanoResponse> = (|| {
-                                let url_str = v8::String::new(&mut ctx_scope, &task.request.url().href())
-                                    .ok_or_else(|| anyhow!("URL string alloc failed"))?;
-                                let opts = v8::Object::new(&mut ctx_scope);
-
-                                let mk = v8::String::new(&mut ctx_scope, "method").ok_or_else(|| anyhow!("method key"))?;
-                                let mv = v8::String::new(&mut ctx_scope, task.request.method()).ok_or_else(|| anyhow!("method val"))?;
-                                opts.set(&mut ctx_scope, mk.into(), mv.into());
-
-                                let hk = v8::String::new(&mut ctx_scope, "headers").ok_or_else(|| anyhow!("headers key"))?;
-                                let hck = v8::String::new(&mut ctx_scope, "Headers").ok_or_else(|| anyhow!("Headers key"))?;
-                                let hctor = global_obj.get(&mut ctx_scope, hck.into())
-                                    .filter(|v| v.is_function())
-                                    .ok_or_else(|| anyhow!("Headers constructor not found"))?
-                                    .cast::<v8::Function>();
-                                let hinit = v8::Object::new(&mut ctx_scope);
-                                for (name, vals) in task.request.headers().entries() {
-                                    let val = vals.join(", ");
-                                    if let (Some(k), Some(v)) = (
-                                        v8::String::new(&mut ctx_scope, name),
-                                        v8::String::new(&mut ctx_scope, &val),
-                                    ) {
-                                        hinit.set(&mut ctx_scope, k.into(), v.into());
-                                    }
-                                }
-                                let hobj = hctor.new_instance(&mut ctx_scope, &[hinit.into()])
-                                    .ok_or_else(|| anyhow!("Headers instantiation failed"))?;
-                                opts.set(&mut ctx_scope, hk.into(), hobj.into());
-
-                                if let Some(body) = task.request.body() {
-                                    let bk = v8::String::new(&mut ctx_scope, "body").ok_or_else(|| anyhow!("body key"))?;
-                                    let encoded = base64::engine::general_purpose::STANDARD.encode(body);
-                                    let bv = v8::String::new(&mut ctx_scope, &encoded).ok_or_else(|| anyhow!("body val"))?;
-                                    opts.set(&mut ctx_scope, bk.into(), bv.into());
-                                }
-
-                                let rck = v8::String::new(&mut ctx_scope, "Request").ok_or_else(|| anyhow!("Request key"))?;
-                                let rctor = global_obj.get(&mut ctx_scope, rck.into())
-                                    .filter(|v| v.is_function())
-                                    .ok_or_else(|| anyhow!("Request constructor not found"))?
-                                    .cast::<v8::Function>();
-                                let js_req = rctor.new_instance(&mut ctx_scope, &[url_str.into(), opts.into()])
-                                    .ok_or_else(|| anyhow!("Request instantiation failed"))?;
-
-                                // TryCatch intercepts any JS exception thrown by the handler.
-                                // Dropping tc at closure exit clears the pending exception from
-                                // the isolate, preventing isolate poisoning across requests.
-                                // Must pin-and-init like HandleScope — TryCatch::new returns ScopeStorage.
-                                let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
-                                let tc_pin = std::pin::pin!(tc_storage);
-                                let mut tc = tc_pin.init();
-
-                                // Clear any stale interval state from a previous request.
-                                crate::runtime::apis::clear_pending_intervals();
-                                crate::runtime::apis::clear_pending_timeouts();
-
-                                let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
-
-                                let resolved = match call_result {
-                                    None => {
-                                        let msg = tc.exception()
-                                            .and_then(|e| e.to_string(&tc))
-                                            .map(|s| s.to_rust_string_lossy(&tc))
-                                            .unwrap_or_else(|| "unknown JS exception".to_string());
-                                        return Err(anyhow!("JS exception: {}", msg));
-                                    }
-                                    Some(v) if v.is_promise() => {
-                                        let promise = v.cast::<v8::Promise>();
-                                        let platform = v8::V8::get_current_platform();
-                                        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-                                        loop {
-                                            for _ in 0..5 {
-                                                // SAFETY: iso_ptr valid for scope block duration
-                                                let iso: &v8::Isolate = unsafe { &*iso_ptr };
-                                                v8::Platform::pump_message_loop(&platform, iso, false);
-                                            }
-                                            tc.perform_microtask_checkpoint();
-                                            match promise.state() {
-                                                v8::PromiseState::Fulfilled => break promise.result(&tc),
-                                                v8::PromiseState::Rejected => {
-                                                    let err = promise.result(&tc);
-                                                    let msg = err.to_string(&tc)
-                                                        .map(|s| s.to_rust_string_lossy(&tc))
-                                                        .unwrap_or_else(|| "Promise rejected".to_string());
-                                                    return Err(anyhow!("Promise rejected: {}", msg));
-                                                }
-                                                v8::PromiseState::Pending => {
-                                                    if std::time::Instant::now() > deadline {
-                                                        return Err(anyhow!("Async handler timed out after 30s"));
-                                                    }
-                                                    // CPU guard fires on wall-clock time; async handlers
-                                                    // spend most of that idle (fetch/timer), not running JS.
-                                                    // cancel_terminate_execution is a no-op when nothing pending.
-                                                    // SAFETY: iso_ptr is valid for this worker's lifetime.
-                                                    unsafe { (*iso_ptr).cancel_terminate_execution(); }
-                                                    crate::runtime::apis::fire_pending_intervals(&mut *tc);
-                                                    crate::runtime::apis::fire_pending_timeouts(&mut *tc);
-                                                    // 1ms sleep: caps spin rate at ~1000/sec, prevents
-                                                    // CPU starvation and OS scheduler interference that
-                                                    // causes 100ms+ timers to never fire under load.
-                                                    std::thread::sleep(std::time::Duration::from_millis(1));
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Some(v) => v,
-                                };
-
-                                let obj = resolved.to_object(&tc)
-                                    .ok_or_else(|| anyhow!("Handler response is not an object"))?;
-
-                                let sk = v8::String::new(&tc, "status").ok_or_else(|| anyhow!("status key"))?;
-                                let status = obj.get(&tc, sk.into())
-                                    .and_then(|v| v.to_integer(&tc))
-                                    .map(|i| i.value() as u16)
-                                    .unwrap_or(200);
-
-                                let mut response = crate::http::NanoResponse::with_status(status);
-
-                                let h2k = v8::String::new(&tc, "headers").ok_or_else(|| anyhow!("headers key"))?;
-                                if let Some(hval) = obj.get(&tc, h2k.into()) {
-                                    if let Some(hobj) = hval.to_object(&tc) {
-                                        let ik = v8::String::new(&tc, "__headers__").ok_or_else(|| anyhow!("__headers__ key"))?;
-                                        let hsrc = hobj.get(&tc, ik.into())
-                                            .and_then(|v| v.to_object(&tc))
-                                            .unwrap_or(hobj);
-                                        if let Some(names) = hsrc.get_own_property_names(&tc, Default::default()) {
-                                            for i in 0..names.length() {
-                                                if let Some(key) = names.get_index(&tc, i) {
-                                                    if let Some(ks) = key.to_string(&tc) {
-                                                        let k = ks.to_rust_string_lossy(&tc);
-                                                        if k.starts_with("__") || matches!(k.as_str(), "set" | "get" | "forEach") {
-                                                            continue;
-                                                        }
-                                                        if let Some(val) = hsrc.get(&tc, key.into()) {
-                                                            if !val.is_function() {
-                                                                if let Some(vs) = val.to_string(&tc) {
-                                                                    response = response.with_header(&k, &vs.to_rust_string_lossy(&tc));
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                let b2k = v8::String::new(&tc, "body").ok_or_else(|| anyhow!("body key"))?;
-                                if let Some(bval) = obj.get(&tc, b2k.into()) {
-                                    if !bval.is_null() && !bval.is_undefined() {
-                                        if let Some(bs) = bval.to_string(&tc) {
-                                            response = response.with_body(bs.to_rust_string_lossy(&tc));
-                                        }
-                                    }
-                                }
-
-                                Ok(response)
-                            })();
-
-                            let duration_ms = t0.elapsed().as_millis() as u64;
-                            let status_code = match &result {
-                                Ok(r) => r.status(),
-                                Err(_) => 500,
-                            };
-                            tracing::info!(
-                                request_id = %request_id,
-                                worker_id = id,
-                                isolate_id = %isolate_id,
-                                status = status_code,
-                                duration_ms = duration_ms,
-                                "Worker {} request {} → {} in {}ms",
-                                id, request_id, status_code, duration_ms
-                            );
-
-                            let result = result.map(|mut r| {
-                                r.set_worker_id(id);
-                                r.set_isolate_id(isolate_id.clone());
-                                r
-                            });
-                            let _ = task.response_tx.send(result);
-                            served += 1;
-                        }
-                        // ctx_scope + scope drop here → context exited, handles freed
-                    }
-                    // nano drops here → isolate disposed
-
-                    info!("Worker {}: isolate recycled after {} requests, creating fresh", id, MAX_REQUESTS_PER_ISOLATE);
-                } // 'isolate loop
-
-                info!("Worker {} exiting", id);
-            });
-
-            workers.push(WorkerHandle {
-                id,
-                thread: Some(thread),
-                task_tx,
-            });
-        }
-
-        info!(
-            "WorkerPool created for {} with {} workers",
-            hostname, worker_count
-        );
-
-        Self {
-            workers,
-            worker_count,
+        Self::with_source_and_backend(
             hostname,
-            next_worker: AtomicU32::new(0),
-            vfs_backend,
+            worker_count,
             memory_limit_mb,
-        }
+            vfs_backend,
+            crate::worker::AppSource::entrypoint("index.js"),
+        )
+    }
+
+    /// # Panics
+    ///
+    /// Panics if the V8 platform is not initialized.
+    pub fn new(hostname: String, worker_count: u32, memory_limit_mb: u32) -> Self {
+        // "index.js" placeholder — actual entrypoint comes from task.entrypoint at dispatch time.
+        Self::with_source_and_backend(
+            hostname,
+            worker_count,
+            memory_limit_mb,
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+            crate::worker::AppSource::entrypoint("index.js"),
+        )
     }
 
     /// Get a reference to the shared VFS backend
@@ -700,20 +119,6 @@ impl WorkerPool {
         let worker_idx = worker_idx as usize;
 
         self.workers[worker_idx]
-            .send(task)
-            .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
-    }
-
-    pub fn dispatch_to(&self, worker_idx: u32, task: HandlerTask) -> Result<()> {
-        if worker_idx >= self.worker_count {
-            return Err(anyhow!(
-                "Worker index {} out of bounds (max {})",
-                worker_idx,
-                self.worker_count - 1
-            ));
-        }
-
-        self.workers[worker_idx as usize]
             .send(task)
             .map_err(|e| anyhow!("Failed to dispatch to worker {}: {}", worker_idx, e))
     }
@@ -776,7 +181,7 @@ impl WorkerPool {
                         Err(e) => Err(crate::vfs::VfsError::IoError(format!("Failed to create tokio runtime: {}", e)))
                     }
                 }).join();
-                
+
                 match backend_result {
                     Ok(Ok(disk_backend)) => {
                         tracing::info!(
@@ -812,10 +217,18 @@ impl WorkerPool {
                 panic!("Static sources should not create WorkerPool - use StaticPool instead");
             }
         };
-        
+
         Self::with_source_and_backend(hostname, worker_count, memory_limit_mb, vfs_backend, source)
     }
 
+    /// Create a pool with an explicit VFS backend and app source.
+    ///
+    /// This is the primary constructor. All other constructors delegate here.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the V8 platform is not initialized and initialization fails,
+    /// or if `worker_count` is 0.
     pub fn with_source_and_backend(
         hostname: String,
         worker_count: u32,
@@ -855,7 +268,7 @@ impl WorkerPool {
                     Ok(r) => r,
                     Err(e) => { error!("Worker {}: tokio runtime failed: {}", id, e); return; }
                 };
-                WORKER_RUNTIME.with(|r| *r.borrow_mut() = Some(rt.handle().clone()));
+                crate::data_plane::set_worker_runtime(rt.handle().clone());
 
                 let oom_monitor = if memory_limit_mb > 0 {
                     Some(
@@ -1581,16 +994,10 @@ impl SliverWorkerPool {
         }
     }
 
-    /// Dispatch a task to a worker using round-robin
-    ///
-    /// Delegates to the unified WorkerPool implementation.
     pub fn dispatch(&self, task: HandlerTask) -> Result<()> {
         self.inner.dispatch(task)
     }
 
-    /// Gracefully shut down the sliver worker pool
-    ///
-    /// Delegates to the unified WorkerPool implementation.
     pub fn shutdown(self) -> Result<()> {
         info!("Shutting down SliverWorkerPool for {}", self.hostname);
         self.inner.shutdown()
@@ -1611,13 +1018,11 @@ impl SliverWorkerPool {
     }
 
     /// Access the unpacked sliver data (for debugging/testing)
-    #[cfg(test)]
     pub fn sliver_data(&self) -> &crate::sliver::UnpackedSliver {
         &self.unpacked_sliver
     }
 
     /// Access the VFS backend (for testing VFS operations)
-    #[cfg(test)]
     pub fn vfs_backend(&self) -> &crate::vfs::VfsBackendEnum {
         &self.inner.vfs_backend
     }
@@ -1651,154 +1056,24 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::oneshot;
 
-    /// Helper to ensure platform is initialized for tests
     fn init_platform() {
         if !crate::v8::is_initialized() {
             crate::v8::initialize_platform().expect("Failed to initialize V8 platform");
         }
     }
 
-    /// Create a test JavaScript file and return its path
-    fn create_test_handler(dir: &TempDir, filename: &str, code: &str) -> String {
-        let path = dir.path().join(filename);
-        let mut file = fs::File::create(&path).expect("Failed to create test file");
-        file.write_all(code.as_bytes())
-            .expect("Failed to write test code");
-        path.to_string_lossy().to_string()
-    }
-
-    #[test]
-    fn test_worker_pool_creation() {
-        init_platform();
-        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
-        assert_eq!(pool.worker_count, 2);
-        assert_eq!(pool.workers.len(), 2);
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_single_worker_pool() {
-        init_platform();
-        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
-        assert_eq!(pool.worker_count, 1);
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_dispatch_and_response() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
-
-        // Create a simple JS handler (non-async for now)
-        let js_code = format!(
-            r#"
-function fetch(request) {{
-    return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "{}" }};
-}}
-"#,
-            dynamic_token
-        );
-        let entrypoint = create_test_handler(&temp_dir, "test.js", &js_code);
-
-        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
-
-        // Create task
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
-        let (tx, rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-
-        // Dispatch and wait for response
-        pool.dispatch(task).expect("Failed to dispatch");
-        let response = rx.blocking_recv().expect("Failed to receive response");
-
-        assert!(
-            response.is_ok(),
-            "Handler execution failed: {:?}",
-            response.err()
-        );
-        let resp = response.unwrap();
-        assert_eq!(resp.status(), 200);
-        assert_eq!(
-            resp.headers().get("Content-Type"),
-            Some("text/plain".to_string())
-        );
-        assert!(resp.body().is_some());
-
-        let body_text = String::from_utf8_lossy(resp.body().unwrap());
-        assert!(
-            body_text.contains(&dynamic_token),
-            "Response must contain dynamic token '{}', got: {}",
-            dynamic_token,
-            body_text
-        );
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_concurrent_requests() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        // Create a JS handler that returns request info
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "handler.js",
-            r#"
-function fetch(request) {
-    return { status: 200, headers: {}, body: "OK" };
-}
-"#,
-        );
-
-        let pool = WorkerPool::new("test.example.com".to_string(), 4, 0);
-
-        // Dispatch 10 tasks concurrently
-        let mut receivers = vec![];
-        for i in 0..10 {
-            let url = NanoUrl::parse(&format!("http://test/{}", i)).unwrap();
-            let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
-            let (tx, rx) = oneshot::channel();
-            let task = HandlerTask::new(entrypoint.clone(), request, tx);
-
-            pool.dispatch(task).unwrap();
-            receivers.push(rx);
-        }
-
-        // All should complete successfully
-        for (i, rx) in receivers.into_iter().enumerate() {
-            let response = rx
-                .blocking_recv()
-                .expect(&format!("Failed to receive response {}", i));
-            assert!(
-                response.is_ok(),
-                "Request {} failed: {:?}",
-                i,
-                response.err()
-            );
-            let resp = response.unwrap();
-            assert_eq!(resp.status(), 200);
-        }
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
+    // Accesses private `next_worker` field — cannot move to tests/.
     #[test]
     fn test_round_robin_dispatch() {
         init_platform();
         let pool = WorkerPool::new("test.example.com".to_string(), 3, 0);
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "test.js",
-            r#"function fetch(request) { return { status: 200, headers: {}, body: "" }; }"#,
-        );
+        let js_path = temp_dir.path().join("test.js");
+        let mut f = fs::File::create(&js_path).expect("Failed to create test file");
+        f.write_all(b"function fetch(request) { return { status: 200, headers: {}, body: \"\" }; }")
+            .expect("Failed to write test code");
+        let entrypoint = js_path.to_string_lossy().to_string();
 
         assert_eq!(pool.next_worker.load(Ordering::SeqCst), 0);
 
@@ -1811,471 +1086,6 @@ function fetch(request) {
         }
 
         assert_eq!(pool.next_worker.load(Ordering::SeqCst), 6, "counter must advance once per dispatch");
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_dispatch_to_specific_worker() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "test.js",
-            r#"function fetch(request) { return { status: 200, headers: {}, body: "" }; }"#,
-        );
-
-        let pool = WorkerPool::new("test.example.com".to_string(), 3, 0);
-
-        // Dispatch to specific worker
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
-        let (tx, rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-
-        pool.dispatch_to(1, task)
-            .expect("Dispatch to worker 1 failed");
-
-        let response = rx.blocking_recv().expect("Failed to receive");
-        assert!(response.is_ok());
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_invalid_worker_index() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "test.js",
-            r#"function fetch(request) { return { status: 200, headers: {}, body: "" }; }"#,
-        );
-
-        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
-
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
-        let (tx, _rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-
-        // Try to dispatch to invalid worker index
-        let result = pool.dispatch_to(5, task);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("out of bounds"));
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_pool_shutdown() {
-        init_platform();
-        let pool = WorkerPool::new("test.example.com".to_string(), 2, 0);
-
-        // Shutdown should complete without hanging
-        pool.shutdown().expect("Shutdown failed");
-
-        // Test passes if we reach here
-    }
-
-    #[test]
-    fn test_full_request_object_passed() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        // Create handler that inspects request properties
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "full_request.js",
-            r#"
-function fetch(request) {
-    const info = {
-        method: request.method,
-        url: request.url,
-        headers: request.headers,
-        hasBody: request.body !== null
-    };
-    return {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(info)
-    };
-}
-"#,
-        );
-
-        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
-
-        // Create request with all properties
-        let url = NanoUrl::parse("http://test.example.com/api/items/123?expand=true").unwrap();
-        let mut headers = NanoHeaders::new();
-        headers.set("Content-Type", "application/json");
-        headers.set("X-Custom-Header", "custom-value");
-        let body = Some(bytes::Bytes::from(r#"{"key":"value"}"#));
-        let request = NanoRequest::new("POST".to_string(), url, headers, body);
-
-        let (tx, rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-
-        pool.dispatch(task).expect("Failed to dispatch");
-        let response = rx.blocking_recv().expect("Failed to receive");
-
-        assert!(response.is_ok(), "Handler failed: {:?}", response.err());
-        let resp = response.unwrap();
-        assert_eq!(resp.status(), 200);
-
-        // Verify body contains all request info
-        let body_text = String::from_utf8_lossy(resp.body().unwrap());
-        assert!(body_text.contains("POST"), "Method not found: {}", body_text);
-        assert!(body_text.contains("http://test.example.com/api/items/123"), "URL not found: {}", body_text);
-        assert!(body_text.contains("custom-value"), "Header not found: {}", body_text);
-        assert!(body_text.contains("true"), "Body flag not found: {}", body_text);
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_async_handler_promise() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
-
-        // Create async handler
-        let js_code = format!(
-            r#"
-async function fetch(request) {{
-    // Simulate async work
-    const data = await Promise.resolve({{ token: "{}" }});
-
-    return {{
-        status: 200,
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify(data)
-    }};
-}}
-"#,
-            dynamic_token
-        );
-        let entrypoint = create_test_handler(&temp_dir, "async_handler.js", &js_code);
-
-        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
-
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
-        let (tx, rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-
-        pool.dispatch(task).expect("Failed to dispatch");
-        let response = rx.blocking_recv().expect("Failed to receive");
-
-        assert!(response.is_ok(), "Async handler failed: {:?}", response.err());
-        let resp = response.unwrap();
-        assert_eq!(resp.status(), 200);
-
-        let body_text = String::from_utf8_lossy(resp.body().unwrap());
-        assert!(
-            body_text.contains(&dynamic_token),
-            "Async response must contain dynamic token '{}', got: {}",
-            dynamic_token,
-            body_text
-        );
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_request_body_passed() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        // Handler that checks if body was passed (base64 encoded)
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "body_check.js",
-            r#"
-function fetch(request) {
-    // Body is base64 encoded in the request object
-    const hasBody = request.body !== null;
-    const bodyUsed = request.bodyUsed;
-
-    return {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hasBody, bodyUsed })
-    };
-}
-"#,
-        );
-
-        let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
-
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let body = Some(bytes::Bytes::from("Hello from client"));
-        let request = NanoRequest::new("POST".to_string(), url, NanoHeaders::new(), body);
-
-        let (tx, rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-
-        pool.dispatch(task).expect("Failed to dispatch");
-        let response = rx.blocking_recv().expect("Failed to receive");
-
-        assert!(response.is_ok(), "Body passing failed: {:?}", response.err());
-        let resp = response.unwrap();
-        assert_eq!(resp.status(), 200);
-
-        let body_text = String::from_utf8_lossy(resp.body().unwrap());
-        assert!(body_text.contains("true"), "Body flags not correct: {}", body_text);
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_oom_monitor_integration() {
-        // Test that worker pool with memory limit creates OOM monitors
-        init_platform();
-
-        // Create pool with 16MB memory limit per isolate
-        let pool = WorkerPool::new("oom-test.example.com".to_string(), 1, 16);
-
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let entrypoint = create_test_handler(
-            &temp_dir,
-            "test.js",
-            r#"function fetch(request) { return { status: 200, headers: {}, body: "OK" }; }"#,
-        );
-
-        // Create and dispatch a task
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
-        let (tx, rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-
-        pool.dispatch(task).expect("Failed to dispatch");
-
-        // Should complete successfully (fresh isolate under 16MB limit)
-        let response = rx.blocking_recv().expect("Failed to receive");
-        assert!(
-            response.is_ok(),
-            "Request should complete with OOM monitoring enabled"
-        );
-
-        let resp = response.unwrap();
-        assert_eq!(resp.status(), 200);
-
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_worker_pool_vfs_isolation() {
-        // Test that different pools have isolated VFS namespaces
-        init_platform();
-
-        // Create two pools for different apps
-        let pool1 = WorkerPool::new("app1.example.com".to_string(), 1, 0);
-        let pool2 = WorkerPool::new("app2.example.com".to_string(), 1, 0);
-
-        // Write a file via pool1's VFS backend directly
-        // (simulating what would happen through JS execution)
-        let namespace1 = VfsNamespace::from_hostname("app1.example.com");
-        let path1 = crate::vfs::VfsPath::new(&format!("{}::secret.txt", namespace1.as_str())).unwrap();
-        
-        // Use tokio runtime to run async write
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            pool1.vfs_backend().write(&path1, b"app1-secret-data").await.unwrap();
-        });
-
-        // Verify file exists in pool1's backend
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let exists_in_pool1: bool = rt.block_on(async {
-            pool1.vfs_backend().exists(&path1).await.unwrap()
-        });
-        assert!(exists_in_pool1, "File should exist in pool1's VFS");
-
-        // Verify file does NOT exist in pool2's backend (different namespace)
-        let namespace2 = VfsNamespace::from_hostname("app2.example.com");
-        let path2 = crate::vfs::VfsPath::new(&format!("{}::secret.txt", namespace2.as_str())).unwrap();
-        
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let exists_in_pool2: bool = rt.block_on(async {
-            pool2.vfs_backend().exists(&path2).await.unwrap()
-        });
-        assert!(!exists_in_pool2, "File should NOT exist in pool2's VFS (isolated)");
-
-        // Clean up
-        pool1.shutdown().expect("Pool1 shutdown failed");
-        pool2.shutdown().expect("Pool2 shutdown failed");
-    }
-
-    // SliverWorkerPool tests
-    use crate::sliver::{pack_sliver, SliverMetadata, UnpackedSliver};
-
-    fn create_test_sliver_for_pool(hostname: &str) -> UnpackedSliver {
-        let metadata = SliverMetadata::new(hostname, "1.1.0");
-        let heap_data = vec![0xABu8; 1024];
-        let archive = pack_sliver(&metadata, &heap_data, None).unwrap();
-        crate::sliver::unpack_sliver(&archive).unwrap()
-    }
-
-    #[test]
-    fn test_sliver_worker_pool_creation() {
-        init_platform();
-        let unpacked = create_test_sliver_for_pool("sliver-test.example.com");
-        
-        let pool = SliverWorkerPool::new(
-            "sliver-test.example.com".to_string(),
-            2,
-            0,
-            unpacked,
-        );
-        
-        assert_eq!(pool.worker_count(), 2);
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_sliver_worker_pool_single_worker() {
-        init_platform();
-        let unpacked = create_test_sliver_for_pool("single.example.com");
-        
-        let pool = SliverWorkerPool::new(
-            "single.example.com".to_string(),
-            1,
-            0,
-            unpacked,
-        );
-        
-        assert_eq!(pool.worker_count(), 1);
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_sliver_worker_pool_dispatch() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
-        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
-
-        // Create a simple JS handler
-        let js_code = format!(
-            r#"function fetch(request) {{ return {{ status: 200, headers: {{}}, body: "{}" }}; }}"#,
-            dynamic_token
-        );
-        let entrypoint = create_test_handler(&temp_dir, "test.js", &js_code);
-        
-        let unpacked = create_test_sliver_for_pool("dispatch.example.com");
-        let pool = SliverWorkerPool::new(
-            "dispatch.example.com".to_string(),
-            1,
-            0,
-            unpacked,
-        );
-        
-        // Create and dispatch a task
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-        
-        let (tx, rx) = oneshot::channel();
-        let task = HandlerTask::new(entrypoint, request, tx);
-        
-        pool.dispatch(task).expect("Failed to dispatch");
-        let response = rx.blocking_recv().expect("Failed to receive response");
-        
-        assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
-        let resp = response.unwrap();
-        assert_eq!(resp.status(), 200);
-        
-        let body_text = String::from_utf8_lossy(resp.body().map(|b| &b[..]).unwrap_or(&[]));
-        assert!(
-            body_text.contains(&dynamic_token),
-            "Sliver response must contain dynamic token '{}', got: {}",
-            dynamic_token,
-            body_text
-        );
-        
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_sliver_worker_pool_accessors() {
-        init_platform();
-        let unpacked = create_test_sliver_for_pool("accessors.example.com");
-        let sliver_hostname = unpacked.metadata.hostname.clone();
-        
-        let pool = SliverWorkerPool::new(
-            "accessors.example.com".to_string(),
-            1,
-            0,
-            unpacked,
-        );
-        
-        // Test sliver_data accessor
-        let sliver_data = pool.sliver_data();
-        assert_eq!(sliver_data.metadata.hostname, sliver_hostname);
-        
-        // Test vfs_backend accessor
-        let _vfs_backend = pool.vfs_backend();
-        
-        pool.shutdown().expect("Shutdown failed");
-    }
-
-    #[test]
-    fn test_sliver_worker_pool_with_temp_vfs() {
-        init_platform();
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
-
-        // Create a JS handler in the temp directory (simulating extracted VFS)
-        let temp_handler_code = format!(
-            r#"function fetch(request) {{ return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "{}" }}; }}"#,
-            dynamic_token
-        );
-        let temp_entrypoint = temp_dir.path().join("index.js");
-        std::fs::write(&temp_entrypoint, &temp_handler_code)
-            .expect("Failed to write temp handler");
-
-        // Create sliver with different handler content (should not be used)
-        let unpacked = create_test_sliver_for_pool("temp-vfs.example.com");
-
-        // Create pool with temp entrypoint
-        let pool = SliverWorkerPool::with_temp_entrypoint(
-            "temp-vfs.example.com".to_string(),
-            1,
-            0,
-            unpacked,
-            Some(temp_entrypoint.clone()),
-        );
-
-        // Create and dispatch a task
-        let url = NanoUrl::parse("http://test/").unwrap();
-        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
-
-        let (tx, rx) = oneshot::channel();
-        // Note: we pass a dummy entrypoint here, it should be overridden by temp_entrypoint
-        let task = HandlerTask::new("/dummy/path.js".to_string(), request, tx);
-
-        pool.dispatch(task).expect("Failed to dispatch");
-        let response = rx.blocking_recv().expect("Failed to receive response");
-
-        assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
-        let resp = response.unwrap();
-        assert_eq!(resp.status(), 200);
-
-        // Verify the response came from temp VFS handler
-        let body = resp.body().cloned().unwrap_or_default();
-        let body_text = String::from_utf8_lossy(&body);
-        assert!(
-            body_text.contains(&dynamic_token),
-            "Expected response from temp VFS with dynamic token '{}', got: {}",
-            dynamic_token,
-            body_text
-        );
 
         pool.shutdown().expect("Shutdown failed");
     }

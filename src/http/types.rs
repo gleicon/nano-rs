@@ -77,39 +77,32 @@ impl NanoRequest {
     pub fn url_string(&self) -> String {
         self.url.href()
     }
-    
-    /// Create from axum request (used in router handler)
+
+    /// Build a NanoRequest from axum HTTP parts.
     ///
-    /// Converts an axum request into a NanoRequest, buffering the body
-    /// in memory per D-05.
-    ///
-    /// # Arguments
-    ///
-    /// * `method` - HTTP method
-    /// * `uri` - Request URI
-    /// * `headers` - HTTP headers
-    /// * `body` - Axum body
-    ///
-    /// # Returns
-    ///
-    /// `Ok(NanoRequest)` on success, or an error if conversion fails
-    pub async fn from_axum_request(
-        method: axum::http::Method,
-        uri: axum::http::Uri,
-        headers: axum::http::HeaderMap,
-        body: axum::body::Body,
-    ) -> anyhow::Result<Self> {
-        let method_str = method.to_string();
-        let url_str = uri.to_string();
-        let nano_url = NanoUrl::parse(&url_str)?;
-        let nano_headers = NanoHeaders::from_axum_headers(&headers);
-        
-        // D-05: Buffer small bodies in memory
-        let body_bytes = axum::body::to_bytes(body, 1048576)  // 1MB limit
-            .await?;
-        let body = if body_bytes.is_empty() { None } else { Some(body_bytes) };
-        
-        Ok(Self::new(method_str, nano_url, nano_headers, body))
+    /// Constructs the full URL from `host` + `uri` (preserving any existing scheme),
+    /// converts headers, and wraps the pre-read body. The caller is responsible for
+    /// reading the body (async) before calling this method.
+    pub fn from_axum_parts(
+        method: &axum::http::Method,
+        uri: &axum::http::Uri,
+        host: &str,
+        headers: &axum::http::HeaderMap,
+        body: Option<Bytes>,
+    ) -> Result<Self, String> {
+        let full_url = if uri.scheme().is_some() {
+            uri.to_string()
+        } else {
+            format!(
+                "http://{}{}",
+                host,
+                uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
+            )
+        };
+        let url = NanoUrl::parse(&full_url).map_err(|e| e.to_string())?;
+        let nano_headers = NanoHeaders::from_axum_headers(headers);
+        let nano_body = body.filter(|b| !b.is_empty());
+        Ok(NanoRequest::new(method.to_string(), url, nano_headers, nano_body))
     }
 }
 

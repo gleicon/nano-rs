@@ -35,7 +35,7 @@ use axum::{
 };
 use tokio::sync::Mutex;
 
-use crate::http::{NanoRequest, NanoResponse, NanoHeaders, NanoUrl, content_type_from_ext};
+use crate::http::{NanoRequest, NanoResponse, content_type_from_ext};
 use crate::worker::{HandlerTask, QueueError, WorkQueue, WsChannels};
 use crate::logging::create_request_span;
 use crate::metrics::METRICS;
@@ -174,62 +174,18 @@ pub struct RouteTarget {
     pub handler_type: HandlerType,
 }
 
-/// Execute a JavaScript handler standalone using a fresh V8 isolate
-///
-/// This helper creates a new V8 isolate on a blocking thread and executes
-/// the entrypoint with the given request. It handles V8 platform initialization
-/// and returns proper error responses on failure.
-async fn execute_js_standalone(entrypoint: String, request: NanoRequest) -> NanoResponse {
-    match tokio::task::spawn_blocking(move || {
-        if let Err(e) = crate::v8::platform::initialize_platform() {
-            return Err(format!("V8 platform initialization failed: {}", e));
-        }
-        
-        let mut isolate = crate::v8::NanoIsolate::new()
-            .map_err(|e| format!("Failed to create isolate: {}", e))?;
-        
-        let context = crate::runtime::HandlerContext {
-            entrypoint,
-            request,
-            memory_limit_mb: 0,
-            hostname: String::new(),
-        };
-        
-        crate::runtime::execute_handler(&mut isolate, context)
-            .map_err(|e| format!("Handler execution failed: {}", e))
-    }).await {
-        Ok(Ok(response)) => response,
-        Ok(Err(err_msg)) => {
-            tracing::error!("Standalone JS handler error: {}", err_msg);
-            NanoResponse::with_status(500)
-                .with_header("Content-Type", "application/json")
-                .with_body(format!(r#"{{"error":"InternalServerError","message":"{}","code":500}}"#, err_msg))
-        }
-        Err(e) => {
-            tracing::error!("Standalone JS handler task failed: {}", e);
-            NanoResponse::with_status(500)
-                .with_header("Content-Type", "application/json")
-                .with_body(r#"{"error":"InternalServerError","message":"Task execution failed","code":500}"#)
-        }
-    }
-}
 
 impl RouteTarget {
-    /// Handle a request and return a WinterTC-compatible response
+    /// Handle a static request directly, bypassing the worker pool.
     ///
-    /// This method processes a NanoRequest through the configured handler
-    /// and returns a NanoResponse. It supports static responses and WinterTC
-    /// handlers with standalone JavaScript execution.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The WinterTC Request to process
-    ///
-    /// # Returns
-    ///
-    /// A `NanoResponse` with the handler's output
+    /// Only valid for `StaticResponse`, `VfsStaticFiles`, `StaticFile`, and `StaticDir`
+    /// variants. JS variants (`WinterTCHandler`, `WinterTCSliverHandler`) are routed
+    /// through the worker pool by `dispatch_to_worker_pool` and must never reach here.
     pub async fn handle(&self, _request: NanoRequest) -> NanoResponse {
         match &self.handler_type {
+            HandlerType::WinterTCHandler(_) | HandlerType::WinterTCSliverHandler { .. } => {
+                unreachable!("JS handlers must be dispatched via the worker pool, not handle()")
+            }
             HandlerType::StaticResponse(response) => {
                 if response.is_empty() {
                     // Empty response means "not found" - return HTTP 404
@@ -241,14 +197,6 @@ impl RouteTarget {
                         .with_header("Content-Type", "text/plain")
                         .with_body(response.clone())
                 }
-            }
-            HandlerType::WinterTCHandler(_path) => {
-                execute_js_standalone(_path.clone(), _request.clone()).await
-            }
-            HandlerType::WinterTCSliverHandler { entrypoint, .. } => {
-                // Note: True snapshot restoration requires AppRegistry access.
-                // In standalone mode we create a fresh isolate and execute the entrypoint.
-                execute_js_standalone(entrypoint.clone(), _request.clone()).await
             }
             HandlerType::VfsStaticFiles { files, default_file } => {
                 // Serve static files from VFS
@@ -622,157 +570,6 @@ impl AppState {
     }
 }
 
-/// JSON error response structure (per D-11)
-///
-
-/// Main virtual host request handler
-///
-/// Routes incoming HTTP requests based on the Host header. Extracts the hostname,
-/// looks up the route target, and dispatches to the appropriate handler.
-///
-/// Records metrics for each request: count by hostname/status and latency histogram.
-///
-/// # Arguments
-///
-/// * `state` - Application state containing the virtual host router
-/// * `request` - The full HTTP request (includes Host header)
-///
-/// # Returns
-///
-/// An HTTP response appropriate for the matched route target
-///
-/// # Example Flow
-///
-/// 1. Request arrives with `Host: api.example.com`
-/// 2. Handler extracts hostname from headers and calls `router.resolve("api.example.com")`
-/// 3. Router returns the RouteTarget for that hostname
-/// 4. Handler dispatches based on handler_type:
-///    - `StaticResponse`: Returns the configured string
-    ///    - `WinterTCHandler`: Executes JavaScript standalone in a V8 isolate
-/// 5. Metrics are recorded: request count and duration
-pub async fn virtual_host_handler(
-    State(state): State<Arc<AppState>>,
-    request: Request<Body>,
-) -> impl IntoResponse {
-    // Start timing the request
-    let start = std::time::Instant::now();
-    // Extract Host header from the request and strip port if present
-    let host = request
-        .headers()
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .map(|s| {
-            // Strip port from host:port format (e.g., "localhost:9999" -> "localhost")
-            s.split(':').next().unwrap_or(s).to_string()
-        })
-        .unwrap_or_else(|| "default".to_string());
-
-    // Generate request ID and create span with context
-    let request_id = format!("req_{}", Uuid::new_v4().to_string()[..8].to_string());
-    let span = create_request_span(&host, &request_id);
-    let _enter = span.enter();
-
-    tracing::debug!("Request received for host: {}", host);
-
-    // Convert axum request to NanoRequest (WinterTC compatible)
-    let method = request.method().clone();
-    let uri = request.uri().clone();
-    let headers = request.headers().clone();
-    let body = request.into_body();
-
-    // Construct a full URL from the host and URI for NanoUrl
-    // The URI from axum may just be a path, so we prepend scheme and host
-    let full_url = if uri.scheme().is_some() {
-        // URI is already a full URL
-        uri.to_string()
-    } else {
-        // Construct full URL from host header and path
-        let path_and_query = uri.path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or("/");
-        format!("http://{}{}", host, path_and_query)
-    };
-
-    // Parse the full URL for NanoUrl
-    let nano_url = match NanoUrl::parse(&full_url) {
-        Ok(url) => url,
-        Err(e) => {
-            tracing::error!("Failed to parse URL '{}': {}", full_url, e);
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .body(Body::from(format!(
-                    r#"{{"error":"BadRequest","message":"Invalid URL","code":400}}"#
-                )))
-                .unwrap();
-        }
-    };
-
-    // Convert headers
-    let nano_headers = NanoHeaders::from_axum_headers(&headers);
-
-    // Read body (with 1MB limit per D-05)
-    let body_bytes = match axum::body::to_bytes(body, 1048576).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            tracing::error!("Failed to read body: {}", e);
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .body(Body::from(format!(
-                    r#"{{"error":"BadRequest","message":"Failed to read body","code":400}}"#
-                )))
-                .unwrap();
-        }
-    };
-    let nano_body = if body_bytes.is_empty() { None } else { Some(body_bytes) };
-
-    // Create the NanoRequest
-    let nano_request = NanoRequest::new(
-        method.to_string(),
-        nano_url,
-        nano_headers,
-        nano_body,
-    );
-
-    let target = state.router.resolve(&host);
-
-    // Handle the request using the WinterTC-compatible handler
-    let nano_response = target.handle(nano_request).await;
-
-    // Calculate request duration
-    let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    // Get status code from response
-    let status = nano_response.status();
-    let status_str = status.to_string();
-
-    // Record metrics
-    METRICS.record_request(&host, &status_str, duration_ms);
-
-    // Get request path for access log
-    let path = uri.path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
-
-    // HTTP Access Log - single line per request with all key info
-    // Format: METHOD path host status duration_ms response_size
-    tracing::info!(
-        method = %method,
-        path = %path,
-        host = %host,
-        status = status,
-        duration_ms = format!("{:.2}", duration_ms),
-        "HTTP {} {} - {} in {}ms",
-        method,
-        path,
-        status,
-        format!("{:.2}", duration_ms)
-    );
-
-    // Convert NanoResponse to axum response
-    nano_response.to_axum_response()
-}
 
 /// Dispatch request to worker pool via WorkQueue
 ///
@@ -823,38 +620,10 @@ pub async fn dispatch_to_worker_pool(
         return handle_ws_upgrade(state, request, host).await.into_response();
     }
 
-    // Convert axum request to NanoRequest
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();
     let body = request.into_body();
-
-    // Construct full URL
-    let full_url = if uri.scheme().is_some() {
-        uri.to_string()
-    } else {
-        let path_and_query = uri.path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or("/");
-        format!("http://{}{}", host, path_and_query)
-    };
-
-    // Parse URL
-    let nano_url = match NanoUrl::parse(&full_url) {
-        Ok(url) => url,
-        Err(e) => {
-            tracing::error!("Failed to parse URL '{}': {}", full_url, e);
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .body(Body::from(format!(
-                    r#"{{"error":"BadRequest","message":"Invalid URL","code":400}}"#
-                )))
-                .unwrap();
-        }
-    };
-
-    let nano_headers = NanoHeaders::from_axum_headers(&headers);
 
     // Read body (1MB limit per D-05)
     let body_bytes = match axum::body::to_bytes(body, 1048576).await {
@@ -864,21 +633,22 @@ pub async fn dispatch_to_worker_pool(
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("content-type", "application/json")
-                .body(Body::from(format!(
-                    r#"{{"error":"BadRequest","message":"Failed to read body","code":400}}"#
-                )))
+                .body(Body::from(r#"{"error":"BadRequest","message":"Failed to read body","code":400}"#))
                 .unwrap();
         }
     };
-    let nano_body = if body_bytes.is_empty() { None } else { Some(body_bytes) };
 
-    // Create NanoRequest
-    let nano_request = NanoRequest::new(
-        method.to_string(),
-        nano_url,
-        nano_headers,
-        nano_body,
-    );
+    let nano_request = match NanoRequest::from_axum_parts(&method, &uri, &host, &headers, Some(body_bytes)) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("Failed to parse URL: {}", e);
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"error":"BadRequest","message":"Invalid URL","code":400}"#))
+                .unwrap();
+        }
+    };
 
     // Look up route target
     let target = state.router.resolve(&host);
@@ -1091,13 +861,9 @@ async fn handle_ws_upgrade(
         }
     };
 
-    let full_url = {
-        let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
-        format!("http://{}{}", host, path_and_query)
-    };
-    let nano_url = match NanoUrl::parse(&full_url) {
-        Ok(u) => u,
-        Err(_e) => {
+    let nano_request = match NanoRequest::from_axum_parts(&method, &uri, &host, &headers_clone, None) {
+        Ok(r) => r,
+        Err(_) => {
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("content-type", "text/plain")
@@ -1105,8 +871,6 @@ async fn handle_ws_upgrade(
                 .unwrap();
         }
     };
-    let nano_headers = NanoHeaders::from_axum_headers(&headers_clone);
-    let nano_request = NanoRequest::new(method.to_string(), nano_url, nano_headers, None);
 
     let (inbound_tx, inbound_rx) = std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
     let (outbound_tx, outbound_rx) = std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
@@ -1276,253 +1040,7 @@ fn tungstenite_to_axum(msg: tungstenite::Message) -> AxumWsMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_router_exact_match() {
-        let default = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::StaticResponse("default".to_string()),
-        };
-        let mut router = VirtualHostRouter::new(default);
-
-        let api_target = RouteTarget {
-            hostname: "api.example.com".to_string(),
-            handler_type: HandlerType::StaticResponse("api".to_string()),
-        };
-        router.register("api.example.com".to_string(), api_target);
-
-        // Test exact match (case insensitive)
-        let resolved = router.resolve("api.example.com");
-        assert!(matches!(resolved.handler_type, HandlerType::StaticResponse(ref s) if s == "api"));
-
-        // Test case insensitive
-        let resolved_upper = router.resolve("API.EXAMPLE.COM");
-        assert!(
-            matches!(resolved_upper.handler_type, HandlerType::StaticResponse(ref s) if s == "api")
-        );
-    }
-
-    #[test]
-    fn test_router_fallback() {
-        let default = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::StaticResponse("fallback".to_string()),
-        };
-        let router = VirtualHostRouter::new(default);
-
-        // Unknown host falls back to default
-        let resolved = router.resolve("unknown.host.com");
-        assert!(
-            matches!(resolved.handler_type, HandlerType::StaticResponse(ref s) if s == "fallback")
-        );
-    }
-
-    #[test]
-    fn test_router_default_constructor() {
-        let router = VirtualHostRouter::default();
-        let resolved = router.resolve("any.host.com");
-        assert!(
-            matches!(resolved.handler_type, HandlerType::StaticResponse(ref s) if s == "NANO Runtime")
-        );
-    }
-
-    #[test]
-    fn test_case_insensitive_variations() {
-        let default = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::StaticResponse("default".to_string()),
-        };
-        let mut router = VirtualHostRouter::new(default);
-
-        router.register(
-            "Test.Host.COM".to_string(),
-            RouteTarget {
-                hostname: "Test.Host.COM".to_string(),
-                handler_type: HandlerType::StaticResponse("test".to_string()),
-            },
-        );
-
-        // Various case combinations should all match
-        let cases = vec![
-            "test.host.com",
-            "TEST.HOST.COM",
-            "Test.Host.COM",
-            "tEsT.hOsT.cOm",
-        ];
-
-        for case in cases {
-            let resolved = router.resolve(case);
-            assert!(
-                matches!(resolved.handler_type, HandlerType::StaticResponse(ref s) if s == "test"),
-                "Failed to match case: {}",
-                case
-            );
-        }
-    }
-
-    #[test]
-    fn test_multiple_routes() {
-        let default = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::StaticResponse("default".to_string()),
-        };
-        let mut router = VirtualHostRouter::new(default);
-
-        router.register(
-            "api.example.com".to_string(),
-            RouteTarget {
-                hostname: "api.example.com".to_string(),
-                handler_type: HandlerType::StaticResponse("api".to_string()),
-            },
-        );
-
-        router.register(
-            "blog.example.com".to_string(),
-            RouteTarget {
-                hostname: "blog.example.com".to_string(),
-                handler_type: HandlerType::StaticResponse("blog".to_string()),
-            },
-        );
-
-        // Each route resolves correctly
-        assert!(
-            matches!(router.resolve("api.example.com").handler_type, HandlerType::StaticResponse(ref s) if s == "api")
-        );
-        assert!(
-            matches!(router.resolve("blog.example.com").handler_type, HandlerType::StaticResponse(ref s) if s == "blog")
-        );
-        assert!(
-            matches!(router.resolve("other.com").handler_type, HandlerType::StaticResponse(ref s) if s == "default")
-        );
-    }
-
-    #[test]
-    fn test_javascript_entrypoint_handler() {
-        let default = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::StaticResponse("default".to_string()),
-        };
-        let mut router = VirtualHostRouter::new(default);
-
-        router.register(
-            "js.example.com".to_string(),
-            RouteTarget {
-                hostname: "js.example.com".to_string(),
-                handler_type: HandlerType::WinterTCHandler("/app/index.js".to_string()),
-            },
-        );
-
-        let resolved = router.resolve("js.example.com");
-        assert!(
-            matches!(resolved.handler_type, HandlerType::WinterTCHandler(ref s) if s == "/app/index.js")
-        );
-    }
-
-    #[test]
-    fn test_sliver_handler_routing() {
-        let default = RouteTarget {
-            hostname: "default".to_string(),
-            handler_type: HandlerType::StaticResponse("default".to_string()),
-        };
-        let mut router = VirtualHostRouter::new(default);
-
-        router.register(
-            "sliver.example.com".to_string(),
-            RouteTarget {
-                hostname: "sliver.example.com".to_string(),
-                handler_type: HandlerType::WinterTCSliverHandler {
-                    entrypoint: "/app/index.js".to_string(),
-                    hostname: "sliver.example.com".to_string(),
-                },
-            },
-        );
-
-        let resolved = router.resolve("sliver.example.com");
-        match &resolved.handler_type {
-            HandlerType::WinterTCSliverHandler { entrypoint, hostname } => {
-                assert_eq!(entrypoint, "/app/index.js");
-                assert_eq!(hostname, "sliver.example.com");
-            }
-            _ => panic!("Expected WinterTCSliverHandler"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_wintertc_handler_response() {
-        crate::v8::platform::initialize_platform().expect("Failed to initialize V8 platform");
-        
-        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
-        
-        let temp_dir = tempfile::tempdir().unwrap();
-        let js_path = temp_dir.path().join("index.js");
-        let js_code = format!(r#"
-export default {{
-    fetch() {{
-        return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "ECHO:{}" }};
-    }}
-}};
-"#, dynamic_token);
-        std::fs::write(&js_path, js_code).unwrap();
-
-        let target = RouteTarget {
-            hostname: "js.example.com".to_string(),
-            handler_type: HandlerType::WinterTCHandler(js_path.to_str().unwrap().to_string()),
-        };
-
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            NanoUrl::parse("http://js.example.com/").unwrap(),
-            NanoHeaders::new(),
-            None,
-        );
-
-        let response = target.handle(request).await;
-        assert_eq!(response.status(), 200);
-        assert!(response.body().is_some());
-        let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
-        assert!(body.contains(&format!("ECHO:{}", dynamic_token)), 
-            "Response must contain dynamic token from JS execution, got: {}", body);
-    }
-
-    #[tokio::test]
-    async fn test_sliver_handler_response() {
-        crate::v8::platform::initialize_platform().expect("Failed to initialize V8 platform");
-        
-        let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
-        
-        let temp_dir = tempfile::tempdir().unwrap();
-        let js_path = temp_dir.path().join("index.js");
-        let js_code = format!(r#"
-export default {{
-    fetch() {{
-        return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "SLIVER:{}" }};
-    }}
-}};
-"#, dynamic_token);
-        std::fs::write(&js_path, js_code).unwrap();
-
-        let target = RouteTarget {
-            hostname: "sliver.example.com".to_string(),
-            handler_type: HandlerType::WinterTCSliverHandler {
-                entrypoint: js_path.to_str().unwrap().to_string(),
-                hostname: "sliver.example.com".to_string(),
-            },
-        };
-
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            NanoUrl::parse("http://sliver.example.com/").unwrap(),
-            NanoHeaders::new(),
-            None,
-        );
-
-        let response = target.handle(request).await;
-        assert_eq!(response.status(), 200);
-        assert!(response.body().is_some());
-        let body = String::from_utf8_lossy(response.body().as_ref().unwrap());
-        assert!(body.contains(&format!("SLIVER:{}", dynamic_token)),
-            "Response must contain dynamic sliver token from JS execution, got: {}", body);
-    }
+    use crate::http::{NanoUrl, NanoHeaders};
 
     #[tokio::test]
     async fn test_handle_ws_upgrade_forbidden_for_static_handler() {

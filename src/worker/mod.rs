@@ -174,7 +174,6 @@ pub use memory_monitor::{MemoryMonitor, MemoryMonitorConfig, MemoryPressureLevel
 pub use oom::{OomMonitor, OomMonitorBuilder};
 pub use pool::{SliverWorkerPool, WorkerHandle, WorkerPool};
 pub use queue::{hash_hostname, EntrypointWorkerPool, QueueError, QueueStats, StatsSnapshot, WorkQueue};
-pub use tenant_pool::TenantPool;
 pub use r#trait::{BoxedWorkerPool, WorkerPool as WorkerPoolTrait, WorkerPoolConfig};
 pub use timeout::{ExecutionTimer, TimeoutConfig, TimeoutError};
 

@@ -5,7 +5,7 @@
 //!
 //! Per D-06: JSON serialization → V8 parse (simpler than direct V8 API creation).
 
-use crate::http::{NanoRequest, NanoResponse};
+use crate::http::NanoRequest;
 
 /// Serialize a NanoRequest to JSON string
 ///
@@ -82,55 +82,6 @@ pub fn serialize_request_to_json(request: &NanoRequest) -> String {
 
 /// Serialize a NanoResponse to JSON string
 ///
-/// Creates a JSON representation matching the WinterTC Response interface.
-///
-/// # Arguments
-///
-/// * `response` - The NanoResponse to serialize
-///
-/// # Returns
-///
-/// A JSON string representation of the response
-pub fn serialize_response_to_json(response: &NanoResponse) -> String {
-    let mut json = String::from("{");
-
-    // status
-    json.push_str(&format!("\"status\":{},", response.status()));
-
-    // statusText
-    json.push_str(&format!(
-        "\"statusText\":\"{}\",",
-        escape_json(response.status_text())
-    ));
-
-    // headers
-    json.push_str("\"headers\":{");
-    let mut first = true;
-    response.headers().for_each(|name, value| {
-        if !first {
-            json.push(',');
-        }
-        first = false;
-        json.push_str(&format!(
-            "\"{}\":\"{}\"",
-            escape_json(name),
-            escape_json(value)
-        ));
-    });
-    json.push_str("},");
-
-    // body (base64 encoded if present)
-    if let Some(body) = response.body() {
-        let base64 = base64_encode(body);
-        json.push_str(&format!("\"body\":\"{}\"", base64));
-    } else {
-        json.push_str("\"body\":null");
-    }
-
-    json.push('}');
-    json
-}
-
 /// Escape string for JSON safety
 ///
 /// Escapes backslashes, quotes, and control characters for JSON.
@@ -142,6 +93,11 @@ pub fn serialize_response_to_json(response: &NanoResponse) -> String {
 /// # Returns
 ///
 /// The escaped string safe for JSON inclusion
+fn base64_encode(data: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(data)
+}
+
 fn escape_json(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -150,45 +106,6 @@ fn escape_json(s: &str) -> String {
         .replace('\t', "\\t")
 }
 
-/// Base64 encoding helper
-///
-/// Simple base64 encoding without external crate dependency.
-fn base64_encode(input: &[u8]) -> String {
-    const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let mut result = String::with_capacity((input.len() + 2) / 3 * 4);
-
-    let chunks = input.chunks_exact(3);
-    let remainder = chunks.remainder();
-
-    for chunk in chunks {
-        let b = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
-        result.push(BASE64_CHARS[((b >> 18) & 0x3F) as usize] as char);
-        result.push(BASE64_CHARS[((b >> 12) & 0x3F) as usize] as char);
-        result.push(BASE64_CHARS[((b >> 6) & 0x3F) as usize] as char);
-        result.push(BASE64_CHARS[(b & 0x3F) as usize] as char);
-    }
-
-    match remainder.len() {
-        1 => {
-            let b = (remainder[0] as u32) << 16;
-            result.push(BASE64_CHARS[((b >> 18) & 0x3F) as usize] as char);
-            result.push(BASE64_CHARS[((b >> 12) & 0x3F) as usize] as char);
-            result.push('=');
-            result.push('=');
-        }
-        2 => {
-            let b = ((remainder[0] as u32) << 16) | ((remainder[1] as u32) << 8);
-            result.push(BASE64_CHARS[((b >> 18) & 0x3F) as usize] as char);
-            result.push(BASE64_CHARS[((b >> 12) & 0x3F) as usize] as char);
-            result.push(BASE64_CHARS[((b >> 6) & 0x3F) as usize] as char);
-            result.push('=');
-        }
-        _ => {}
-    }
-
-    result
-}
 
 #[cfg(test)]
 mod tests {
@@ -213,16 +130,6 @@ mod tests {
         // Headers are stored lowercase per D-07
         assert!(json.contains("\"content-type\""));
         assert!(json.contains("\"bodyUsed\":true"));
-    }
-
-    #[test]
-    fn test_response_serialization() {
-        let response =
-            NanoResponse::new(200, NanoHeaders::new(), Some(bytes::Bytes::from("Hello")));
-
-        let json = serialize_response_to_json(&response);
-        assert!(json.contains("\"status\":200"));
-        assert!(json.contains("\"statusText\":\"OK\""));
     }
 
     #[test]
@@ -263,14 +170,6 @@ mod tests {
         assert!(result.contains(&token_g), "Escaped output missing token_g: {}", result);
         assert!(result.contains("\\\\"), "Escaped output missing escaped backslash: {}", result);
         assert!(result.contains(&token_h), "Escaped output missing token_h: {}", result);
-    }
-
-    #[test]
-    fn test_base64_encode() {
-        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
-        assert_eq!(base64_encode(b"test"), "dGVzdA==");
-        assert_eq!(base64_encode(b"abc"), "YWJj");
-        assert_eq!(base64_encode(b""), "");
     }
 
     #[test]

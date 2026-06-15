@@ -10,7 +10,7 @@ use axum::{
 };
 use tokio::sync::oneshot;
 
-use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
+use crate::http::{NanoRequest, NanoResponse};
 use crate::logging::create_request_span;
 use crate::worker::HandlerTask;
 
@@ -45,7 +45,6 @@ pub async fn sliver_js_handler(
     // Generate request ID for distributed tracing
     let request_id = format!("req_{}", uuid::Uuid::new_v4().to_string()[..8].to_string());
 
-    // Build full URL from request
     let host = headers
         .get("host")
         .and_then(|h| h.to_str().ok())
@@ -53,7 +52,6 @@ pub async fn sliver_js_handler(
     let path_and_query = uri.path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
-    let full_url = format!("http://{}{}", host, path_and_query);
 
     // Create request span for distributed tracing
     let span = create_request_span(&state.worker_pool.hostname, &request_id);
@@ -61,7 +59,7 @@ pub async fn sliver_js_handler(
 
     tracing::debug!("Sliver handler received request: {} {}", method, path_and_query);
 
-    // Read body (with 1MB limit)
+    // Read body (1MB limit per D-05)
     let body_bytes = match axum::body::to_bytes(request.into_body(), 1048576).await {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -73,28 +71,16 @@ pub async fn sliver_js_handler(
         }
     };
 
-    // Parse URL for NanoRequest
-    let nano_url = match crate::http::NanoUrl::parse(&full_url) {
-        Ok(url) => url,
+    let nano_request = match NanoRequest::from_axum_parts(&method, &uri, host, &headers, Some(body_bytes)) {
+        Ok(r) => r,
         Err(e) => {
-            tracing::error!("Failed to parse URL '{}': {}", full_url, e);
+            tracing::error!("Failed to parse URL: {}", e);
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from("Bad request: invalid URL"))
                 .unwrap();
         }
     };
-
-    // Convert headers
-    let nano_headers = NanoHeaders::from_axum_headers(&headers);
-
-    // Create NanoRequest
-    let nano_request = NanoRequest::new(
-        method.to_string(),
-        nano_url,
-        nano_headers,
-        if body_bytes.is_empty() { None } else { Some(body_bytes) },
-    );
 
     // Create oneshot channel for response
     let (tx, rx) = oneshot::channel();

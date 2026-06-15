@@ -231,9 +231,7 @@ impl EntrypointWorkerPool {
     ///
     /// The unified WorkerPool uses unbounded channels. This method now delegates
     /// to the standard `dispatch()` which provides equivalent functionality.
-    pub fn try_dispatch(&self, task: HandlerTask, _worker_index: usize) -> Result<(), QueueError> {
-        // Delegate to inner WorkerPool dispatch (round-robin)
-        // The _worker_index parameter is ignored as WorkerPool manages its own routing
+    pub fn try_dispatch(&self, task: HandlerTask) -> Result<(), QueueError> {
         self.inner.dispatch(task).map_err(|e| QueueError::SendError(e.to_string()))
     }
 
@@ -589,24 +587,17 @@ impl WorkQueue {
 
     /// Uses affine dispatch (hostname → worker index). Returns 503 on backpressure.
     pub async fn dispatch(&mut self, hostname: &str, task: HandlerTask) -> Result<(), QueueError> {
-        // Calculate worker index first (doesn't need pool reference)
-        let hostname_hash = hash_hostname(hostname);
-
         // Get or create pool for this hostname (async for disk backend creation)
         let pool = self.get_or_create_pool(hostname).await;
-        let worker_index = (hostname_hash % pool.worker_count as u64) as usize;
+        let result = pool.try_dispatch(task);
 
-        // Try dispatch with bounded channel (consume the pool reference)
-        let result = pool.try_dispatch(task, worker_index);
-
-        // Update stats after pool borrow is released
         self.stats.tasks_submitted.fetch_add(1, Ordering::Relaxed);
 
         match result {
             Ok(()) => Ok(()),
             Err(QueueError::ChannelFull) => {
                 self.stats.tasks_dropped.fetch_add(1, Ordering::Relaxed);
-                tracing::warn!("Channel full for {} worker {}", hostname, worker_index);
+                tracing::warn!("Channel full for hostname {:?}", hostname);
                 Err(QueueError::ChannelFull)
             }
             Err(e) => {
@@ -775,7 +766,7 @@ mod tests {
         };
 
         // Should succeed (channel is empty)
-        let result = pool.try_dispatch(task, 0);
+        let result = pool.try_dispatch(task);
         assert!(result.is_ok());
     }
 
