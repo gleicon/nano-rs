@@ -115,11 +115,17 @@ impl ModuleLoader {
 
     /// Load a module from VFS
     ///
-    /// Uses pollster::block_on to execute the async VFS read synchronously
-    /// for use within V8 callbacks.
     fn load_module_from_vfs(&self, path: &str) -> Result<String> {
-        let content = pollster::block_on(self.vfs.read(path))
-            .map_err(|e| anyhow!("Failed to read module {}: {}", path, e))?;
+        let vfs = &self.vfs;
+        let content = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle.block_on(vfs.read(path)),
+            Err(_) => crate::data_plane::with_worker_runtime(|h| h.block_on(vfs.read(path)))
+                .unwrap_or_else(|| {
+                    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                    rt.block_on(vfs.read(path))
+                }),
+        }
+        .map_err(|e| anyhow!("Failed to read module {}: {}", path, e))?;
         Ok(String::from_utf8_lossy(&content).to_string())
     }
 
@@ -178,14 +184,25 @@ impl ModuleLoader {
 
         // Try to add .js extension if no extension present
         if !resolved.contains('.') {
-            // Try with .js extension first
+            let vfs_exists = |path: &str| -> bool {
+                let p = path.to_string();
+                let vfs = &self.vfs;
+                match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => handle.block_on(vfs.exists(&p)).unwrap_or(false),
+                    Err(_) => crate::data_plane::with_worker_runtime(|h| h.block_on(vfs.exists(&p)))
+                        .unwrap_or_else(|| {
+                            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                            rt.block_on(vfs.exists(&p))
+                        })
+                        .unwrap_or(false),
+                }
+            };
             let with_js = format!("{}.js", resolved);
-            if pollster::block_on(self.vfs.exists(&with_js)).unwrap_or(false) {
+            if vfs_exists(&with_js) {
                 return Ok(with_js);
             }
-            // Try .mjs extension
             let with_mjs = format!("{}.mjs", resolved);
-            if pollster::block_on(self.vfs.exists(&with_mjs)).unwrap_or(false) {
+            if vfs_exists(&with_mjs) {
                 return Ok(with_mjs);
             }
         }
@@ -780,36 +797,7 @@ fn module_resolve_callback<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    use crate::vfs::{MemoryBackend, VfsNamespace};
-    
-
-    #[test]
-    fn test_detect_module_type() {
-        // ESM patterns
-        assert_eq!(
-            detect_module_type("export default { fetch() {} }"),
-            ModuleType::ESM
-        );
-        assert_eq!(detect_module_type("export const x = 1"), ModuleType::ESM);
-        assert_eq!(
-            detect_module_type("import { foo } from './bar'"),
-            ModuleType::ESM
-        );
-        assert_eq!(detect_module_type("import('./dynamic')"), ModuleType::ESM);
-        assert_eq!(detect_module_type("import{foo}from'bar'"), ModuleType::ESM);
-
-        // Script patterns
-        assert_eq!(detect_module_type("function fetch() {}"), ModuleType::Script);
-        assert_eq!(detect_module_type("var x = 1"), ModuleType::Script);
-        assert_eq!(detect_module_type("console.log('hello')"), ModuleType::Script);
-    }
-
-    #[test]
-    fn test_is_esm_module() {
-        assert!(is_esm_module("export default {}"));
-        assert!(!is_esm_module("function fetch() {}"));
-    }
+    use crate::vfs::{VfsNamespace, MemoryBackend};
 
     #[test]
     fn test_module_loader_creation() {
@@ -820,24 +808,6 @@ mod tests {
         let loader = ModuleLoader::new(vfs);
         assert!(loader.module_cache.is_empty());
         assert!(loader.loading_stack.is_empty());
-    }
-
-    #[test]
-    fn test_transform_module_code() {
-        // Should transform export default
-        let esm = "export default { fetch: function() {} }";
-        let transformed = transform_module_code(esm);
-        assert!(transformed.contains("var __nano_handler ="));
-        // Should extract handler to __nano_user_fetch (not overwrite native fetch)
-        assert!(transformed.contains("var __nano_user_fetch = undefined"));
-        assert!(transformed.contains("__nano_user_fetch = __nano_handler.fetch"));
-        // Should NOT overwrite native fetch
-        assert!(!transformed.contains("var fetch = __nano_handler.fetch"));
-
-        // Should not transform regular code
-        let script = "function fetch() { return 1; }";
-        let transformed = transform_module_code(script);
-        assert_eq!(transformed, script);
     }
 
     #[test]

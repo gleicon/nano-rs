@@ -42,6 +42,26 @@ where
     })
 }
 
+/// Run an async VFS operation synchronously from a V8 callback.
+///
+/// Tries (in order): the current tokio handle, the worker-thread runtime registered via
+/// `data_plane::set_worker_runtime`, then creates a temporary runtime as a last resort.
+fn vfs_block_on<F, Fut, R>(make_fut: F) -> R
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = R>,
+{
+    let handle = tokio::runtime::Handle::try_current()
+        .ok()
+        .or_else(|| crate::data_plane::with_worker_runtime(|h| h.clone()));
+    if let Some(handle) = handle {
+        handle.block_on(make_fut())
+    } else {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(make_fut())
+    }
+}
+
 /// Bind the Nano.fs API to the V8 global scope
 ///
 /// This creates the `Nano` global object with an `fs` property containing
@@ -208,15 +228,7 @@ fn nano_fs_read_file_sync(
     // Perform synchronous read using block_on
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            // Use tokio's block_on to run the async operation synchronously
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.read(&path).await }),
-                Err(_) => {
-                    // No async runtime available - create one temporarily
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.read(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.read(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available for this isolate".to_string()))
         }
@@ -282,13 +294,7 @@ fn nano_fs_write_file_sync(
     // Perform synchronous write
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.write(&path, &data).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.write(&path, &data).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.write(&path, &data).await })
         } else {
             Err(VfsError::IoError("No VFS available for this isolate".to_string()))
         }
@@ -320,13 +326,7 @@ fn nano_fs_exists_sync(
     // Perform synchronous check
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.exists(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.exists(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.exists(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available for this isolate".to_string()))
         }
@@ -363,13 +363,7 @@ fn nano_fs_delete_sync(
     // Perform synchronous delete
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.delete(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.delete(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.delete(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available for this isolate".to_string()))
         }
@@ -405,13 +399,7 @@ fn nano_fs_read_file(
     // Perform read synchronously
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.read(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.read(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.read(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available for this isolate".to_string()))
         }
@@ -498,13 +486,7 @@ fn nano_fs_write_file(
     // Perform write synchronously
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.write(&path, &data).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.write(&path, &data).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.write(&path, &data).await })
         } else {
             Err(VfsError::IoError("No VFS available for this isolate".to_string()))
         }

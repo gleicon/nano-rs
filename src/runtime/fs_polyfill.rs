@@ -55,6 +55,23 @@ where
     })
 }
 
+/// Run an async VFS operation synchronously from a V8 callback.
+fn vfs_block_on<F, Fut, R>(make_fut: F) -> R
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = R>,
+{
+    let handle = tokio::runtime::Handle::try_current()
+        .ok()
+        .or_else(|| crate::data_plane::with_worker_runtime(|h| h.clone()));
+    if let Some(handle) = handle {
+        handle.block_on(make_fut())
+    } else {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(make_fut())
+    }
+}
+
 /// Helper to extract string argument from V8 callback
 fn extract_string_arg(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
@@ -329,13 +346,7 @@ fn fs_read_file_sync(
     // Perform read
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.read(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.read(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.read(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available".to_string()))
         }
@@ -401,13 +412,7 @@ fn fs_write_file_sync(
 
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.write(&path, &data).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.write(&path, &data).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.write(&path, &data).await })
         } else {
             Err(VfsError::IoError("No VFS available".to_string()))
         }
@@ -436,13 +441,7 @@ fn fs_exists_sync(
 
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.exists(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.exists(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.exists(&path).await })
         } else {
             Ok(false)
         }
@@ -478,13 +477,7 @@ fn fs_unlink_sync(
 
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.delete(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.delete(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.delete(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available".to_string()))
         }
@@ -533,13 +526,7 @@ fn fs_read_file(
     // Perform read (sync for now)
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.read(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.read(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.read(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available".to_string()))
         }
@@ -618,13 +605,7 @@ fn fs_write_file(
 
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.write(&path, &data).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.write(&path, &data).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.write(&path, &data).await })
         } else {
             Err(VfsError::IoError("No VFS available".to_string()))
         }
@@ -675,13 +656,7 @@ fn fs_exists(
 
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.exists(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.exists(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.exists(&path).await })
         } else {
             Ok(false)
         }
@@ -734,13 +709,7 @@ fn fs_unlink(
 
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
-            match tokio::runtime::Handle::try_current() {
-                Ok(rt) => rt.block_on(async { vfs.delete(&path).await }),
-                Err(_) => {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async { vfs.delete(&path).await })
-                }
-            }
+            vfs_block_on(|| async { vfs.delete(&path).await })
         } else {
             Err(VfsError::IoError("No VFS available".to_string()))
         }

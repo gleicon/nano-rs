@@ -24,7 +24,9 @@ pub mod vfs_bindings;
 pub mod fs_polyfill;
 pub mod request;
 pub mod async_support;
+pub mod timers;
 pub mod websocket;
+pub mod subtle_v8;
 
 // Re-export handler types for convenience
 pub use handler::{HandlerContext, execute_handler, execute_handler_with_context};

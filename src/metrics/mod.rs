@@ -27,7 +27,7 @@ pub mod types;
 
 pub use collector::MetricsRegistry;
 pub use exporter::PrometheusExporter;
-pub use tenant::{TenantMetrics, TenantMetricsCollector, MetricsSnapshot, RequestResult};
+pub use tenant::{TenantMetrics, TenantMetricsCollector, MetricsSnapshot, RequestResult, GlobalMetrics};
 pub use types::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, MetricLabels};
 
 use std::sync::LazyLock;
