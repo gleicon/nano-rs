@@ -17,6 +17,10 @@
 
 pub mod handler;
 pub mod apis;
+pub mod console_api;
+pub mod text_codec_api;
+pub mod url_api;
+pub mod buffer_api;
 pub mod fetch;
 pub mod stream;
 pub mod crypto;
@@ -27,6 +31,7 @@ pub mod async_support;
 pub mod timers;
 pub mod websocket;
 pub mod subtle_v8;
+pub mod web_apis;
 
 // Re-export handler types for convenience
 pub use handler::{HandlerContext, execute_handler, execute_handler_with_context};

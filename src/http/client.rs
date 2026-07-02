@@ -171,9 +171,16 @@ impl HttpClient {
 
     /// Create a new HTTP client with custom timeout
     pub fn with_timeout(timeout: Duration) -> anyhow::Result<Self> {
-        let mut client = Self::new()?;
-        client.timeout = timeout;
-        Ok(client)
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .https_only(false)
+            .build()?;
+        Ok(Self {
+            client,
+            timeout,
+            max_response_size: 100 * 1024 * 1024,
+        })
     }
 
     /// Make an HTTP request
@@ -216,28 +223,19 @@ impl HttpClient {
             }
         }
 
-        // Filter dangerous headers
-        if let Some(ref headers) = headers {
-            for (name, _value) in headers {
-                if is_dangerous_header(name) {
-                    return Err(HttpClientError::BlockedHeader(name.clone()));
-                }
-            }
-        }
-
         trace!("Making {} request to {}", method, url);
 
-        // Build the request using reqwest
         let mut req_builder = self.client.request(
             reqwest::Method::from_bytes(method.as_bytes())
                 .map_err(|e| HttpClientError::InvalidUrl(format!("Invalid method: {}", e)))?,
             url,
         );
 
-        // Add headers if provided
         if let Some(ref headers) = headers {
             for (name, value) in headers {
-                req_builder = req_builder.header(name, value);
+                if !is_dangerous_header(name) {
+                    req_builder = req_builder.header(name, value);
+                }
             }
         }
 
@@ -346,81 +344,50 @@ fn is_private_ip(host: &str) -> bool {
         match ip {
             std::net::IpAddr::V4(ipv4) => {
                 let octets = ipv4.octets();
-                // 0.0.0.0 — unspecified, routes to loopback on many OSes
-                if octets == [0, 0, 0, 0] {
-                    return true;
-                }
-                // 10.0.0.0/8
-                if octets[0] == 10 {
-                    return true;
-                }
-                // 172.16.0.0/12
-                if octets[0] == 172 && (16..=31).contains(&octets[1]) {
-                    return true;
-                }
-                // 192.168.0.0/16
-                if octets[0] == 192 && octets[1] == 168 {
-                    return true;
-                }
-                // 127.0.0.0/8 (loopback)
-                if octets[0] == 127 {
-                    return true;
-                }
-                // 169.254.0.0/16 (link-local / cloud metadata endpoint)
-                if octets[0] == 169 && octets[1] == 254 {
-                    return true;
-                }
-                // 100.64.0.0/10 (CGNAT / shared address space)
-                if octets[0] == 100 && (64..=127).contains(&octets[1]) {
+                if ipv4.is_private()        // 10/8, 172.16/12, 192.168/16
+                    || ipv4.is_loopback()   // 127/8
+                    || ipv4.is_link_local() // 169.254/16
+                    || ipv4.is_unspecified() // 0.0.0.0
+                    || (octets[0] == 100 && (64..=127).contains(&octets[1])) // CGNAT 100.64/10
+                {
                     return true;
                 }
             }
             std::net::IpAddr::V6(ipv6) => {
                 let segments = ipv6.segments();
-                // :: (unspecified)
-                if segments == [0, 0, 0, 0, 0, 0, 0, 0] {
+                if ipv6.is_loopback()        // ::1
+                    || ipv6.is_unspecified() // ::
+                    || (segments[0] & 0xffc0) == 0xfe80  // fe80::/10 link-local
+                    || (segments[0] & 0xfe00) == 0xfc00  // fc00::/7 unique-local
+                    || (segments[0..5] == [0, 0, 0, 0, 0] && segments[5] == 0xffff
+                        && is_private_ip(&std::net::Ipv4Addr::new(
+                            (segments[6] >> 8) as u8, (segments[6] & 0xff) as u8,
+                            (segments[7] >> 8) as u8, (segments[7] & 0xff) as u8,
+                        ).to_string())) // ::ffff:0:0/96 IPv4-mapped
+                    || (segments[0..6] == [0, 0, 0, 0, 0, 0]
+                        && is_private_ip(&std::net::Ipv4Addr::new(
+                            (segments[6] >> 8) as u8, (segments[6] & 0xff) as u8,
+                            (segments[7] >> 8) as u8, (segments[7] & 0xff) as u8,
+                        ).to_string())) // ::x.x.x.x/96 IPv4-compatible (RFC 4291 §2.5.5.1)
+                    || (segments[0] == 0x0064 && segments[1] == 0xff9b
+                        && segments[2..6] == [0, 0, 0, 0]
+                        && is_private_ip(&std::net::Ipv4Addr::new(
+                            (segments[6] >> 8) as u8, (segments[6] & 0xff) as u8,
+                            (segments[7] >> 8) as u8, (segments[7] & 0xff) as u8,
+                        ).to_string())) // 64:ff9b::/96 NAT64 (RFC 6052)
+                {
                     return true;
-                }
-                // ::1 (loopback)
-                if segments == [0, 0, 0, 0, 0, 0, 0, 1] {
-                    return true;
-                }
-                // fe80::/10 (link-local)
-                if (segments[0] & 0xffc0) == 0xfe80 {
-                    return true;
-                }
-                // fc00::/7 (unique-local, RFC4193 — equivalent of RFC1918)
-                if (segments[0] & 0xfe00) == 0xfc00 {
-                    return true;
-                }
-                // ::ffff:0:0/96 (IPv4-mapped — check the embedded IPv4)
-                if segments[0..5] == [0, 0, 0, 0, 0] && segments[5] == 0xffff {
-                    let v4_octets = [
-                        (segments[6] >> 8) as u8,
-                        (segments[6] & 0xff) as u8,
-                        (segments[7] >> 8) as u8,
-                        (segments[7] & 0xff) as u8,
-                    ];
-                    let mapped = std::net::Ipv4Addr::from(v4_octets);
-                    // Recurse via string to reuse IPv4 logic
-                    return is_private_ip(&mapped.to_string());
                 }
             }
         }
     }
 
-    // Well-known internal hostnames
     let lower = host_clean.to_ascii_lowercase();
-    if lower == "localhost"
+    lower == "localhost"
         || lower == "metadata"
         || lower == "metadata.google.internal"
         || lower == "metadata.internal"
         || lower == "instance-data"
-    {
-        return true;
-    }
-
-    false
 }
 
 #[cfg(test)]
@@ -469,16 +436,15 @@ mod tests {
         assert_eq!(response.status, StatusCode::OK);
     }
 
-    /// Test 3: HttpClient timeout configuration
+    /// Test 3: HttpClient timeout configuration — 1ms timeout must actually be enforced
     #[tokio::test]
     async fn test_request_timeout() {
-        // Timeout is configured via reqwest client builder
-        let client = HttpClient::with_timeout(Duration::from_millis(10)).unwrap();
-
-        // Fast endpoint should succeed within timeout
+        let client = HttpClient::with_timeout(Duration::from_millis(1)).unwrap();
         let result = client.get("https://httpbin.org/get").await;
-
-        assert!(result.is_ok());
+        assert!(
+            matches!(result, Err(HttpClientError::Timeout(_))),
+            "1ms timeout should fire, got: {:?}", result
+        );
     }
 
     /// Test 4: URL validation rejects file:// scheme
