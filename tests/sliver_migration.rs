@@ -33,7 +33,7 @@ fn test_sliver_migration_portability() {
     ];
     
     // Pack sliver on "Instance A"
-    let archive_a = pack_sliver(&metadata, &heap_data, Some(&vfs_entries))
+    let archive_a = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries))
         .expect("Instance A: Failed to pack sliver");
     
     // Validate the created sliver
@@ -76,11 +76,11 @@ fn test_sliver_migration_portability() {
         "Description mismatch"
     );
     
-    // 2. Verify heap data is identical
+    // 2. Verify bytecode is identical
     assert_eq!(
-        unpacked_b.heap_data, 
-        heap_data,
-        "Heap data mismatch after migration"
+        unpacked_b.bytecode.as_deref().unwrap_or_default(),
+        heap_data.as_slice(),
+        "Bytecode mismatch after migration"
     );
     
     // 3. Verify VFS entries match
@@ -110,16 +110,16 @@ fn test_sliver_migration_portability() {
         // Calculate expected total size
         {
             let metadata_size = serde_json::to_vec(&metadata).map(|v| v.len()).unwrap_or(0);
-            let heap_size = heap_data.len();
+            let bytecode_size = heap_data.len();
             let vfs_size: usize = vfs_entries.iter().map(|(_, f)| f.content.len()).sum();
-            metadata_size + heap_size + vfs_size
+            metadata_size + bytecode_size + vfs_size
         },
         "Total size mismatch"
     );
     
     println!("✓ All verifications passed - sliver migration successful!");
     println!("  - Metadata: ✓");
-    println!("  - Heap data ({} bytes): ✓", unpacked_b.heap_data.len());
+    println!("  - Bytecode ({} bytes): ✓", unpacked_b.bytecode.as_ref().map(|b| b.len()).unwrap_or(0));
     println!("  - VFS entries ({} files): ✓", unpacked_b.vfs_entries.len());
     println!("  - Total size: {} bytes: ✓", unpacked_b.total_size());
 }
@@ -131,16 +131,16 @@ fn test_sliver_migration_empty_vfs() {
     let heap_data = vec![0x00u8; 100];
     
     // Pack with no VFS entries
-    let archive = pack_sliver(&metadata, &heap_data, None)
+    let archive = pack_sliver(&metadata, Some(&heap_data), None)
         .expect("Failed to pack empty sliver");
-    
+
     // Transfer
     let unpacked = unpack_sliver(&archive)
         .expect("Failed to unpack empty sliver");
-    
+
     // Verify
     assert_eq!(unpacked.metadata.hostname, "empty.example.com");
-    assert_eq!(unpacked.heap_data, heap_data);
+    assert_eq!(unpacked.bytecode.as_deref().unwrap_or_default(), heap_data.as_slice());
     assert!(unpacked.vfs_entries.is_empty());
 }
 
@@ -161,7 +161,7 @@ fn test_sliver_migration_large_vfs() {
         .collect();
     
     // Pack
-    let archive = pack_sliver(&metadata, &heap_data, Some(&vfs_entries))
+    let archive = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries))
         .expect("Failed to pack large sliver");
     
     println!("Large sliver: {} bytes packed", archive.len());
@@ -172,7 +172,7 @@ fn test_sliver_migration_large_vfs() {
     
     // Verify
     assert_eq!(unpacked.vfs_entries.len(), 100);
-    assert_eq!(unpacked.heap_data.len(), 1024 * 1024);
+    assert_eq!(unpacked.bytecode.as_ref().map(|b| b.len()).unwrap_or(0), 1024 * 1024);
     
     // Verify all files
     for i in 0..100 {
@@ -196,7 +196,7 @@ fn test_sliver_migration_corrupted_data() {
     let heap_data = vec![0x00u8; 100];
     
     // Pack
-    let archive = pack_sliver(&metadata, &heap_data, None)
+    let archive = pack_sliver(&metadata, Some(&heap_data), None)
         .expect("Failed to pack");
     
     // Corrupt the archive
@@ -224,7 +224,7 @@ fn test_sliver_migration_cross_platform_paths() {
     ];
     
     // Pack
-    let archive = pack_sliver(&metadata, &heap_data, Some(&vfs_entries))
+    let archive = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries))
         .expect("Failed to pack");
     
     // Transfer

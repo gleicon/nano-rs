@@ -64,14 +64,12 @@ pub enum JsHandlerSource {
         /// Path to the JavaScript entrypoint
         entrypoint: String,
     },
-    /// Execute from sliver
+    /// Execute from sliver (VFS-first, no heap snapshot)
     Sliver {
         /// Path to the JavaScript entrypoint
         entrypoint: String,
-        /// V8 snapshot data for fast restoration
-        snapshot: Vec<u8>,
-    /// Hostname for the app
-    hostname: String,
+        /// Hostname for the app
+        hostname: String,
     },
 }
 
@@ -305,12 +303,12 @@ impl SliverCache {
         lock_path.exists()
     }
     
-    /// Create a sliver from heap snapshot and VFS
+    /// Create a sliver from optional bytecode and VFS.
     pub fn create_sliver(
         &self,
         hostname: &str,
         entrypoint: &str,
-        heap_data: &[u8],
+        bytecode: Option<&[u8]>,
         vfs_capture: Option<&VfsCapture>,
     ) -> Result<Vec<u8>> {
         // Create metadata
@@ -334,7 +332,7 @@ impl SliverCache {
         });
         
         // Pack sliver
-        let data = pack_sliver(&metadata, heap_data, vfs_entries.as_deref())
+        let data = pack_sliver(&metadata, bytecode, vfs_entries.as_deref())
             .context("Failed to pack sliver")?;
         
         Ok(data)
@@ -425,9 +423,9 @@ impl SliverCache {
         match unpack_sliver(&data) {
             Ok(unpacked) => {
                 info!(
-                    "Hot-loaded sliver for {}:{} ({} bytes heap, {} vfs entries)",
+                    "Hot-loaded sliver for {}:{} (bytecode: {}, {} vfs entries)",
                     hostname, entrypoint,
-                    unpacked.heap_data.len(),
+                    unpacked.bytecode.is_some(),
                     unpacked.vfs_entries.len()
                 );
                 Some(unpacked)
@@ -502,7 +500,6 @@ pub fn get_optimized_handler_source(
 
                 return JsHandlerSource::Sliver {
                     entrypoint: entrypoint.to_string(),
-                    snapshot: unpacked.heap_data,
                     hostname: hostname.to_string(),
                 };
             }
@@ -526,7 +523,6 @@ pub fn get_optimized_handler_source(
                         );
                         return JsHandlerSource::Sliver {
                             entrypoint: entrypoint.to_string(),
-                            snapshot: unpacked.heap_data,
                             hostname: hostname.to_string(),
                         };
                     }
@@ -558,17 +554,14 @@ pub fn is_sliver_available(hostname: &str, entrypoint: &str) -> bool {
     }
 }
 
-/// Store a generated sliver in the cache
-///
-/// Call this after compiling from source to cache the result
+/// Store a generated sliver in the cache (source-only; no bytecode compilation here)
 pub fn store_generated_sliver(
     hostname: &str,
     entrypoint: &str,
-    heap_data: &[u8],
     vfs_capture: Option<&VfsCapture>,
 ) -> Result<()> {
     let cache = SliverCache::new()?;
-    let sliver_data = cache.create_sliver(hostname, entrypoint, heap_data, vfs_capture)?;
+    let sliver_data = cache.create_sliver(hostname, entrypoint, None, vfs_capture)?;
     cache.store(hostname, entrypoint, &sliver_data)?;
     Ok(())
 }

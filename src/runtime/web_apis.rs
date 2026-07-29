@@ -7,6 +7,19 @@ thread_local! {
     pub(crate) static PERFORMANCE_BASELINE: Cell<Option<Instant>> = Cell::new(None);
 }
 
+// Write random bytes directly into a typed array's V8 backing store.
+// ArrayBufferView::data() returns ptr + byte_offset, so no offset arithmetic needed.
+// SAFETY: ptr is valid for this callback's duration — GC cannot run while a HandleScope exists.
+fn fill_typed_array(ta: &v8::ArrayBufferView) -> bool {
+    let ptr = ta.data() as *mut u8;
+    if ptr.is_null() {
+        return false;
+    }
+    let n = ta.byte_length();
+    let data = unsafe { std::slice::from_raw_parts_mut(ptr, n) };
+    getrandom::getrandom(data).is_ok()
+}
+
 pub(crate) fn crypto_get_random_values(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
@@ -19,80 +32,26 @@ pub(crate) fn crypto_get_random_values(
 
     let arg = args.get(0);
 
-    if let Some(uint8array) = arg
-        .to_object(scope)
-        .and_then(|o| o.try_cast::<v8::Uint8Array>().ok())
-    {
-        let length = uint8array.byte_length();
-        if length == 0 {
-            retval.set(arg);
-            return;
-        }
-        let mut buffer = vec![0u8; length];
-        if getrandom::getrandom(&mut buffer).is_err() {
-            retval.set_undefined();
-            return;
-        }
-        for (i, byte) in buffer.iter().enumerate() {
-            let idx = v8::Number::new(scope, i as f64);
-            let val = v8::Number::new(scope, *byte as f64);
-            uint8array.set(scope, idx.into(), val.into());
-        }
-        retval.set(arg);
-        return;
+    macro_rules! try_fill {
+        ($T:ty) => {
+            if let Some(ta) = arg.to_object(scope).and_then(|o| o.try_cast::<$T>().ok()) {
+                if ta.byte_length() == 0 {
+                    retval.set(arg);
+                    return;
+                }
+                if fill_typed_array(&ta) {
+                    retval.set(arg);
+                } else {
+                    retval.set_undefined();
+                }
+                return;
+            }
+        };
     }
 
-    if let Some(uint16array) = arg
-        .to_object(scope)
-        .and_then(|o| o.try_cast::<v8::Uint16Array>().ok())
-    {
-        let length = uint16array.byte_length() / 2;
-        if length == 0 {
-            retval.set(arg);
-            return;
-        }
-        let mut buffer = vec![0u16; length];
-        let byte_buffer = unsafe {
-            std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 2)
-        };
-        if getrandom::getrandom(byte_buffer).is_err() {
-            retval.set_undefined();
-            return;
-        }
-        for (i, value) in buffer.iter().enumerate() {
-            let idx = v8::Number::new(scope, i as f64);
-            let val = v8::Number::new(scope, *value as f64);
-            uint16array.set(scope, idx.into(), val.into());
-        }
-        retval.set(arg);
-        return;
-    }
-
-    if let Some(uint32array) = arg
-        .to_object(scope)
-        .and_then(|o| o.try_cast::<v8::Uint32Array>().ok())
-    {
-        let length = uint32array.byte_length() / 4;
-        if length == 0 {
-            retval.set(arg);
-            return;
-        }
-        let mut buffer = vec![0u32; length];
-        let byte_buffer = unsafe {
-            std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 4)
-        };
-        if getrandom::getrandom(byte_buffer).is_err() {
-            retval.set_undefined();
-            return;
-        }
-        for (i, value) in buffer.iter().enumerate() {
-            let idx = v8::Number::new(scope, i as f64);
-            let val = v8::Number::new(scope, *value as f64);
-            uint32array.set(scope, idx.into(), val.into());
-        }
-        retval.set(arg);
-        return;
-    }
+    try_fill!(v8::Uint8Array);
+    try_fill!(v8::Uint16Array);
+    try_fill!(v8::Uint32Array);
 
     retval.set_undefined();
 }

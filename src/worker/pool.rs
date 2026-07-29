@@ -21,6 +21,129 @@ use std::thread::{self, JoinHandle};
 
 use tracing::{debug, error, info, warn};
 
+/// Read source code from VFS first, fall back to disk.
+/// VFS path like `/index.js` is tried against the isolate's VFS;
+/// on miss (or non-VFS entrypoints like absolute disk paths), falls back to `read_code_cached`.
+fn read_code_vfs_or_disk(entrypoint: &str, vfs: &IsolateVfs) -> Result<std::sync::Arc<str>> {
+    let vfs_result = crate::data_plane::with_worker_runtime(|h| {
+        h.block_on(vfs.read(entrypoint))
+    });
+    if let Some(Ok(bytes)) = vfs_result {
+        if let Ok(s) = String::from_utf8(bytes) {
+            return Ok(s.into());
+        }
+    }
+    crate::data_plane::read_code_cached(entrypoint)
+}
+
+fn compile_esm_handler(
+    ctx_scope: &mut v8::ContextScope<'_, '_, v8::HandleScope<'_, v8::Context>>,
+    entrypoint: &str,
+    code: &str,
+    vfs: IsolateVfs,
+) -> Result<v8::Global<v8::Function>> {
+    use crate::v8::module::{ModuleLoader, set_current_loader, module_resolve_callback};
+    let ep_v8 = v8::String::new(ctx_scope, entrypoint)
+        .ok_or_else(|| anyhow!("OOM: module origin"))?;
+    let origin = v8::ScriptOrigin::new(
+        ctx_scope, ep_v8.into(), 0, 0, true, -1, None, false, false, true, None,
+    );
+    let code_v8 = v8::String::new(ctx_scope, code)
+        .ok_or_else(|| anyhow!("OOM: module source"))?;
+    let mut esm_source = v8::script_compiler::Source::new(code_v8, Some(&origin));
+    let esm_module = v8::script_compiler::compile_module(ctx_scope, &mut esm_source)
+        .ok_or_else(|| anyhow!("ESM compile failed: {}", entrypoint))?;
+
+    let mut loader = ModuleLoader::new(vfs);
+    // SAFETY: loader lives until instantiate_module returns.
+    unsafe { set_current_loader(Some(&mut loader as *mut _)); }
+    let inst_ok = esm_module.instantiate_module(ctx_scope, module_resolve_callback).is_some();
+    unsafe { set_current_loader(None); }
+    if !inst_ok { return Err(anyhow!("ESM instantiate failed: {}", entrypoint)); }
+
+    esm_module.evaluate(ctx_scope)
+        .ok_or_else(|| anyhow!("ESM evaluate failed: {}", entrypoint))?;
+
+    let ns = esm_module.get_module_namespace().to_object(ctx_scope)
+        .ok_or_else(|| anyhow!("ESM namespace not object: {}", entrypoint))?;
+
+    // Try `export function fetch` first, then `export default { fetch }`.
+    let fk = v8::String::new(ctx_scope, "fetch");
+    let fk_val = fk.and_then(|k| ns.get(ctx_scope, k.into())).filter(|v| v.is_function());
+    let handler_val = match fk_val {
+        Some(v) => v,
+        None => {
+            let dk = v8::String::new(ctx_scope, "default");
+            let default_obj = dk.and_then(|k| ns.get(ctx_scope, k.into()))
+                .and_then(|d| d.to_object(ctx_scope));
+            let fk2 = v8::String::new(ctx_scope, "fetch");
+            match default_obj.and_then(|o| fk2.and_then(|k| o.get(ctx_scope, k.into()))).filter(|v| v.is_function()) {
+                Some(v) => v,
+                None => return Err(anyhow!(
+                    "No 'fetch' export in '{}'. Use: export function fetch(req){{...}}",
+                    entrypoint
+                )),
+            }
+        }
+    };
+    Ok(v8::Global::new(ctx_scope, handler_val.cast::<v8::Function>()))
+}
+
+fn compile_classic_handler(
+    ctx_scope: &mut v8::ContextScope<'_, '_, v8::HandleScope<'_, v8::Context>>,
+    entrypoint: &str,
+    code: &str,
+    context: v8::Local<'_, v8::Context>,
+    cache_key: &str,
+) -> Result<v8::Global<v8::Function>> {
+    let code_v8 = v8::String::new(ctx_scope, code)
+        .ok_or_else(|| anyhow!("V8 string alloc failed"))?;
+
+    let unbound = if let Some(cached_bytes) = crate::data_plane::get_bytecode_cache(cache_key) {
+        let cached_data = v8::script_compiler::CachedData::new(&cached_bytes);
+        let mut source = v8::script_compiler::Source::new_with_cached_data(code_v8, None, cached_data);
+        v8::script_compiler::compile_unbound_script(
+            ctx_scope, &mut source,
+            v8::script_compiler::CompileOptions::ConsumeCodeCache,
+            v8::script_compiler::NoCacheReason::NoReason,
+        )
+    } else {
+        let mut source = v8::script_compiler::Source::new(code_v8, None);
+        let unbound = v8::script_compiler::compile_unbound_script(
+            ctx_scope, &mut source,
+            v8::script_compiler::CompileOptions::NoCompileOptions,
+            v8::script_compiler::NoCacheReason::NoReason,
+        );
+        if let Some(ref u) = unbound {
+            if let Some(cache) = u.create_code_cache() {
+                let bytes: std::sync::Arc<[u8]> = (&**cache).into();
+                crate::data_plane::set_bytecode_cache(cache_key, bytes);
+            }
+        }
+        unbound
+    };
+
+    let script = unbound
+        .ok_or_else(|| anyhow!("Script compile failed for '{}'", entrypoint))?
+        .bind_to_current_context(ctx_scope);
+    script.run(ctx_scope)
+        .ok_or_else(|| anyhow!("Script execution failed for '{}'", entrypoint))?;
+
+    let global_obj = context.global(ctx_scope);
+    let nano_k = v8::String::new(ctx_scope, "__nano_user_fetch")
+        .ok_or_else(|| anyhow!("V8 OOM allocating key"))?;
+    let fetch_k = v8::String::new(ctx_scope, "fetch")
+        .ok_or_else(|| anyhow!("V8 OOM allocating key"))?;
+    global_obj.get(ctx_scope, nano_k.into())
+        .filter(|v| v.is_function())
+        .or_else(|| global_obj.get(ctx_scope, fetch_k.into()).filter(|v| v.is_function()))
+        .map(|f| v8::Global::new(ctx_scope, f.cast::<v8::Function>()))
+        .ok_or_else(|| anyhow!(
+            "No fetch handler found in '{}'. Export a 'fetch' function.",
+            entrypoint
+        ))
+}
+
 /// Dropping closes the channel, signaling the worker to exit.
 #[derive(Debug)]
 pub struct WorkerHandle {
@@ -285,54 +408,55 @@ impl WorkerPool {
                 const MAX_REQUESTS_PER_ISOLATE: u32 = 10_000;
                 let mut first_isolate = true;
 
-                // Extract temp entrypoint override for sliver mode (if any)
-                let temp_entrypoint_override: Option<std::path::PathBuf> = match &worker_source {
-                    AppSource::Sliver { temp_entrypoint, .. } => temp_entrypoint.clone(),
-                    _ => None,
-                };
-
                 // Outer loop: one iteration per isolate lifetime.
                 'isolate: loop {
                     let namespace = VfsNamespace::from_hostname(&worker_hostname);
                     let vfs = IsolateVfs::new(namespace, worker_vfs_backend.clone());
 
-                    // First isolate: warm-start from snapshot (sliver) or fresh (entrypoint).
-                    // Recycled isolates: always fresh.
-                    let mut nano = if first_isolate {
-                        first_isolate = false;
-                        match &worker_source {
-                            AppSource::Entrypoint { .. } => {
-                                match NanoIsolate::new_with_vfs(vfs) {
-                                    Ok(iso) => iso,
-                                    Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
+                    let mut nano = match &worker_source {
+                        AppSource::Sliver { data } if first_isolate => {
+                            first_isolate = false;
+                            if let Err(e) = rt.block_on(data.restore_to_vfs(&vfs)) {
+                                warn!("Worker {}: VFS restore failed: {}", id, e);
+                            } else {
+                                debug!("Worker {}: restored {} VFS entries", id, data.vfs_entries.len());
+                            }
+                            if data.bytecode_matches_v8() {
+                                if let Some(ref bc) = data.bytecode {
+                                    let entrypoint = data.entrypoint();
+                                    let cache_key = format!("{}::{}", worker_hostname, entrypoint);
+                                    let bytes: std::sync::Arc<[u8]> = bc.as_slice().into();
+                                    crate::data_plane::set_bytecode_cache(&cache_key, bytes);
+                                    debug!("Worker {}: sliver bytecode pre-loaded for '{}'", id, entrypoint);
                                 }
                             }
-                            AppSource::Sliver { data, .. } => {
-                                if let Err(e) = rt.block_on(data.restore_to_vfs(&vfs)) {
-                                    warn!("Worker {}: VFS restore failed: {}", id, e);
-                                } else {
-                                    debug!("Worker {}: restored {} VFS entries", id, data.vfs_entries.len());
-                                }
-                                match NanoIsolate::from_snapshot(&data.heap_data, vfs.clone()) {
-                                    Ok(iso) => { info!("Worker {}: restored from snapshot", id); iso }
-                                    Err(e) => {
-                                        warn!("Worker {}: snapshot restore failed ({}), creating fresh", id, e);
-                                        match NanoIsolate::new_with_vfs(vfs) {
-                                            Ok(iso) => iso,
-                                            Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
-                                        }
-                                    }
-                                }
-                            }
-                            AppSource::Static { .. } => {
-                                error!("Worker {}: Static source in unified worker — should not happen", id);
-                                return;
+                            match NanoIsolate::new_with_vfs(vfs) {
+                                Ok(iso) => iso,
+                                Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
                             }
                         }
-                    } else {
-                        match NanoIsolate::new_with_vfs(vfs) {
-                            Ok(iso) => iso,
-                            Err(e) => { error!("Worker {}: isolate create failed: {}", id, e); return; }
+                        AppSource::Entrypoint { .. } if first_isolate => {
+                            first_isolate = false;
+                            match NanoIsolate::new_with_vfs(vfs) {
+                                Ok(iso) => iso,
+                                Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
+                            }
+                        }
+                        AppSource::Static { .. } => {
+                            error!("Worker {}: Static source in unified worker — should not happen", id);
+                            return;
+                        }
+                        _ => {
+                            // For sliver: VFS is re-populated each isolate cycle.
+                            if let AppSource::Sliver { data } = &worker_source {
+                                if let Err(e) = rt.block_on(data.restore_to_vfs(&vfs)) {
+                                    warn!("Worker {}: VFS restore on recycle failed: {}", id, e);
+                                }
+                            }
+                            match NanoIsolate::new_with_vfs(vfs) {
+                                Ok(iso) => iso,
+                                Err(e) => { error!("Worker {}: isolate create failed: {}", id, e); return; }
+                            }
                         }
                     };
 
@@ -344,7 +468,8 @@ impl WorkerPool {
                     // Expose VFS to Nano.fs.* callbacks via thread-local.
                     // Must be set per-isolate-lifetime; the inner request loop
                     // reuses the same isolate (and same VFS) for all requests.
-                    let vfs_arc = std::sync::Arc::new(nano.vfs().clone());
+                    let vfs_clone = nano.vfs().clone();
+                    let vfs_arc = std::sync::Arc::new(vfs_clone.clone());
                     crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_arc));
 
                     // Raw pointer for CPU timeout guards.
@@ -374,10 +499,14 @@ impl WorkerPool {
                                 break 'requests;
                             }
 
+                            // Signal V8 GC scheduler that we're idle while waiting.
+                            // SAFETY: iso_ptr is valid for the duration of the scope block.
+                            unsafe { (*iso_ptr).set_idle(true); }
                             let task = match task_rx.recv() {
                                 Ok(t) => t,
                                 Err(_) => { debug!("Worker {}: channel closed", id); break 'isolate; }
                             };
+                            unsafe { (*iso_ptr).set_idle(false); }
 
                             // OOM pre-check
                             if let Some(ref mon) = oom_monitor {
@@ -393,70 +522,36 @@ impl WorkerPool {
                             let t0 = std::time::Instant::now();
                             let request_id = task.request_id.clone();
 
-                            // Determine entrypoint (sliver may override via temp file)
-                            let entrypoint = temp_entrypoint_override
-                                .as_ref()
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|| task.entrypoint.clone());
+                            let entrypoint = match &worker_source {
+                                AppSource::Sliver { data } => data.entrypoint(),
+                                _ => task.entrypoint.clone(),
+                            };
 
                             // Compile + cache handler (once per entrypoint, per isolate lifetime)
                             if !handler_cache.contains_key(&entrypoint) {
-                                let code = match crate::data_plane::read_code_cached(&entrypoint) {
+                                let code = match read_code_vfs_or_disk(&entrypoint, &vfs_clone) {
                                     Ok(c) => c,
                                     Err(e) => {
                                         let _ = task.response_tx.send(Err(e));
                                         continue 'requests;
                                     }
                                 };
-                                let transformed = if crate::v8::module::is_esm_module(&code) {
-                                    crate::v8::module::transform_module_code(&code)
+
+                                let is_esm = crate::v8::module::is_esm_module(&code);
+                                let cache_key = format!("{}::{}", worker_hostname, entrypoint);
+                                let handler_result = if is_esm {
+                                    compile_esm_handler(&mut ctx_scope, &entrypoint, &code, vfs_clone.clone())
                                 } else {
-                                    code.to_string()
+                                    compile_classic_handler(&mut ctx_scope, &entrypoint, &code, context, &cache_key)
                                 };
-
-                                let code_v8 = match v8::String::new(&mut ctx_scope, &transformed) {
-                                    Some(s) => s,
-                                    None => {
-                                        let _ = task.response_tx.send(Err(anyhow!("V8 string alloc failed")));
-                                        continue 'requests;
-                                    }
-                                };
-                                let script = match v8::Script::compile(&ctx_scope, code_v8, None) {
-                                    Some(s) => s,
-                                    None => {
-                                        let _ = task.response_tx.send(Err(anyhow!("Script compile failed for '{}\'", entrypoint)));
-                                        continue 'requests;
-                                    }
-                                };
-                                if script.run(&ctx_scope).is_none() {
-                                    let _ = task.response_tx.send(Err(anyhow!("Script execution failed for '{}'", entrypoint)));
-                                    continue 'requests;
-                                }
-
-                                let global_obj = context.global(&mut ctx_scope);
-                                let nano_k = match v8::String::new(&mut ctx_scope, "__nano_user_fetch") {
-                                    Some(s) => s,
-                                    None => { let _ = task.response_tx.send(Err(anyhow!("V8 OOM allocating key"))); continue 'requests; }
-                                };
-                                let fetch_k = match v8::String::new(&mut ctx_scope, "fetch") {
-                                    Some(s) => s,
-                                    None => { let _ = task.response_tx.send(Err(anyhow!("V8 OOM allocating key"))); continue 'requests; }
-                                };
-                                let handler_val = global_obj.get(&mut ctx_scope, nano_k.into())
-                                    .filter(|v| v.is_function())
-                                    .or_else(|| global_obj.get(&mut ctx_scope, fetch_k.into()).filter(|v| v.is_function()));
-
-                                match handler_val {
-                                    Some(f) => {
-                                        let g = v8::Global::new(&**ctx_scope, f.cast::<v8::Function>());
+                                match handler_result {
+                                    Ok(g) => {
                                         handler_cache.insert(entrypoint.clone(), g);
-                                        info!("Worker {}: handler cached for '{}'", id, entrypoint);
+                                        info!("Worker {}: {} handler cached for '{}'", id,
+                                              if is_esm { "ESM" } else { "classic" }, entrypoint);
                                     }
-                                    None => {
-                                        let _ = task.response_tx.send(Err(anyhow!(
-                                            "No fetch handler found in '{}'. Export a 'fetch' function.",
-                                            entrypoint
-                                        )));
+                                    Err(e) => {
+                                        let _ = task.response_tx.send(Err(e));
                                         continue 'requests;
                                     }
                                 }
@@ -836,6 +931,7 @@ impl WorkerPool {
 mod tests {
     use super::*;
     use crate::http::{NanoHeaders, NanoRequest, NanoUrl};
+    use crate::vfs::{IsolateVfs, MemoryBackend, VfsBackendEnum, VfsNamespace};
     use crate::worker::HandlerTask;
     use std::fs;
     use std::io::Write;
@@ -846,6 +942,91 @@ mod tests {
         if !crate::v8::is_initialized() {
             crate::v8::initialize_platform().expect("Failed to initialize V8 platform");
         }
+    }
+
+    fn make_vfs() -> IsolateVfs {
+        IsolateVfs::new(
+            VfsNamespace::from_hostname("test.example.com"),
+            VfsBackendEnum::memory(MemoryBackend::default()),
+        )
+    }
+
+    #[test]
+    fn test_compile_classic_handler_named_fetch() {
+        init_platform();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope_pin = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let mut scope = scope_pin.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
+        let result = compile_classic_handler(
+            &mut ctx_scope, "/handler.js",
+            "function fetch(req) { return { status: 200 }; }",
+            context,
+            "test::/handler.js",
+        );
+        assert!(result.is_ok(), "named fetch should compile: {:?}", result);
+    }
+
+    #[test]
+    fn test_compile_classic_handler_no_fetch_errors() {
+        init_platform();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope_pin = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let mut scope = scope_pin.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
+        let result = compile_classic_handler(&mut ctx_scope, "/handler.js", "var x = 1;", context, "test::/handler.js");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No fetch handler"));
+    }
+
+    #[test]
+    fn test_compile_esm_handler_named_export() {
+        init_platform();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope_pin = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let mut scope = scope_pin.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
+        let result = compile_esm_handler(
+            &mut ctx_scope, "/handler.js",
+            "export function fetch(req) { return { status: 200 }; }",
+            make_vfs(),
+        );
+        assert!(result.is_ok(), "named ESM fetch should compile: {:?}", result);
+    }
+
+    #[test]
+    fn test_compile_esm_handler_default_export() {
+        init_platform();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope_pin = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let mut scope = scope_pin.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
+        let result = compile_esm_handler(
+            &mut ctx_scope, "/handler.js",
+            "export default { fetch(req) { return { status: 200 }; } }",
+            make_vfs(),
+        );
+        assert!(result.is_ok(), "default ESM export should compile: {:?}", result);
+    }
+
+    #[test]
+    fn test_compile_esm_handler_no_fetch_errors() {
+        init_platform();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope_pin = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let mut scope = scope_pin.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
+        let result = compile_esm_handler(
+            &mut ctx_scope, "/handler.js",
+            "export const x = 1;",
+            make_vfs(),
+        );
+        assert!(result.is_err(), "ESM without fetch should fail");
     }
 
     // Accesses private `next_worker` field — cannot move to tests/.

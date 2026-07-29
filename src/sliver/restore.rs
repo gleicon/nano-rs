@@ -112,7 +112,7 @@ mod tests {
             (VfsPath::new("data/users.txt").unwrap(), VfsFile::new(b"user1\nuser2".to_vec())),
         ];
 
-        let archive = pack_sliver(&metadata, &heap_data, Some(&vfs_entries)).unwrap();
+        let archive = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries)).unwrap();
         let unpacked = unpack_sliver(&archive).unwrap();
 
         // Create target VFS
@@ -139,7 +139,7 @@ mod tests {
             (VfsPath::new("file1.txt").unwrap(), VfsFile::new(b"content1".to_vec())),
         ];
 
-        let archive = pack_sliver(&metadata, &heap_data, Some(&vfs_entries)).unwrap();
+        let archive = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries)).unwrap();
         let unpacked = unpack_sliver(&archive).unwrap();
 
         let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());

@@ -25,9 +25,9 @@ pub enum SliverError {
     #[error("Missing metadata file: {filename}")]
     MissingMetadata { filename: String },
 
-    /// Missing heap blob in archive
-    #[error("Missing heap blob: {filename}")]
-    MissingHeap { filename: String },
+    /// Sliver archive has no payload (no bytecode, VFS entries, or legacy heap blob)
+    #[error("Missing payload in sliver: {filename}")]
+    MissingPayload { filename: String },
 
     /// Corrupted or invalid tar archive structure
     #[error("Corrupted archive: {reason}")]

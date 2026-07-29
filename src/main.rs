@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tokio::sync::RwLock;
 
 mod cli;
@@ -247,14 +246,12 @@ async fn run_from_sliver(
         .with_context(|| format!("Failed to unpack sliver: {}", sliver_path.display()))?;
     
     tracing::info!(
-        "Unpacked sliver for {}: {} bytes heap, {} VFS entries",
+        "Unpacked sliver for {}: {} VFS entries, bytecode: {}",
         unpacked.metadata.hostname,
-        unpacked.heap_data.len(),
-        unpacked.vfs_entries.len()
+        unpacked.vfs_entries.len(),
+        unpacked.bytecode.is_some()
     );
 
-    // Store sliver info before moving unpacked
-    let heap_size = unpacked.heap_data.len();
     let vfs_file_count = unpacked.vfs_entries.len();
 
     // Get hostname from sliver or use override
@@ -269,18 +266,8 @@ async fn run_from_sliver(
         );
     }
 
-    // Extract VFS to temp directory for JS execution
-    // This enables sliver portability - JS is executed from temp, not CWD
-    let temp_vfs = nano::sliver::SliverExtractor::extract(&unpacked)
-        .context("Failed to extract sliver VFS to temp directory")?;
-    let temp_entrypoint = temp_vfs.entrypoint_path().to_path_buf();
-    let temp_dir_path = temp_vfs.temp_dir().to_path_buf();
-
-    tracing::info!(
-        "Extracted sliver VFS to: {} (entrypoint: {})",
-        temp_dir_path.display(),
-        temp_entrypoint.display()
-    );
+    let js_entrypoint = nano::sliver::SliverExtractor::resolve_entrypoint(&unpacked);
+    tracing::info!("Sliver entrypoint: {}", js_entrypoint);
 
     // Create app registry with sliver data
     let mut registry = nano::app::registry::AppRegistry::default();
@@ -293,24 +280,14 @@ async fn run_from_sliver(
     let _registry = Arc::new(RwLock::new(registry));
     tracing::info!("Sliver hostname: '{}' (expected in Host header)", hostname);
 
-    // Create SliverWorkerPool with temp entrypoint for VFS-extracted JS
-    let worker_pool = Arc::new(nano::worker::pool::SliverWorkerPool::with_temp_entrypoint(
+    let worker_pool = Arc::new(nano::worker::pool::SliverWorkerPool::new(
         hostname.clone(),
         workers as u32,
-        0, // No memory limit for now
+        0,
         unpacked,
-        Some(temp_entrypoint.clone()),
     ));
 
     tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);
-
-    // Use temp entrypoint path for JS execution (not CWD)
-    let js_entrypoint = temp_entrypoint.to_string_lossy().to_string();
-
-    // Store temp_vfs in Arc<Mutex<Option<...>>> for cleanup on shutdown
-    let temp_vfs_holder = Arc::new(Mutex::new(Some(temp_vfs)));
-    
-    tracing::info!("JS entrypoint: {}", js_entrypoint);
 
     // Set up graceful shutdown
     let drain = nano::app::drain::RequestDrain::new();
@@ -339,7 +316,6 @@ async fn run_from_sliver(
     println!("  Address:    http://{}", socket_addr);
     println!("  Workers:    {}", workers);
     println!("  JS Entry:   {}", js_entrypoint);
-    println!("  Heap:       {} bytes", heap_size);
     println!("  VFS Files:  {}", vfs_file_count);
     if static_files {
         println!("  Mode:       Permissive (--static) - requests to any host");
@@ -417,22 +393,6 @@ async fn run_from_sliver(
         }
         Err(_) => {
             tracing::warn!("Worker pool still has references, Drop will handle cleanup");
-        }
-    }
-
-    // Cleanup temp VFS directory
-    tracing::info!("Cleaning up temp VFS directory...");
-    let temp_vfs_guard = temp_vfs_holder.lock().unwrap();
-    if let Some(temp_vfs) = temp_vfs_guard.as_ref() {
-        tracing::info!("Temp VFS will be cleaned up: {}", temp_vfs.temp_dir().display());
-    }
-    // temp_vfs is dropped here (outside the lock), cleaning up the temp directory
-    drop(temp_vfs_guard);
-
-    // Explicitly take and cleanup temp_vfs
-    if let Ok(mut guard) = temp_vfs_holder.lock() {
-        if let Some(temp_vfs) = guard.take() {
-            temp_vfs.cleanup();
         }
     }
 
@@ -579,7 +539,7 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 
 /// Handle sliver management commands
 async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
-    use nano::sliver::{pack_sliver, SliverMetadata, unpack_sliver, validate_sliver};
+    use nano::sliver::{SliverMetadata, unpack_sliver, validate_sliver};
     use nano::sliver::packager::create_sliver_from_directory;
     use cli::validation::{validate_hostname, validate_sliver_name, validate_tag};
     
@@ -624,6 +584,7 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                     args.tag,
                     output,
                     hostname,
+                    args.source_only,
                 ).await?;
                 
                 return Ok(());
@@ -674,35 +635,23 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                 metadata.description = Some(format!("Tag: {}", tag));
             }
             
-            // Create V8 snapshot using the new snapshot creator API (v139+)
-            // This creates a snapshottable isolate and serializes it
-            let isolate = nano::v8::NanoIsolate::snapshot_creator()?;
-            let heap_data = nano::v8::create_snapshot_from_nano(isolate)?;
-            tracing::info!("Created heap snapshot: {} bytes", heap_data.len());
-            
-            // Load files from current directory into VFS entries
-            // These will be packed into the sliver archive
-            let vfs_entries = load_files_into_vfs_entries(".")
-                .context("Failed to load files into VFS entries")?;
-            
-            // Pack the sliver with VFS entries
-            let archive_data = pack_sliver(&metadata, &heap_data, Some(&vfs_entries))?;
-            
-            // Write to output file
-            std::fs::write(&output, &archive_data)
-                .with_context(|| format!("Failed to write sliver to {}", output.display()))?;
-            
-            println!("Created sliver: {}", output.display());
-            println!("  Hostname: {}", hostname);
-            println!("  Name: {}", sliver_name.as_deref().unwrap_or(&hostname));
-            println!("  Tag: {}", args.tag.as_deref().unwrap_or("none"));
-            println!("  Size: {} bytes", archive_data.len());
-            println!("  Heap: {} bytes", heap_data.len());
-            
+            let source_only = args.source_only;
+
+            nano::sliver::packager::create_sliver_from_directory(
+                ".",
+                sliver_name.as_deref().unwrap_or(&hostname),
+                args.tag.clone(),
+                Some(output.to_string_lossy().to_string()),
+                Some(hostname.clone()),
+                source_only,
+            ).await.context("Failed to create sliver")?;
+
             // Validate the created sliver
+            let archive_data = std::fs::read(&output)
+                .with_context(|| format!("Failed to read created sliver: {}", output.display()))?;
             validate_sliver(&archive_data)
                 .context("Created sliver failed validation")?;
-            
+
             tracing::info!("Sliver created successfully: {}", output.display());
             
             Ok(())
@@ -800,85 +749,6 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
 
 
 
-/// Load files from a directory into VFS entries for sliver creation
-///
-/// This recursively loads all files from the source directory,
-/// preserving the directory structure. Returns VFS entries that can be
-/// serialized into the sliver.
-///
-/// # Arguments
-///
-/// * `source_dir` - Directory to load files from
-///
-/// # Returns
-///
-/// A vector of (path, file) pairs representing the VFS contents
-fn load_files_into_vfs_entries(
-    source_dir: &str,
-) -> anyhow::Result<Vec<(nano::vfs::VfsPath, nano::vfs::VfsFile)>> {
-    use std::time::SystemTime;
-    
-    let mut vfs_entries = Vec::new();
-    let source_path = std::path::Path::new(source_dir);
-    
-    if !source_path.exists() {
-        tracing::warn!("Source directory does not exist: {}", source_dir);
-        return Ok(vfs_entries);
-    }
-    
-    // Walk the directory and load files
-    for entry in walkdir::WalkDir::new(source_path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
-        let path = entry.path();
-        let relative_path = path.strip_prefix(source_path)
-            .map_err(|e| anyhow::anyhow!("Failed to get relative path: {}", e))?;
-        
-        // Skip binary files that shouldn't be in VFS (executables, etc)
-        let file_name = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        
-        // Skip certain files
-        if file_name.starts_with('.') || file_name.ends_with(".sliver") {
-            continue;
-        }
-        
-        // Read file content
-        let content = std::fs::read(path)
-            .with_context(|| format!("Failed to read file: {}", path.display()))?;
-        
-        let metadata = std::fs::metadata(path)
-            .with_context(|| format!("Failed to get metadata: {}", path.display()))?;
-        
-        let modified_at = metadata.modified()
-            .unwrap_or_else(|_| SystemTime::now());
-        let created_at = metadata.created()
-            .unwrap_or_else(|_| SystemTime::now());
-        
-        // Create VFS path (ensure it starts with /)
-        let vfs_path_str = format!("/{}", relative_path.to_string_lossy());
-        let vfs_path = nano::vfs::VfsPath::new(&vfs_path_str)
-            .with_context(|| format!("Invalid VFS path: {}", vfs_path_str))?;
-        
-        let vfs_file = nano::vfs::VfsFile {
-            content,
-            modified_at,
-            created_at,
-            size: metadata.len() as usize,
-        };
-        
-        tracing::debug!("Loaded file into VFS entries: {} ({} bytes)", vfs_path_str, vfs_file.content.len());
-        
-        vfs_entries.push((vfs_path, vfs_file));
-    }
-    
-    tracing::info!("Loaded {} files into VFS entries from {}", vfs_entries.len(), source_dir);
-    Ok(vfs_entries)
-}
 
 #[cfg(test)]
 mod tests {

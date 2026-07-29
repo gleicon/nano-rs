@@ -42,6 +42,10 @@ pub struct SliverCreateArgs {
     /// Create sliver from directory (no running app required)
     #[arg(long, value_name = "DIR")]
     pub from_dir: Option<PathBuf>,
+
+    /// Skip bytecode compilation; pack JS source only (portable across V8 versions)
+    #[arg(long, default_value = "false")]
+    pub source_only: bool,
 }
 
 /// Arguments for the `sliver list` command

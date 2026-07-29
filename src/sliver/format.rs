@@ -3,22 +3,16 @@
 //! Defines the sliver archive format structure and version constants.
 //! The format is designed to be simple, portable, and evolvable.
 
-/// Current sliver format version
-///
-/// This is a semantic version string that identifies the format specification.
-/// Future versions may add features but must maintain backward compatibility
-/// for basic structure (meta.json, heap.bin, vfs/).
-pub const FORMAT_VERSION: &str = "1.0";
+/// Current sliver format version.
+/// v2.0: bytecode.v8bc replaces heap.bin; source lives in vfs/
+pub const FORMAT_VERSION: &str = "2.0";
 
 /// NANO runtime version for metadata
-/// This should be set at build time or from crate version
 pub const NANO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Filename for the V8 heap snapshot blob
-///
-/// This is an opaque binary blob created by V8's SnapshotCreator API.
-/// The contents are version-specific to V8 and should not be parsed.
-pub const HEAP_FILENAME: &str = "heap.bin";
+/// Filename for V8 UnboundScript bytecode (optional; V8-version-tied).
+/// Present when packed with `--compile` (default). Absent for source-only slivers.
+pub const BYTECODE_FILENAME: &str = "bytecode.v8bc";
 
 /// Filename for JSON metadata
 ///
@@ -56,17 +50,18 @@ impl SliverFormat {
         NANO_VERSION
     }
 
-    /// Check if a format version is supported
-    ///
-    /// Currently only "1.0" is supported. Future versions will implement
-    /// backward compatibility for reading older formats.
     pub fn is_supported_version(version: &str) -> bool {
-        version == FORMAT_VERSION
+        Self::is_supported_version_any(version)
     }
 
     /// Get the list of required files in a valid sliver archive
     pub fn required_files() -> &'static [&'static str] {
-        &[METADATA_FILENAME, HEAP_FILENAME]
+        &[METADATA_FILENAME]
+    }
+
+    /// Check if a format version is supported (accepts both v1.0 for read and v2.0)
+    pub fn is_supported_version_any(version: &str) -> bool {
+        matches!(version, "1.0" | "2.0")
     }
 
     /// Get the complete archive structure as a string
@@ -115,22 +110,22 @@ mod tests {
 
     #[test]
     fn test_format_version() {
-        assert_eq!(SliverFormat::version(), "1.0");
-        assert!(SliverFormat::is_supported_version("1.0"));
+        assert_eq!(SliverFormat::version(), "2.0");
+        assert!(SliverFormat::is_supported_version("1.0")); // v1 readable for migration
+        assert!(SliverFormat::is_supported_version("2.0")); // current
         assert!(!SliverFormat::is_supported_version("0.9"));
-        assert!(!SliverFormat::is_supported_version("2.0"));
+        assert!(!SliverFormat::is_supported_version("3.0"));
     }
 
     #[test]
     fn test_required_files() {
         let required = SliverFormat::required_files();
         assert!(required.contains(&"meta.json"));
-        assert!(required.contains(&"heap.bin"));
     }
 
     #[test]
     fn test_constants() {
-        assert_eq!(HEAP_FILENAME, "heap.bin");
+        assert_eq!(BYTECODE_FILENAME, "bytecode.v8bc");
         assert_eq!(METADATA_FILENAME, "meta.json");
         assert_eq!(MANIFEST_FILENAME, "manifest.txt");
         assert_eq!(VFS_PREFIX, "vfs/");

@@ -51,6 +51,40 @@ struct CodeCacheEntry {
 /// file modification time changes.
 static CODE_CACHE: RwLock<Option<HashMap<String, CodeCacheEntry>>> = RwLock::new(None);
 
+/// V8 bytecode cache — stores compiled bytecode per entrypoint path.
+///
+/// On isolate recycle (every MAX_REQUESTS_PER_ISOLATE requests), feeding
+/// back the bytecode via ConsumeCodeCache skips V8 parsing and compilation
+/// entirely. Invalidated when the source file changes (tied to CODE_CACHE).
+static BYTECODE_CACHE: RwLock<Option<HashMap<String, Arc<[u8]>>>> = RwLock::new(None);
+
+fn bytecode_map_read() -> std::sync::RwLockReadGuard<'static, Option<HashMap<String, Arc<[u8]>>>> {
+    BYTECODE_CACHE.read().unwrap()
+}
+
+fn bytecode_map_write() -> std::sync::RwLockWriteGuard<'static, Option<HashMap<String, Arc<[u8]>>>> {
+    let mut w = BYTECODE_CACHE.write().unwrap();
+    if w.is_none() { *w = Some(HashMap::new()); }
+    w
+}
+
+/// Get cached bytecode for an entrypoint, if available.
+pub fn get_bytecode_cache(entrypoint: &str) -> Option<Arc<[u8]>> {
+    bytecode_map_read().as_ref()?.get(entrypoint).cloned()
+}
+
+/// Store compiled bytecode for an entrypoint.
+pub fn set_bytecode_cache(entrypoint: &str, bytes: Arc<[u8]>) {
+    bytecode_map_write().as_mut().unwrap().insert(entrypoint.to_string(), bytes);
+}
+
+/// Invalidate bytecode cache for an entrypoint (called when source changes).
+pub fn invalidate_bytecode_cache(entrypoint: &str) {
+    if let Some(map) = bytecode_map_write().as_mut() {
+        map.remove(entrypoint);
+    }
+}
+
 /// Initialize the code cache on first use.
 pub fn init_code_cache() {
     let mut cache = CODE_CACHE.write().unwrap();
@@ -92,7 +126,7 @@ pub fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
 
     let code_arc: Arc<str> = code.into();
 
-    // Update cache
+    // Update source cache; invalidate bytecode cache — source changed.
     {
         let mut cache_write = CODE_CACHE.write().unwrap();
         if cache_write.is_none() {
@@ -105,6 +139,7 @@ pub fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
             });
         }
     }
+    invalidate_bytecode_cache(entrypoint);
 
     Ok(code_arc)
 }

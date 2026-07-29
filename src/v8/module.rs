@@ -27,12 +27,12 @@ thread_local! {
     static CURRENT_LOADER: RefCell<Option<*mut ModuleLoader>> = RefCell::new(None);
 }
 
-/// Set the current module loader for import resolution callbacks
+/// Set the current module loader for import resolution callbacks.
 ///
 /// # Safety
-/// This is unsafe because we're storing a raw pointer. The caller must ensure
-/// the loader remains valid for the duration of module execution.
-unsafe fn set_current_loader(loader: Option<*mut ModuleLoader>) {
+/// The caller must ensure the loader pointer remains valid for the duration of
+/// V8 module instantiation. Call with `None` immediately after instantiate_module returns.
+pub(crate) unsafe fn set_current_loader(loader: Option<*mut ModuleLoader>) {
     CURRENT_LOADER.with(|cell| {
         *cell.borrow_mut() = loader;
     });
@@ -62,27 +62,30 @@ pub enum ModuleType {
     Script,
 }
 
-/// Detect the type of module based on code content
+/// Detect the type of module based on code content.
 ///
-/// This heuristic checks for ESM indicators:
-/// - `export default` - Common framework pattern
-/// - `export ` - Named exports
-/// - `export{` - Minified export pattern
-/// - `import ` - Static imports
-/// - `import{` - Minified import pattern
-/// - `import(` - Dynamic imports
+/// Scans non-comment lines for `export` or `import` at the start (after
+/// optional whitespace). This avoids false positives from string literals
+/// like `const msg = "please export your config"`.
 pub fn detect_module_type(code: &str) -> ModuleType {
-    if code.contains("export default")
-        || code.contains("export ")
-        || code.contains("export{")  // Minified exports
-        || code.contains("import ")
-        || code.contains("import{")  // Minified imports
-        || code.contains("import(")  // Dynamic imports
-    {
-        ModuleType::ESM
-    } else {
-        ModuleType::Script
+    let mut in_block_comment = false;
+    for line in code.lines() {
+        let trimmed = line.trim();
+        if in_block_comment {
+            if trimmed.contains("*/") { in_block_comment = false; }
+            continue;
+        }
+        if trimmed.starts_with("//") { continue; }
+        if trimmed.contains("/*") { in_block_comment = true; }
+        if trimmed.starts_with("export ") || trimmed.starts_with("export{")
+            || trimmed.starts_with("export default")
+            || trimmed.starts_with("import ") || trimmed.starts_with("import{")
+            || trimmed.starts_with("import(")
+        {
+            return ModuleType::ESM;
+        }
     }
+    ModuleType::Script
 }
 
 /// Check if code is an ESM module
@@ -113,29 +116,61 @@ impl ModuleLoader {
         }
     }
 
-    /// Load a module from VFS
-    ///
+    /// Load a module: VFS first, disk fallback.
     fn load_module_from_vfs(&self, path: &str) -> Result<String> {
         let vfs = &self.vfs;
-        let content = match tokio::runtime::Handle::try_current() {
+        let vfs_result = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle.block_on(vfs.read(path)),
             Err(_) => crate::data_plane::with_worker_runtime(|h| h.block_on(vfs.read(path)))
                 .unwrap_or_else(|| {
                     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
                     rt.block_on(vfs.read(path))
                 }),
+        };
+        match vfs_result {
+            Ok(content) => return Ok(String::from_utf8_lossy(&content).to_string()),
+            Err(_) => {} // fall through to disk
         }
-        .map_err(|e| anyhow!("Failed to read module {}: {}", path, e))?;
-        Ok(String::from_utf8_lossy(&content).to_string())
+        // Disk fallback: strip leading slash for relative disk reads
+        let disk_path = path.trim_start_matches('/');
+        std::fs::read_to_string(disk_path)
+            .map_err(|e| anyhow!("Module '{}' not found in VFS or on disk: {}", path, e))
     }
 
-    /// Resolve a relative import path against a base path
+    /// Resolve an import specifier to a VFS (or disk) path.
     ///
-    /// Handles `./` and `../` patterns. Returns the resolved path.
+    /// - Absolute paths (`/foo`): returned as-is
+    /// - Relative paths (`./foo`, `../foo`): resolved against base_path
+    /// - Bare specifiers (`lodash`): try `/node_modules/<spec>/index.js` in VFS,
+    ///   then disk-walk (node_modules/<spec>/index.js relative to cwd)
     fn resolve_import_path(&self, base_path: &str, specifier: &str) -> Result<String> {
-        // Handle absolute paths (shouldn't happen in proper ESM, but handle anyway)
+        // Absolute VFS path
         if specifier.starts_with('/') {
             return Ok(specifier.to_string());
+        }
+
+        // Bare specifier — not relative, not absolute
+        if !specifier.starts_with('.') {
+            // Try VFS /node_modules first
+            let vfs_nm = format!("/node_modules/{}/index.js", specifier);
+            let vfs_check = crate::data_plane::with_worker_runtime(|h| {
+                h.block_on(self.vfs.exists(&vfs_nm))
+            }).unwrap_or_else(|| {
+                let rt = tokio::runtime::Runtime::new().expect("rt");
+                rt.block_on(self.vfs.exists(&vfs_nm))
+            }).unwrap_or(false);
+            if vfs_check {
+                return Ok(vfs_nm);
+            }
+            // Disk-walk fallback
+            let disk_nm = format!("node_modules/{}/index.js", specifier);
+            if std::path::Path::new(&disk_nm).exists() {
+                return Ok(format!("/{}", disk_nm));
+            }
+            return Err(anyhow!(
+                "Cannot resolve bare specifier '{}': not found in VFS /node_modules/ or disk node_modules/",
+                specifier
+            ));
         }
 
         // Get the directory of the base path
@@ -686,7 +721,7 @@ fn execute_esm_module<'a>(
 ///
 /// # V147 API Note
 /// CallbackScope uses the same pin! + init() pattern as HandleScope.
-fn module_resolve_callback<'a>(
+pub(crate) fn module_resolve_callback<'a>(
     context: v8::Local<'a, v8::Context>,
     specifier: v8::Local<'a, v8::String>,
     _import_attributes: v8::Local<'a, v8::FixedArray>,
@@ -867,5 +902,26 @@ mod tests {
         loader.pop_loading();
         loader.pop_loading();
         assert!(!loader.is_circular_import("/a.js"));
+    }
+
+    #[test]
+    fn test_detect_module_type_esm() {
+        assert_eq!(detect_module_type("export default { fetch(req) {} }"), ModuleType::ESM);
+        assert_eq!(detect_module_type("export function fetch(req) {}"), ModuleType::ESM);
+        assert_eq!(detect_module_type("import { x } from './mod.js';\nconst y = 1;"), ModuleType::ESM);
+    }
+
+    #[test]
+    fn test_detect_module_type_classic() {
+        assert_eq!(detect_module_type("function fetch(req) { return { status: 200 }; }"), ModuleType::Script);
+        // string literal containing "export " must not trigger ESM detection
+        assert_eq!(detect_module_type("const msg = \"please export your config\";"), ModuleType::Script);
+        assert_eq!(detect_module_type("var x = 1;"), ModuleType::Script);
+    }
+
+    #[test]
+    fn test_detect_module_type_comment_skip() {
+        // export in a comment should not trigger ESM
+        assert_eq!(detect_module_type("// export function fetch() {}\nfunction fetch(req) {}"), ModuleType::Script);
     }
 }

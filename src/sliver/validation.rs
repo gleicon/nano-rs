@@ -16,8 +16,8 @@ pub enum CorruptionType {
     InvalidTar { reason: String },
     /// Missing metadata file
     MissingMetadata,
-    /// Missing heap blob
-    MissingHeap,
+    /// Sliver has no payload (no bytecode, VFS entries, or legacy heap blob)
+    MissingPayload,
     /// Invalid metadata JSON
     InvalidMetadata { error: String },
     /// Truncated file
@@ -37,8 +37,8 @@ impl std::fmt::Display for CorruptionType {
             CorruptionType::MissingMetadata => {
                 write!(f, "Missing {} (required)", METADATA_FILENAME)
             }
-            CorruptionType::MissingHeap => {
-                write!(f, "Missing heap.bin (required)")
+            CorruptionType::MissingPayload => {
+                write!(f, "Sliver has no payload (no bytecode, VFS entries, or heap blob)")
             }
             CorruptionType::InvalidMetadata { error } => {
                 write!(f, "Corrupted {}: {}", METADATA_FILENAME, error)
@@ -80,7 +80,7 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
     let mut archive = tar::Archive::new(file);
     
     let mut found_metadata = false;
-    let mut found_heap = false;
+    let mut found_payload = false; // heap.bin (v1) or bytecode.v8bc (v2) or vfs/* entries
     let mut errors = Vec::new();
 
     match archive.entries() {
@@ -116,13 +116,16 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
                                             }
                                         }
                                     }
-                                    "heap.bin" => {
-                                        found_heap = true;
+                                    "heap.bin" | "bytecode.v8bc" => {
+                                        found_payload = true;
                                         if size == 0 {
-                                            errors.push(CorruptionType::EmptyFile { 
-                                                entry: "heap.bin".to_string() 
+                                            errors.push(CorruptionType::EmptyFile {
+                                                entry: path_str.to_string(),
                                             });
                                         }
+                                    }
+                                    p if p.starts_with("vfs/") => {
+                                        found_payload = true;
                                     }
                                     _ => {}
                                 }
@@ -153,8 +156,8 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
     if !found_metadata {
         errors.push(CorruptionType::MissingMetadata);
     }
-    if !found_heap {
-        errors.push(CorruptionType::MissingHeap);
+    if !found_payload {
+        errors.push(CorruptionType::MissingPayload);
     }
 
     // Return first error if any

@@ -31,8 +31,7 @@ fn create_test_handler(dir: &TempDir, filename: &str, code: &str) -> String {
 
 fn create_test_sliver_for_pool(hostname: &str) -> UnpackedSliver {
     let metadata = SliverMetadata::new(hostname, "1.1.0");
-    let heap_data = vec![0xABu8; 1024];
-    let archive = pack_sliver(&metadata, &heap_data, None).unwrap();
+    let archive = pack_sliver(&metadata, None, None).unwrap();
     nano::sliver::unpack_sliver(&archive).unwrap()
 }
 
@@ -455,24 +454,22 @@ fn test_sliver_worker_pool_with_temp_vfs() {
         r#"function fetch(request) {{ return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "{}" }}; }}"#,
         dynamic_token
     );
-    let temp_entrypoint = temp_dir.path().join("index.js");
-    std::fs::write(&temp_entrypoint, &temp_handler_code).expect("Failed to write temp handler");
+    let entrypoint = create_test_handler(&temp_dir, "index.js", &temp_handler_code);
 
     let unpacked = create_test_sliver_for_pool("temp-vfs.example.com");
 
-    let pool = SliverWorkerPool::with_temp_entrypoint(
+    let pool = SliverWorkerPool::new(
         "temp-vfs.example.com".to_string(),
         1,
         0,
         unpacked,
-        Some(temp_entrypoint.clone()),
     );
 
     let url = NanoUrl::parse("http://test/").unwrap();
     let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
     let (tx, rx) = oneshot::channel();
-    let task = HandlerTask::new("/dummy/path.js".to_string(), request, tx);
+    let task = HandlerTask::new(entrypoint, request, tx);
 
     pool.dispatch(task).expect("Failed to dispatch");
     let response = rx.blocking_recv().expect("Failed to receive response");
@@ -489,7 +486,7 @@ fn test_sliver_worker_pool_with_temp_vfs() {
     let body_text = String::from_utf8_lossy(&body);
     assert!(
         body_text.contains(&dynamic_token),
-        "Expected response from temp VFS with dynamic token '{}', got: {}",
+        "Expected response with dynamic token '{}', got: {}",
         dynamic_token,
         body_text
     );

@@ -6,7 +6,7 @@
 use tar::{Builder, Header};
 
 use crate::sliver::error::SliverResult;
-use crate::sliver::format::{HEAP_FILENAME, MANIFEST_FILENAME, METADATA_FILENAME, VFS_PREFIX};
+use crate::sliver::format::{BYTECODE_FILENAME, MANIFEST_FILENAME, METADATA_FILENAME, VFS_PREFIX};
 use crate::sliver::metadata::SliverMetadata;
 use crate::vfs::types::{VfsFile, VfsPath};
 
@@ -46,19 +46,15 @@ impl SliverPacker {
         Ok(())
     }
 
-    /// Add the V8 heap blob to the archive
-    ///
-    /// The heap data is treated as an opaque binary blob.
-    pub fn add_heap(&mut self, heap_data: &[u8]) -> SliverResult<()> {
+    /// Add pre-compiled V8 bytecode to the archive.
+    pub fn add_bytecode(&mut self, bytecode: &[u8]) -> SliverResult<()> {
         let mut header = Header::new_gnu();
-        header.set_path(HEAP_FILENAME)?;
-        header.set_size(heap_data.len() as u64);
+        header.set_path(BYTECODE_FILENAME)?;
+        header.set_size(bytecode.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-
-        self.builder.append(&header, heap_data)?;
-        self.entries.push(HEAP_FILENAME.to_string());
-
+        self.builder.append(&header, bytecode)?;
+        self.entries.push(BYTECODE_FILENAME.to_string());
         Ok(())
     }
 
@@ -159,31 +155,24 @@ impl Default for SliverPacker {
     }
 }
 
-/// Convenience function to pack a complete sliver
+/// Pack a sliver archive.
 ///
-/// Creates a sliver archive with the given components in one call.
-///
-/// # Arguments
-/// * `metadata` - Sliver metadata (hostname, timestamps, etc.)
-/// * `heap_data` - Opaque V8 heap snapshot blob
-/// * `vfs_entries` - Optional VFS file entries to include
-///
-/// # Returns
-/// The serialized tar archive as a byte vector
+/// * `metadata`  - Sliver metadata (hostname, timestamps, v8_cache_version, etc.)
+/// * `bytecode`  - Optional pre-compiled V8 bytecode; None for source-only slivers
+/// * `vfs_entries` - Files to bundle (JS source, assets, modules, WASM)
 pub fn pack_sliver(
     metadata: &SliverMetadata,
-    heap_data: &[u8],
+    bytecode: Option<&[u8]>,
     vfs_entries: Option<&[(VfsPath, VfsFile)]>,
 ) -> SliverResult<Vec<u8>> {
     let mut packer = SliverPacker::new();
-
     packer.add_metadata(metadata)?;
-    packer.add_heap(heap_data)?;
-
+    if let Some(bc) = bytecode {
+        packer.add_bytecode(bc)?;
+    }
     if let Some(entries) = vfs_entries {
         packer.add_vfs_entries(entries)?;
     }
-
     packer.finalize()
 }
 
@@ -195,9 +184,7 @@ mod tests {
     #[test]
     fn test_packer_basic() {
         let metadata = SliverMetadata::new("app.example.com", "1.1.0");
-        let heap_data = vec![0u8; 1024]; // Fake heap blob
-
-        let archive = pack_sliver(&metadata, &heap_data, None).unwrap();
+        let archive = pack_sliver(&metadata, None, None).unwrap();
         
         // Should be non-empty
         assert!(!archive.is_empty());
@@ -208,8 +195,6 @@ mod tests {
     #[test]
     fn test_packer_with_vfs() {
         let metadata = SliverMetadata::new("app.example.com", "1.1.0");
-        let heap_data = vec![0u8; 1024];
-        
         let vfs_entries = vec![
             (
                 VfsPath::new("config.json").unwrap(),
@@ -221,7 +206,7 @@ mod tests {
             ),
         ];
 
-        let archive = pack_sliver(&metadata, &heap_data, Some(&vfs_entries)).unwrap();
+        let archive = pack_sliver(&metadata, None, Some(&vfs_entries)).unwrap();
         
         // Verify it's a valid tar
         assert!(!archive.is_empty());
@@ -230,11 +215,9 @@ mod tests {
     #[test]
     fn test_manifest_generation() {
         let mut packer = SliverPacker::new();
-        
         let metadata = SliverMetadata::new("app.example.com", "1.1.0");
         packer.add_metadata(&metadata).unwrap();
-        packer.add_heap(&[0u8; 100]).unwrap();
-
+        packer.add_bytecode(&[0xDE, 0xAD]).unwrap();
         let archive = packer.finalize().unwrap();
         assert!(!archive.is_empty());
     }
@@ -242,16 +225,13 @@ mod tests {
     #[test]
     fn test_binary_content_preservation() {
         let metadata = SliverMetadata::new("app.example.com", "1.1.0");
-        let heap_data = vec![0u8; 100];
-        
-        // Binary content with null bytes
         let binary_content: Vec<u8> = vec![0x00, 0x01, 0xFF, 0xFE, 0xFD];
         let vfs_entries = vec![(
             VfsPath::new("binary.dat").unwrap(),
             VfsFile::new(binary_content.clone()),
         )];
 
-        let archive = pack_sliver(&metadata, &heap_data, Some(&vfs_entries)).unwrap();
+        let archive = pack_sliver(&metadata, None, Some(&vfs_entries)).unwrap();
         assert!(!archive.is_empty());
     }
 }

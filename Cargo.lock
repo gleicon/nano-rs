@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "nano-rs"
-version = "2.1.0-alpha"
+version = "2.1.1-alpha"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3419,9 +3419,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "147.4.0"
+version = "150.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2df8fffd507fb18ed000673a83d937f58e60fb07f3306b2274284125b15137cd"
+checksum = "0536cf89ae8d8cbc1665a76c7bc121cad55bd7e12fa67e30d766aa9db393ed72"
 dependencies = [
  "bindgen",
  "bitflags",

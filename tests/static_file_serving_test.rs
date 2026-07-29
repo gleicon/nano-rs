@@ -154,6 +154,7 @@ fn test_sliver_directory_packing() {
         Some("v1.0".to_string()),
         Some("/tmp/static-test.sliver".to_string()),
         Some("test-host".to_string()),
+        true,
     ));
     
     assert!(result.is_ok(), "Should create sliver from directory: {:?}", result.err());
@@ -186,6 +187,7 @@ fn test_sliver_can_be_created_without_running_app() {
         Some("v1.0".to_string()),
         Some("/tmp/standalone-test.sliver".to_string()),
         Some("standalone.local".to_string()),
+        true,
     ));
     
     assert!(result.is_ok(), "Should create sliver without running app");
@@ -351,6 +353,7 @@ fn test_sliver_packing_with_metadata() {
         Some("v2.0.0".to_string()),
         Some("/tmp/meta-test.sliver".to_string()),
         Some("meta.example.com".to_string()),
+        true,
     ));
     
     assert!(result.is_ok(), "Should create sliver with metadata");

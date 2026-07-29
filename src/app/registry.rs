@@ -246,8 +246,7 @@ mod tests {
         let sliver_path = temp_dir.path().join("test.sliver");
 
         let metadata = SliverMetadata::new(hostname, "1.1.0");
-        let heap_data = vec![0xABu8; 100];
-        let archive = pack_sliver(&metadata, &heap_data, None).unwrap();
+        let archive = pack_sliver(&metadata, None, None).unwrap();
 
         std::fs::write(&sliver_path, &archive).expect("Failed to write sliver");
 
@@ -320,7 +319,7 @@ mod tests {
 
         let data = sliver_data.unwrap();
         assert_eq!(data.metadata.hostname, "data-test.example.com");
-        assert_eq!(data.heap_data.len(), 100);
+        assert!(data.bytecode.is_none()); // source-only sliver has no bytecode
     }
 
     #[test]
@@ -359,8 +358,7 @@ mod tests {
     #[test]
     fn test_with_sliver_data() {
         let metadata = SliverMetadata::new("preloaded.example.com", "1.1.0");
-        let heap_data = vec![0u8; 50];
-        let unpacked = crate::sliver::UnpackedSliver::new(metadata, heap_data, vec![]);
+        let unpacked = crate::sliver::UnpackedSliver::new(metadata, None, vec![]);
 
         let mut apps = HashMap::new();
         apps.insert(

@@ -53,6 +53,7 @@ where
 /// 6. **Restore**: Create new isolate from the snapshot
 /// 7. **Validation**: Verify VFS is restored
 #[test]
+#[ignore = "v1 snapshot workflow: NanoIsolate::from_snapshot and create_snapshot_from_nano removed in v2"]
 fn test_sliver_full_workflow_create_run_snapshot_restore() {
     use nano::v8::{initialize_platform, NanoIsolate};
     use nano::v8::snapshot::create_snapshot_from_nano;
@@ -209,7 +210,7 @@ fn test_sliver_full_workflow_create_run_snapshot_restore() {
     // Pack sliver (metadata + heap + VFS)
     let sliver_data = pack_sliver(
         &metadata,
-        &heap_data,
+        Some(&heap_data),
         Some(&vfs_snapshot)
     ).expect("Failed to pack sliver");
     
@@ -244,7 +245,7 @@ fn test_sliver_full_workflow_create_run_snapshot_restore() {
     println!("    - Metadata: {} (name: {:?})", 
         unpacked.metadata.hostname, 
         unpacked.metadata.name.as_deref().unwrap_or("unnamed"));
-    println!("    - Heap: {} bytes", unpacked.heap_data.len());
+    println!("    - Bytecode: {} bytes", unpacked.bytecode.as_ref().map(|b| b.len()).unwrap_or(0));
     println!("    - VFS entries: {}", unpacked.vfs_entries.len());
     
     // Create new isolate from snapshot
@@ -253,7 +254,7 @@ fn test_sliver_full_workflow_create_run_snapshot_restore() {
         VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
     );
     
-    let restored_isolate = NanoIsolate::from_snapshot(&unpacked.heap_data, vfs)
+    let restored_isolate = NanoIsolate::from_snapshot(unpacked.bytecode.as_deref().unwrap_or_default(), vfs)
         .expect("Failed to restore isolate from snapshot");
     
     // Restore VFS contents by writing them back
@@ -417,7 +418,7 @@ fn test_sliver_unpack_structure() {
     ];
     
     // Pack sliver
-    let packed = pack_sliver(&metadata, &heap_data, Some(&vfs_entries))
+    let packed = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries))
         .expect("Failed to pack sliver");
     
     // Write to temp file
@@ -429,11 +430,11 @@ fn test_sliver_unpack_structure() {
     let unpacked = unpack_sliver(&packed).expect("Failed to unpack sliver");
     
     assert_eq!(unpacked.metadata.hostname, "unpack.test.com");
-    assert_eq!(unpacked.heap_data, heap_data);
+    assert_eq!(unpacked.bytecode.as_deref().unwrap_or_default(), heap_data.as_slice());
     assert_eq!(unpacked.vfs_entries.len(), 2);
-    
+
     println!("✓ Sliver unpack structure verified");
     println!("  - Hostname: {}", unpacked.metadata.hostname);
-    println!("  - Heap size: {} bytes", unpacked.heap_data.len());
+    println!("  - Bytecode size: {} bytes", unpacked.bytecode.as_ref().map(|b| b.len()).unwrap_or(0));
     println!("  - VFS entries: {}", unpacked.vfs_entries.len());
 }

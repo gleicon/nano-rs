@@ -53,10 +53,12 @@ pub struct SliverMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    /// V8 bytecode cache version tag at pack time.
+    /// Mismatch at load time means bytecode is stale — recompile from source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v8_cache_version: Option<u32>,
+
     /// Optional custom metadata fields
-    ///
-    /// Additional key-value pairs for application-specific metadata.
-    /// These are preserved during roundtrip but not interpreted by NANO.
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub custom: HashMap<String, String>,
 }
@@ -75,6 +77,7 @@ impl SliverMetadata {
             format_version: FORMAT_VERSION.to_string(),
             nano_version: nano_version.into(),
             description: None,
+            v8_cache_version: None,
             custom: HashMap::new(),
         }
     }
@@ -154,7 +157,7 @@ mod tests {
         let meta = SliverMetadata::new("app.example.com", "1.1.0");
         assert!(meta.name.is_none());
         assert_eq!(meta.hostname, "app.example.com");
-        assert_eq!(meta.format_version, "1.0");
+        assert_eq!(meta.format_version, "2.0");
         assert_eq!(meta.nano_version, "1.1.0");
         assert!(meta.description.is_none());
     }

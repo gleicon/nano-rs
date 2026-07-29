@@ -1,6 +1,6 @@
 [package]
 name = "nano-rs"
-version = "2.1.0-alpha"
+version = "2.1.1-alpha"
 edition = "2021"
 authors = ["Gleicon Moraes <gleicon@gmail.com>"]
 description = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)"
@@ -20,7 +20,7 @@ path = "tools/cve_scanner.rs"
 
 [dependencies]
 # Core V8 bindings (v147)
-v8 = "147"
+v8 = "150"
 
 # Async runtime
 tokio = { version = "1.52", features = ["full"] }
