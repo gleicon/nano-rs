@@ -1,7 +1,7 @@
 # NANO Runtime Technical Documentation
 
-Version: v2.0a  
-Last Updated: 2026-05-17
+Version: v2.1.3-alpha  
+Last Updated: 2026-07-31
 
 ## Executive Summary
 
@@ -104,7 +104,7 @@ Full HTTP server and client implementation:
 | Timeout handling | Implemented | Configurable per-request |
 | Redirect handling | Implemented | Configurable max redirects |
 | Response body limits | Implemented | 100MB default, configurable |
-| WebSocket upgrade | In Progress | Phase 23 — v2.0a |
+| WebSocket upgrade | Implemented | Phase 23 — v2.1.x |
 | WebSocketPair API | In Progress | Cloudflare Workers compatible |
 
 ### Sliver snapshot and encapsulation system

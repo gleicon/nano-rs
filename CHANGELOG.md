@@ -3,6 +3,65 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3-alpha] - 2026-07-31
+
+### Fixed
+
+- **Test infrastructure** — `wait_ready()` called `read_to_end()` on a live child process stderr, blocking the test thread indefinitely (up to 25 min) when server startup failed. Now kills and waits for process exit before reading stderr.
+
+## [2.1.2-alpha] - 2026-07-26
+
+### Changed
+
+- **rusty_v8 bumped to 150.4.0** — V8 WASM validator is stricter; malformed section lengths are now rejected at compile time rather than silently tolerated.
+
+### Fixed
+
+- **WASM binary corruption** — `examples/wasm-test/add.wasm` export section length byte was `0x08` instead of `0x07`. The extra byte claimed the code section ID (`0x0A`) as export body, causing V8 150.4.0's stricter validator to reject the module. Fixed: `data[22] = 0x07`.
+- **WASM CPU timeout for async handlers** — `terminate_execution()` correctly interrupts WASM JIT loops running inside `perform_microtask_checkpoint()`, but the outer async Promise stays `Pending` rather than being rejected. The poll loop now checks `is_cpu_termination_requested() || tc.has_terminated()` and returns `Err("CPU timeout")` explicitly. Previously, async WASM handlers with infinite loops never timed out.
+- **CPU timeout cancel race** — `cancel_terminate_execution()` was called on every `Pending` poll iteration, cancelling the active CPU guard before it could fire. Moved to pre-request position only; removed from poll loop.
+- **VFS disk backend namespace** — `prefix_namespace()` no longer prepends `hostname::` subdirectory for `DiskBackend`. The per-app `base_path` already isolates tenants; double-prefixing created unexpected paths that broke `Nano.fs.readFile()` in disk-backed apps.
+- **V8 heap limits** — `NanoIsolate::new_with_vfs_and_limit()` now passes `CreateParams::heap_limits(0, max_bytes)` at isolate creation time, so V8's GC ceiling is enforced before the near-heap-limit callback fires.
+- **CI** — Added native-runner release workflow for all 4 targets (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64).
+
+### Notes
+
+- **clearTimeout + long setTimeout with cpu_time_ms** — The WASM CPU timeout fix has a side effect: all async handlers (not just WASM) are now correctly killed at the configured CPU wall-clock limit. Tests that use `cpu_time_ms: 100` with `setTimeout(200)` will now fail — the 200ms delay exceeds the 100ms CPU limit. This is correct enforcement; it was not enforced in 2.1.1 due to the cancel-in-poll-loop bug. Fix: set `cpu_time_ms` higher than the timer delays under test (e.g., `cpu_time_ms: 1000` for a 200ms setTimeout).
+- **Memory limit test expectations** — V8 small integers (SMIs) are 31-bit tagged pointers with zero heap allocation. Allocating 10M JS integers does not trigger `heap_limits`. Use large typed arrays or strings (e.g., `new Uint8Array(64 * 1024 * 1024)`) to actually exercise the heap ceiling.
+
+## [2.1.1-alpha] - 2026-07-01
+
+### Fixed
+
+- **Security** — SSRF: blocked private IP ranges in `fetch()` outbound requests
+- **Security** — Timing: constant-time comparison for API key validation
+- **Security** — JSON escape: control characters properly escaped in error responses
+- **Security** — Bind warning: server bind address validated at startup
+- **Worker loop** — Merged request dispatch loops; removed dead handlers and dead pool paths
+- **Tests** — Extracted embedded inline tests to `tests/` directory; split large runtime modules
+- **Snapshot** — `nano-rs sliver build` no longer exits with non-zero status on success
+- **WebSocket** — `WebSocket.send()` throws `InvalidStateError` when called in CLOSED state
+
+### Changed
+
+- **Sliver v2 format** — ESM/classic handler extraction, security hardening, improved test coverage
+- **WebSocket dispatch** — Restored RFC 6455 compliant frame dispatch; hardened relay task
+
+## [2.1.0-alpha] - 2026-06-15
+
+### Added
+
+- **eval/new-Function ban** — `set_allow_generation_from_strings(false)` enforced in standalone execution path (matches Cloudflare Workers security model)
+- **WebSocket stub** — `WebSocket` global available in JS context
+
+### Fixed
+
+- **WebSocket headers** — Corrected upgrade header handling in relay
+
+### Changed
+
+- **Worker architecture** — Unified worker loop replaces separate dispatch paths
+
 ## [v2.0a] - 2026-05-17
 
 ### Added
