@@ -168,7 +168,11 @@ impl NanoProcess {
 
     async fn wait_ready(&mut self, port: u16, hostname: &str) {
         if let Err(e) = wait_for_server(port, hostname, 15).await {
-            // Capture and print stderr before panicking
+            // Kill the process first so read_to_end doesn't block forever.
+            // A running child keeps its stderr pipe open; read_to_end only
+            // returns once EOF is received, which happens when the process exits.
+            self.child.kill().ok();
+            let _ = self.child.wait();
             let mut stderr = String::new();
             if let Some(ref mut err) = self.child.stderr {
                 use std::io::Read;
@@ -177,7 +181,6 @@ impl NanoProcess {
                 stderr = String::from_utf8_lossy(&buf).to_string();
             }
             eprintln!("=== NANO STDERR ===\n{}\n===================", stderr);
-            self.stop();
             panic!("{}", e);
         }
     }
