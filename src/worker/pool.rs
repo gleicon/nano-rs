@@ -413,6 +413,12 @@ impl WorkerPool {
                     let namespace = VfsNamespace::from_hostname(&worker_hostname);
                     let vfs = IsolateVfs::new(namespace, worker_vfs_backend.clone());
 
+                    let heap_limit_bytes = if memory_limit_mb > 0 {
+                        memory_limit_mb as usize * 1024 * 1024
+                    } else {
+                        0
+                    };
+
                     let mut nano = match &worker_source {
                         AppSource::Sliver { data } if first_isolate => {
                             first_isolate = false;
@@ -430,14 +436,14 @@ impl WorkerPool {
                                     debug!("Worker {}: sliver bytecode pre-loaded for '{}'", id, entrypoint);
                                 }
                             }
-                            match NanoIsolate::new_with_vfs(vfs) {
+                            match NanoIsolate::new_with_vfs_and_limit(vfs, heap_limit_bytes) {
                                 Ok(iso) => iso,
                                 Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
                             }
                         }
                         AppSource::Entrypoint { .. } if first_isolate => {
                             first_isolate = false;
-                            match NanoIsolate::new_with_vfs(vfs) {
+                            match NanoIsolate::new_with_vfs_and_limit(vfs, heap_limit_bytes) {
                                 Ok(iso) => iso,
                                 Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
                             }
@@ -453,16 +459,18 @@ impl WorkerPool {
                                     warn!("Worker {}: VFS restore on recycle failed: {}", id, e);
                                 }
                             }
-                            match NanoIsolate::new_with_vfs(vfs) {
+                            match NanoIsolate::new_with_vfs_and_limit(vfs, heap_limit_bytes) {
                                 Ok(iso) => iso,
                                 Err(e) => { error!("Worker {}: isolate create failed: {}", id, e); return; }
                             }
                         }
                     };
 
-                    if memory_limit_mb > 0 {
-                        let bytes = memory_limit_mb as usize * 1024 * 1024;
-                        nano.set_heap_limits(bytes / 2, bytes);
+                    // Register the near-heap-limit callback so V8 terminates execution
+                    // (rather than OOM-crashing the process) when the isolate hits its ceiling.
+                    // This works in tandem with CreateParams::heap_limits set above.
+                    if heap_limit_bytes > 0 {
+                        nano.set_heap_limits(heap_limit_bytes / 2, heap_limit_bytes);
                     }
 
                     // Expose VFS to Nano.fs.* callbacks via thread-local.
@@ -703,6 +711,11 @@ impl WorkerPool {
                                 clear_ws_thread_locals();
                                 break 'requests; // D-10b: fresh isolate per WS connection
                             }
+                            // Clear any stale termination flag from a previous request
+                            // before arming the new timeout. The previous guard's Drop already
+                            // called cancel_terminate_execution(), but this is cheap insurance.
+                            unsafe { (*iso_ptr).cancel_terminate_execution(); }
+
                             // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {
                                 // SAFETY: iso_ptr is valid for this isolate's lifetime.
@@ -812,8 +825,14 @@ impl WorkerPool {
                                                     if std::time::Instant::now() > deadline {
                                                         return Err(anyhow!("Async handler timed out after 30s"));
                                                     }
-                                                    // SAFETY: iso_ptr valid for this worker's lifetime.
-                                                    unsafe { (*iso_ptr).cancel_terminate_execution(); }
+                                                    // Detect CPU timeout that fired while WASM or async code
+                                                    // ran inside perform_microtask_checkpoint. TerminateExecution
+                                                    // interrupts WASM JIT loops but does not automatically reject
+                                                    // the outer async Promise — it stays Pending. Check both the
+                                                    // timer flag and the TryCatch termination flag.
+                                                    if crate::data_plane::is_cpu_termination_requested() || tc.has_terminated() {
+                                                        return Err(anyhow!("CPU timeout"));
+                                                    }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
                                                     crate::runtime::apis::fire_pending_timeouts(&mut *tc);
                                                     std::thread::sleep(std::time::Duration::from_millis(1));

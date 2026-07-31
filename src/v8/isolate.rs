@@ -179,6 +179,17 @@ impl NanoIsolate {
     /// let isolate = NanoIsolate::new_with_vfs(vfs).unwrap();
     /// ```
     pub fn new_with_vfs(vfs: IsolateVfs) -> Result<Self> {
+        Self::new_with_vfs_and_limit(vfs, 0)
+    }
+
+    /// Create a new V8 isolate with a specific VFS configuration and heap size limit.
+    ///
+    /// When `heap_limit_bytes > 0`, the V8 isolate is created with a hard heap cap
+    /// via `CreateParams::heap_limits`. This is the only way to enforce memory limits:
+    /// `add_near_heap_limit_callback` only fires when V8's GC limit is approached,
+    /// and without `CreateParams::heap_limits` V8's GC limit is the platform default
+    /// (~4 GB on 64-bit), making configured per-app limits ineffective.
+    pub fn new_with_vfs_and_limit(vfs: IsolateVfs, heap_limit_bytes: usize) -> Result<Self> {
         // PRECONDITION: Platform must be initialized
         assert_precondition!(
             crate::v8::is_initialized(),
@@ -191,8 +202,14 @@ impl NanoIsolate {
             "VFS namespace must not be empty"
         );
 
-        // Create the isolate with default params - returns OwnedIsolate
-        let mut isolate = v8::Isolate::new(Default::default());
+        // Create the isolate — with a hard heap cap when requested.
+        // `initial=0` lets V8 choose its own initial size; only the ceiling is forced.
+        let params = if heap_limit_bytes > 0 {
+            v8::CreateParams::default().heap_limits(0, heap_limit_bytes)
+        } else {
+            v8::CreateParams::default()
+        };
+        let mut isolate = v8::Isolate::new(params);
 
         // POSITIVE: Isolate was successfully created
         assert_positive!(
@@ -956,5 +973,39 @@ mod tests {
         // min > max should still set max and log a warning
         isolate.set_heap_limits(200 * 1024 * 1024, 100 * 1024 * 1024);
         assert_eq!(isolate.heap_limit_bytes(), 100 * 1024 * 1024);
+    }
+
+    /// new_with_vfs_and_limit with a non-zero limit creates an isolate and
+    /// stores the limit so set_heap_limits can register the termination callback.
+    #[test]
+    fn test_new_with_vfs_and_limit_sets_heap_cap() {
+        init_platform();
+
+        let vfs = IsolateVfs::new(
+            VfsNamespace::from_hostname("memlimit-test.example.com"),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+        );
+        let limit = 64 * 1024 * 1024; // 64 MB
+        let mut isolate = NanoIsolate::new_with_vfs_and_limit(vfs, limit)
+            .expect("Failed to create isolate with limit");
+
+        // Registering the callback after creation must succeed
+        isolate.set_heap_limits(limit / 2, limit);
+        assert_eq!(isolate.heap_limit_bytes(), limit as u32);
+    }
+
+    /// new_with_vfs_and_limit with 0 behaves identically to new_with_vfs.
+    #[test]
+    fn test_new_with_vfs_and_limit_zero_is_unlimited() {
+        init_platform();
+
+        let vfs = IsolateVfs::new(
+            VfsNamespace::from_hostname("nolimit-test.example.com"),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+        );
+        let isolate = NanoIsolate::new_with_vfs_and_limit(vfs, 0)
+            .expect("Failed to create isolate with zero limit");
+        // Default heap_limit_bytes is the compile-time constant, not 0
+        assert!(isolate.heap_limit_bytes() > 0);
     }
 }

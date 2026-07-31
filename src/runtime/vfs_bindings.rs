@@ -244,10 +244,17 @@ fn nano_fs_read_file_sync(
             } else {
                 // Create Uint8Array from bytes (default behavior)
                 let ab = v8::ArrayBuffer::new(scope, bytes.len());
-                let store = ab.get_backing_store();
-                for (i, byte) in bytes.iter().enumerate() {
-                    if let Some(cell) = store.get(i) {
-                        cell.set(*byte);
+                if !bytes.is_empty() {
+                    let store = ab.get_backing_store();
+                    // SAFETY: V8 allocates `bytes.len()` bytes for this buffer.
+                    // `ab` has no JS references yet, so write access is exclusive.
+                    // `data()` is non-null for non-empty ArrayBuffers.
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            bytes.as_ptr(),
+                            store.data().unwrap().as_ptr() as *mut u8,
+                            bytes.len(),
+                        );
                     }
                 }
                 if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
@@ -414,10 +421,17 @@ fn nano_fs_read_file(
             } else {
                 // Create Uint8Array from bytes (default behavior)
                 let ab = v8::ArrayBuffer::new(scope, bytes.len());
-                let store = ab.get_backing_store();
-                for (i, byte) in bytes.iter().enumerate() {
-                    if let Some(cell) = store.get(i) {
-                        cell.set(*byte);
+                if !bytes.is_empty() {
+                    let store = ab.get_backing_store();
+                    // SAFETY: V8 allocates `bytes.len()` bytes for this buffer.
+                    // `ab` has no JS references yet, so write access is exclusive.
+                    // `data()` is non-null for non-empty ArrayBuffers.
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            bytes.as_ptr(),
+                            store.data().unwrap().as_ptr() as *mut u8,
+                            bytes.len(),
+                        );
                     }
                 }
                 if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {

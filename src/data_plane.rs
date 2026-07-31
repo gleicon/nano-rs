@@ -152,6 +152,13 @@ pub fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
 static TERMINATION_REQUESTED: AtomicBool = AtomicBool::new(false);
 static TERMINATION_ISOLATE_PTR: AtomicPtr<v8::Isolate> = AtomicPtr::new(std::ptr::null_mut());
 
+/// True if the CPU-timeout timer fired since the last CpuTimeoutGuard was created.
+/// Used by the async poll loop to detect termination of code running in microtasks
+/// (where TerminateExecution may not propagate to the outer TryCatch).
+pub fn is_cpu_termination_requested() -> bool {
+    TERMINATION_REQUESTED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Request termination of the current V8 isolate.
 ///
 /// Called by the timer thread when CPU timeout is reached.

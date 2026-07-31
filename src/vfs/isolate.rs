@@ -109,16 +109,17 @@ impl IsolateVfs {
 
     /// Prefix a path with the isolate's namespace
     fn prefix_namespace(&self, path: &str) -> VfsResult<VfsPath> {
-        // Validate the path first
         let path = VfsPath::new(path)?;
-        // Format: "{namespace}::{path}" or just "{path}" if namespace is empty
         let ns = self.namespace.as_str();
-        let prefixed = if ns.is_empty() {
-            path.as_str().to_string()
-        } else {
-            format!("{}::{}", ns, path.as_str())
-        };
-        VfsPath::new(prefixed)
+        // DiskBackend has per-app base_path configured by the factory; namespace
+        // isolation is already implicit in the directory hierarchy. Adding a
+        // hostname-derived subdirectory would break callers that place files
+        // directly under base_path (the common case for disk-backed apps).
+        // MemoryBackend is shared in-process so the prefix IS needed for tenant isolation.
+        if ns.is_empty() || matches!(self.backend, crate::vfs::VfsBackendEnum::Disk(_)) {
+            return Ok(path);
+        }
+        VfsPath::new(format!("{}::{}", ns, path.as_str()))
     }
 }
 
@@ -207,5 +208,46 @@ mod tests {
         vfs.write("/文件.txt", b"content").await.unwrap();
         let content = vfs.read("/文件.txt").await.unwrap();
         assert_eq!(content, b"content");
+    }
+
+    /// DiskBackend has per-app base_path; namespace subdirs must NOT be created.
+    /// Regression test for: readFile('test.txt') producing ENOENT localhost::test.txt
+    #[tokio::test]
+    async fn test_disk_backend_no_namespace_subdir() {
+        use crate::vfs::DiskBackend;
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let disk = DiskBackend::new(temp_dir.path()).await.unwrap();
+        let backend = crate::vfs::VfsBackendEnum::disk(disk);
+
+        let vfs = IsolateVfs::new(
+            VfsNamespace::from_hostname("localhost"),
+            backend,
+        );
+
+        // Write via IsolateVfs — should land at base_path/test.txt, not base_path/localhost/test.txt
+        vfs.write("/test.txt", b"hello vfs").await.unwrap();
+
+        // File must exist directly under base_path (no namespace subdir)
+        let direct_path = temp_dir.path().join("test.txt");
+        assert!(direct_path.exists(), "file should be at base_path/test.txt, not in a namespace subdir");
+
+        // Read back via API
+        let content = vfs.read("/test.txt").await.unwrap();
+        assert_eq!(content, b"hello vfs");
+    }
+
+    /// Memory backend still uses namespace prefix for multi-tenant isolation.
+    #[tokio::test]
+    async fn test_memory_backend_retains_namespace_isolation() {
+        let shared = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
+
+        let vfs_a = IsolateVfs::new(VfsNamespace::from_hostname("app-a.com"), shared.clone());
+        let vfs_b = IsolateVfs::new(VfsNamespace::from_hostname("app-b.com"), shared.clone());
+
+        vfs_a.write("/data.txt", b"a-data").await.unwrap();
+
+        // app-b must not see app-a's file
+        assert!(vfs_b.read("/data.txt").await.is_err());
+        assert_eq!(vfs_a.read("/data.txt").await.unwrap(), b"a-data");
     }
 }

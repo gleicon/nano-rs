@@ -107,16 +107,12 @@ impl NanoProcess {
         // Write JS file at temp_dir root
         fs::write(temp_dir.join(entrypoint), js_content)
             .expect(&format!("Failed to write {}", entrypoint));
-        
-        // DiskBackend expects files at {base_path}/{sanitized_hostname}/{path}
-        // Sanitize hostname: dots and hyphens become underscores
-        let sanitized_hostname = hostname.to_lowercase().replace('.', "_").replace('-', "_");
-        let host_dir = temp_dir.join(&sanitized_hostname);
-        fs::create_dir_all(&host_dir).expect("Failed to create host directory");
-        
-        // Write WASM file in hostname subdirectory (accessed via Nano.fs)
+
+        // DiskBackend (with per-app base_path) resolves paths directly under
+        // base_path — no namespace subdirectory. Files accessed via Nano.fs
+        // must be placed at base_path/<filename>, not base_path/<hostname>/<filename>.
         if let Some((wasm_name, wasm_bytes)) = wasm_file {
-            fs::write(host_dir.join(wasm_name), wasm_bytes)
+            fs::write(temp_dir.join(wasm_name), wasm_bytes)
                 .expect(&format!("Failed to write {}", wasm_name));
         }
         
@@ -189,6 +185,16 @@ impl NanoProcess {
     fn stop(&mut self) {
         self.child.kill().ok();
         let _ = self.child.wait();
+        // Print stderr so test failures are diagnosable
+        if let Some(ref mut err) = self.child.stderr {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            let _ = err.read_to_end(&mut buf);
+            if !buf.is_empty() {
+                eprintln!("=== NANO STDERR ===\n{}\n===================",
+                    String::from_utf8_lossy(&buf));
+            }
+        }
         cleanup_test_dir(&self.temp_dir);
     }
 }
@@ -316,9 +322,7 @@ async fn test_wasm_cpu_timeout() {
     // Verify files exist
     // Entrypoint at temp_dir root (read directly by runtime)
     assert!(temp_dir.join("wasm_infinite.js").exists(), "wasm_infinite.js should exist in temp dir");
-    // WASM file in sanitized hostname subdirectory (accessed via Nano.fs through VFS)
-    let host_dir = temp_dir.join("wasm_timeout_local");  // sanitized: wasm-timeout.local -> wasm_timeout_local
-    assert!(host_dir.join("add.wasm").exists(), "add.wasm should exist in host dir");
+    assert!(temp_dir.join("add.wasm").exists(), "add.wasm should exist in base_path");
     
     nano.wait_ready(port, "wasm-timeout.local").await;
 
@@ -379,12 +383,7 @@ async fn test_wasm_within_cpu_limit() {
     // Verify files exist
     // Entrypoint at temp_dir root (read directly by runtime)
     assert!(temp_dir.join("wasm_normal.js").exists(), "wasm_normal.js should exist in temp dir");
-    // WASM file in sanitized hostname subdirectory (accessed via Nano.fs through VFS)
-    let host_dir = temp_dir.join("wasm_normal_local");  // sanitized: wasm-normal.local -> wasm_normal_local
-    eprintln!("Looking for add.wasm in: {:?}", host_dir.join("add.wasm"));
-    eprintln!("Host dir exists: {}", host_dir.exists());
-    eprintln!("Host dir contents: {:?}", std::fs::read_dir(&host_dir).ok().map(|entries| entries.map(|e| e.unwrap().file_name()).collect::<Vec<_>>()));
-    assert!(host_dir.join("add.wasm").exists(), "add.wasm should exist in host dir");
+    assert!(temp_dir.join("add.wasm").exists(), "add.wasm should exist in base_path");
     
     nano.wait_ready(port, "wasm-normal.local").await;
 
