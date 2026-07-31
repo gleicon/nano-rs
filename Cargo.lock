@@ -1670,7 +1670,7 @@ dependencies = [
 
 [[package]]
 name = "nano-rs"
-version = "2.1.1-alpha"
+version = "2.1.2-alpha"
 dependencies = [
  "anyhow",
  "async-trait",
