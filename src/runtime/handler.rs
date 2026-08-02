@@ -85,6 +85,9 @@ pub fn execute_handler_with_context(
     // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
     let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
     vfs_bindings::set_current_vfs(Some(vfs_ref));
+    // Clear CURRENT_ENV so this context does not inherit stale env from a prior
+    // isolate on the same thread (handler path has no app-specific env vars).
+    vfs_bindings::set_current_env(std::collections::HashMap::new());
 
     // v147 API: HandleScope::new() returns ScopeStorage, need pin! + init
     let handle_scope = v8::HandleScope::new(isolate.isolate());
@@ -216,6 +219,7 @@ fn execute_in_v8(
     // Set up VFS context for Nano.fs API
     let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
     vfs_bindings::set_current_vfs(Some(vfs_ref));
+    vfs_bindings::set_current_env(std::collections::HashMap::new());
 
     // v147 API: Create HandleScope using pin! + init pattern
     // SAFETY: We transmute to erase lifetime constraints. This is sound because:

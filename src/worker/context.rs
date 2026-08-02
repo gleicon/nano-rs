@@ -71,6 +71,9 @@ impl ContextManager {
         let context = v8::Context::new(&handle_scope, Default::default());
         let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
 
+        // Clear stale CURRENT_ENV before binding so Nano.env does not leak secrets
+        // from a prior app that ran on this thread.
+        crate::runtime::vfs_bindings::set_current_env(std::collections::HashMap::new());
         // Bind APIs
         RuntimeAPIs::bind_all(&mut context_scope, context);
 

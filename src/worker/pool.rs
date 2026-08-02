@@ -180,6 +180,7 @@ pub struct WorkerPool {
     next_worker: AtomicU32,
     pub(crate) vfs_backend: crate::vfs::VfsBackendEnum,
     memory_limit_mb: u32,
+    env_vars: std::collections::HashMap<String, String>,
 }
 
 impl std::fmt::Debug for WorkerPool {
@@ -360,6 +361,17 @@ impl WorkerPool {
         vfs_backend: crate::vfs::VfsBackendEnum,
         source: crate::worker::AppSource,
     ) -> Self {
+        Self::with_source_backend_and_env(hostname, worker_count, memory_limit_mb, vfs_backend, source, std::collections::HashMap::new())
+    }
+
+    pub fn with_source_backend_and_env(
+        hostname: String,
+        worker_count: u32,
+        memory_limit_mb: u32,
+        vfs_backend: crate::vfs::VfsBackendEnum,
+        source: crate::worker::AppSource,
+        env_vars: std::collections::HashMap<String, String>,
+    ) -> Self {
         use crate::worker::AppSource;
 
         if !crate::v8::is_initialized() {
@@ -375,6 +387,7 @@ impl WorkerPool {
         let hostname_for_workers = hostname.clone();
         let vfs_backend_for_workers = vfs_backend.clone();
         let source_for_workers = source.clone();
+        let env_vars_for_workers = env_vars.clone();
 
         let mut workers = Vec::with_capacity(worker_count as usize);
 
@@ -382,6 +395,7 @@ impl WorkerPool {
             let worker_hostname = hostname_for_workers.clone();
             let worker_vfs_backend = vfs_backend_for_workers.clone();
             let worker_source = source_for_workers.clone();
+            let worker_env_vars = env_vars_for_workers.clone();
             let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
 
             // Spawn unified worker thread with persistent V8 scope lifecycle.
@@ -479,6 +493,8 @@ impl WorkerPool {
                     let vfs_clone = nano.vfs().clone();
                     let vfs_arc = std::sync::Arc::new(vfs_clone.clone());
                     crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_arc));
+                    // Expose app env vars as Nano.env frozen object.
+                    crate::runtime::vfs_bindings::set_current_env(worker_env_vars.clone());
 
                     // Raw pointer for CPU timeout guards.
                     // SAFETY: nano lives for the entire scope block below.
@@ -942,6 +958,7 @@ impl WorkerPool {
             next_worker: AtomicU32::new(0),
             vfs_backend,
             memory_limit_mb,
+            env_vars,
         }
     }
 }

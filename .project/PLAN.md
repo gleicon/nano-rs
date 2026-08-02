@@ -2,16 +2,14 @@
 
 ## Now
 
-**State:** Tier 1-3 codebase simplification complete. 667 tests pass (1 pre-existing failure: `test_socket_reuse_addr` port-race, unrelated to our changes). `cargo build` clean, zero warnings. Timer infrastructure extracted to `runtime/timers.rs`. `NanoRequest::from_axum_parts` unifies 4 duplicate request-construction sites. `with_worker_runtime` now correctly wired — `pool.rs` calls `data_plane::set_worker_runtime` instead of dead thread-local. Worker loop merge plan documented (Steps A–E), not yet executed.
+**State:** Phase 11 complete + owner-namespaced hostname scheme done. Canonical URL is `{owner}-{name}.{domain}` to prevent subdomain squatting. `custom_domain` column added to DB, `App` struct, `AppResponse`. `PUT /api/apps/:name/domain` (set CNAME) and `DELETE /api/apps/:name/domain` (clear) registered in user_routes. Both crates build clean.
 
-**State:** Phase 10 test extraction complete. 650 pass, 1 ignored (`test_socket_reuse_addr` marked `#[ignore]`), 3 pre-existing adversarial E2E failures (not regressions). Extracted 7 test modules to `tests/`: `router_unit_tests`, `vfs_memory_unit_tests`, `app_timeout_unit_tests`, `metrics_unit_tests`, `v8_module_unit_tests`, `worker_pool_dispatch_tests`. SubtleCrypto split: `runtime/subtle_v8.rs` (1001 lines) from `apis.rs` (3374→2376 lines). `build` clean.
-
-**Next:** Phase 10 quality gate — run `ds-quality-gate` 9-pass, then commit all cleanup work.
+**Next:** Commit all changes, then `git subtree split --prefix=remo -b remo-split` to extract remo into its own repo.
 
 **Open questions:**
-- Step E (flatten `EntrypointWorkerPool` → direct `WorkerPool` in queue.rs): ~12 call sites, low risk, optional scope.
-- `apis.rs` still 2376 lines — URL (~350) + Buffer (~257) could be further split.
-- 3 adversarial E2E failures pre-date our changes (verified via stash test).
+- Step E (flatten `EntrypointWorkerPool` → direct `WorkerPool` in queue.rs): still optional, ~12 call sites.
+- `apis.rs` still 2376 lines — URL (~350) + Buffer (~257) could be split further.
+- remo split target remote URL TBD (user has domain "remo").
 
 ---
 
@@ -77,6 +75,21 @@
 - [x] Extract tests from `worker/pool.rs` → `tests/worker_pool_dispatch_tests.rs` (11 tests)
 - [x] SubtleCrypto extracted from `runtime/apis.rs` → `runtime/subtle_v8.rs` (1001 lines)
 - [x] `test_socket_reuse_addr` marked `#[ignore]` (pre-existing port-race)
-- [ ] `ds-quality-gate` full 9-pass run
+- [ ] `ds-quality-gate` full 9-pass run on entire branch diff
 - [ ] Commit all cleanup work as logical atomic commits
 - [ ] Address filed security findings: SSRF, timing attack, default bind addr, escape_json control chars
+
+### Phase 11 — remo scaffold + Nano.env wiring
+- [x] remo/ standalone Cargo workspace created (git-push mini PaaS)
+- [x] Nano.env V8 wiring: thread-local CURRENT_ENV → frozen Nano.env object in V8
+- [x] WorkerPool.with_source_backend_and_env() constructor
+- [x] 6 V8 env tests pass (accessible, frozen, missing=undefined, multi-key, etc.)
+- [x] 12 remo validation tests pass (app name, sha, safe_join, constant_eq, parse_app_name)
+- [x] Code review: 10 findings, all fixed (see commit for details)
+- [x] bcrypt → sha256 for token auth (O(N×300ms) → O(1) SQL lookup)
+- [x] Owner-namespaced hostnames: `{owner}-{name}.{domain}` prevents subdomain squatting
+- [x] custom_domain column + app_set_custom_domain() in db.rs
+- [x] PUT/DELETE /api/apps/:name/domain endpoints with validate_domain()
+- [x] AppResponse includes custom_domain field
+- [ ] Commit all changes
+- [ ] `git subtree split --prefix=remo -b remo-split` → push to remo repo
