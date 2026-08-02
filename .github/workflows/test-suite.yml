@@ -38,7 +38,7 @@ jobs:
     steps:
     # Step 1: Checkout nano-rs repository
     - name: Checkout nano-rs
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
@@ -80,7 +80,7 @@ jobs:
 
     # Step 6: Checkout nano-rs-test-suite
     - name: Checkout test suite
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: gleicon/nano-rs-test-suite
         path: test-suite
@@ -150,7 +150,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout nano-rs
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -160,7 +160,7 @@ jobs:
       timeout-minutes: 10
 
     - name: Checkout test suite
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: gleicon/nano-rs-test-suite
         path: test-suite
