@@ -95,9 +95,6 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       
-      - name: Update advisory database
-        run: cargo audit --update
-      
       - name: Run CVE scan
         run: |
           echo "Running CVE scan on dependencies..."

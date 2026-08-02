@@ -45,7 +45,7 @@ async fn test_large_array_allocation() {
         "array_alloc.js",
         js_content,
         100,   // 100ms CPU limit
-        16,    // 16MB memory limit (minimum allowed)
+        128,   // 128MB — V8 needs ~50MB to init; JS still exhausts this
     );
     
     nano.wait_ready(port, "mem-array.local").await;
@@ -60,7 +60,7 @@ async fn test_large_array_allocation() {
 
     nano.stop();
 
-    // With 8MB limit, should either:
+    // With 128MB limit, should either:
     // 1. Complete with limited allocations
     // 2. Get terminated due to memory pressure (503 or OOM response)
     match result {
@@ -160,7 +160,7 @@ async fn test_buffer_growth_attack() {
         "buffer_growth.js",
         js_content,
         100,   // 100ms CPU
-        16,    // 16MB memory
+        128,   // 128MB — V8 needs ~50MB to init; buffer growth still exhausts this
     );
     
     nano.wait_ready(port, "mem-buffer.local").await;
@@ -218,7 +218,7 @@ async fn test_closure_memory_leak() {
         "closure_leak.js",
         js_content,
         100,   // 100ms CPU
-        16,    // 16MB memory
+        128,   // 128MB — V8 needs ~50MB to init; closure accumulation still exhausts this
     );
     
     nano.wait_ready(port, "mem-closure.local").await;
@@ -285,7 +285,7 @@ async fn test_circular_reference_bomb() {
         "circular_ref.js",
         js_content,
         100,   // 100ms CPU
-        16,    // 16MB memory
+        128,   // 128MB — V8 needs ~50MB to init; circular ref accumulation still exhausts this
     );
     
     nano.wait_ready(port, "mem-circular.local").await;

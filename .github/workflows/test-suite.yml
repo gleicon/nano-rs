@@ -82,7 +82,7 @@ jobs:
     - name: Checkout test suite
       uses: actions/checkout@v4
       with:
-        repository: gleicon/nano-rs-test-suit
+        repository: gleicon/nano-rs-test-suite
         path: test-suite
         ref: main  # or specify a branch/tag for stability
 
@@ -164,7 +164,7 @@ jobs:
     - name: Checkout test suite
       uses: actions/checkout@v4
       with:
-        repository: gleicon/nano-rs-test-suit
+        repository: gleicon/nano-rs-test-suite
         path: test-suite
 
     - name: Setup Node.js
@@ -180,5 +180,5 @@ jobs:
           --quick
       timeout-minutes: 5
 
-# Workflow created for: https://github.com/gleicon/nano-rs-test-suit
+# Workflow created for: https://github.com/gleicon/nano-rs-test-suite
 # Add this to: https://github.com/gleicon/nano-rs
