@@ -89,7 +89,7 @@ flate2 = "1.0"
 
 # RSA and ECDSA cryptography (WebCrypto RSA-OAEP, RSASSA-PKCS1-v1_5, ECDSA)
 rsa = { version = "0.9", features = ["pem", "sha2"] }
-p256 = { version = "0.13", features = ["ecdh", "ecdsa", "pem", "pkcs8"] }
+p256 = { version = "0.14", features = ["ecdh", "ecdsa", "pem", "pkcs8"] }
 p384 = { version = "0.13", features = ["ecdh", "ecdsa", "pem", "pkcs8"] }
 ecdsa = { version = "0.16", features = ["signing", "verifying"] }
 elliptic-curve = { version = "0.13", features = ["ecdh", "pkcs8"] }
@@ -146,7 +146,7 @@ debug = true
 tempfile = "3.10"
 criterion = { version = "0.5", features = ["html_reports"] }
 rsa = "0.9.10"
-p256 = "0.13.2"
+p256 = "0.14.0"
 p384 = "0.13.1"
 elliptic-curve = "0.13.8"
 futures = "0.3"
