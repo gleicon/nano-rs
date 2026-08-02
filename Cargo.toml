@@ -56,7 +56,7 @@ ring = "0.17"
 zeroize = { version = "1.8", features = ["derive"] }
 
 # Checksum for file watching
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Concurrent hash map for VFS backend
 dashmap = "6.1"
