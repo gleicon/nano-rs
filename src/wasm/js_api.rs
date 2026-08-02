@@ -11,7 +11,7 @@
 //!
 //! ## Cache Architecture (two tiers)
 //!
-//! **Tier 1 (JS polyfill — active):** `WASM_CACHE_POLYFILL` injected at bind time.
+//! **Tier 1 (JS polyfill — active):** `wasm_cache_polyfill()` injected at bind time.
 //! Per-isolate `Map` cache keyed by FNV-32 hash of bytes. After first compile on
 //! a worker, all subsequent `WebAssembly.compile(sameBytes)` return cached module.
 //! Cost: O(n) hash per call (fast integer ops). Benefit: zero V8 recompilation
