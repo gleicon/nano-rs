@@ -91,8 +91,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: test-suite/package.json
 
     # Step 8: Run test suite
     - name: Run tests

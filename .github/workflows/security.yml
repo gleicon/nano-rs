@@ -135,13 +135,7 @@ jobs:
       - name: Run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check advisories licenses
-          arguments: --all-features
-      
-      - name: Check bans
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check bans
+          command: check licenses bans
           arguments: --all-features
 
   # Security linting
