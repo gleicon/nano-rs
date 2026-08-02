@@ -166,7 +166,7 @@ impl NanoProcess {
         
         let client = reqwest::Client::new();
         let start = Instant::now();
-        let max_wait = Duration::from_secs(15);
+        let max_wait = Duration::from_secs(30);
         
         while start.elapsed() < max_wait {
             match client

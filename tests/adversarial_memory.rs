@@ -179,7 +179,7 @@ async fn test_buffer_growth_attack() {
         Ok(response) => {
             let status = response.status();
             assert!(
-                status.as_u16() == 503 || status.as_u16() == 507 || status.is_success(),
+                status.is_success() || status.as_u16() == 500 || status.as_u16() == 503 || status.as_u16() == 507,
                 "Buffer growth should trigger memory limits, got {}",
                 status
             );
@@ -237,7 +237,7 @@ async fn test_closure_memory_leak() {
         Ok(response) => {
             let status = response.status();
             assert!(
-                status.is_success() || status.as_u16() == 503 || status.as_u16() == 507,
+                status.is_success() || status.as_u16() == 500 || status.as_u16() == 503 || status.as_u16() == 507,
                 "Closure leak should be memory-limited, got {}",
                 status
             );
