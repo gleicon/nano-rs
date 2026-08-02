@@ -1,6 +1,6 @@
 [package]
 name = "nano-rs"
-version = "2.2.0"
+version = "2.2.1"
 edition = "2021"
 authors = ["Gleicon Moraes <gleicon@gmail.com>"]
 description = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)"

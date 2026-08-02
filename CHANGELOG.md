@@ -3,6 +3,15 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-08-02
+
+### Fixed
+
+- **CI: cargo-deny** — `allowed-registry` renamed to `allow-registry`; deprecated `[licenses].deny` and `copyleft` keys removed (cargo-deny PR 611); action updated from `@v1` to `@v2` to handle Cargo.lock format v4 (Rust 1.78+).
+- **Compiler warnings** — Removed unused WebSocket imports in `http/router.rs`; replaced deprecated `ring::constant_time::verify_slices_are_equal` with inline XOR-fold in `admin/auth.rs`; prefixed unused `unpacked` bindings in `sliver/auto_cache.rs`; suppressed dead field lint on `env_vars` in `worker/pool.rs`.
+- **Clippy** — Invalid state-machine transitions now use `unreachable!` instead of `panic!`; trivial getter functions marked `const fn`.
+- **CI actions** — `actions/cache@v3` updated to `@v4` in test-suite workflow.
+
 ## [2.2.0] - 2026-08-02
 
 ### Added
