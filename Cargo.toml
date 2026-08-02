@@ -76,7 +76,7 @@ hyper-util = { version = "0.1", features = ["client", "tokio"] }
 http-body-util = "0.1"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # WebSocket support
