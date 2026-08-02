@@ -738,7 +738,7 @@ impl NanoIsolate {
 
     /// Get the sentinel as a reference (for testing/debugging)
     #[cfg(test)]
-    fn sentinel(&self) -> &v8::Global<v8::Value> {
+    const fn sentinel(&self) -> &v8::Global<v8::Value> {
         &self.sentinel
     }
 
@@ -772,12 +772,12 @@ impl NanoIsolate {
             (IsolateState::Resetting, IsolateState::Ready) => (),
             // Terminated is terminal state
             (IsolateState::Terminated, _) => {
-                panic!("INVALID STATE TRANSITION: Terminated -> {:?} at {}:{}",
+                unreachable!("INVALID STATE TRANSITION: Terminated -> {:?} at {}:{}",
                     new_state, file!(), line!());
             }
             // Any other transition is invalid
             _ => {
-                panic!("INVALID STATE TRANSITION: {:?} -> {:?} at {}:{}",
+                unreachable!("INVALID STATE TRANSITION: {:?} -> {:?} at {}:{}",
                     old_state, new_state, file!(), line!());
             }
         }
@@ -799,12 +799,12 @@ impl NanoIsolate {
     }
 
     /// Get the thread ID that created this isolate
-    pub fn creation_thread_id(&self) -> std::thread::ThreadId {
+    pub const fn creation_thread_id(&self) -> std::thread::ThreadId {
         self.creation_thread_id
     }
 
     /// Get the heap limit in bytes
-    pub fn heap_limit_bytes(&self) -> u32 {
+    pub const fn heap_limit_bytes(&self) -> u32 {
         self.heap_limit_bytes
     }
 
