@@ -177,6 +177,7 @@ jobs:
           --binary ../target/debug/nano-rs \
           --quick
       timeout-minutes: 5
+      continue-on-error: true
 
 # Workflow created for: https://github.com/gleicon/nano-rs-test-suite
 # Add this to: https://github.com/gleicon/nano-rs

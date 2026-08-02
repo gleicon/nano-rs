@@ -52,10 +52,11 @@ jobs:
       
       - name: Run security tests
         run: |
+          set -o pipefail
           echo "Running adversarial security test suite..."
           cargo test --test security_adversarial -- --test-threads=1 --nocapture 2>&1 | tee security-test-results.txt
         timeout-minutes: 25
-      
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -63,15 +64,6 @@ jobs:
           name: security-test-results
           path: security-test-results.txt
           retention-days: 30
-      
-      - name: Check test results
-        run: |
-          if grep -q "FAILED\|error\|panic" security-test-results.txt; then
-            echo "❌ Security tests failed"
-            exit 1
-          else
-            echo "✅ All security tests passed"
-          fi
 
   # CVE scanning for dependencies
   cve-scan:
@@ -83,41 +75,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Run cargo-audit
+        uses: rustsec/audit-check@v2
         with:
-          shared-key: "cve-${{ runner.os }}"
-          cache-on-failure: false
-      
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-      
-      - name: Run CVE scan
-        run: |
-          echo "Running CVE scan on dependencies..."
-          # Run with --deny warnings to fail on any CVE
-          cargo audit --deny warnings 2>&1 | tee cve-scan-results.txt
-        continue-on-error: false
-      
-      - name: Upload CVE scan results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cve-scan-results
-          path: cve-scan-results.txt
-          retention-days: 30
-      
-      - name: Check CVE results
-        run: |
-          if grep -q "error\|vulnerable" cve-scan-results.txt; then
-            echo "❌ CVE scan found issues"
-            exit 1
-          else
-            echo "✅ No CVEs found"
-          fi
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   # License and security policy enforcement
   cargo-deny:
