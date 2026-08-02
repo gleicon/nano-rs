@@ -232,16 +232,17 @@ fn test_constant_time_comparison() {
     // Note: Actual constant-time verification is in the crypto implementation
     // This is a documentation test
     
-    // Verify ring crate is available
-    use ring::constant_time;
+    // Verify constant-time comparison using XOR-fold (ring's verify_slices_are_equal is deprecated)
     let a = [0u8; 32];
     let b = [0u8; 32];
     let c = [1u8; 32];
-    
-    assert!(constant_time::verify_slices_are_equal(&a[..], &b[..]).is_ok());
-    assert!(constant_time::verify_slices_are_equal(&a[..], &c[..]).is_err());
-    
-    println!("  ✓ ring constant_time verification available");
+
+    let eq = a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0;
+    let ne = a.iter().zip(c.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0;
+    assert!(eq);
+    assert!(!ne);
+
+    println!("  ✓ XOR-fold constant-time comparison available");
 }
 
 /// Test predictable random rejection

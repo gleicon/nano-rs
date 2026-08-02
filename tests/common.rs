@@ -15,7 +15,7 @@ use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::v8::platform;
 use nano::v8::NanoIsolate;
 
-/// Initialize V8 platform for tests
+#[allow(dead_code)]
 pub fn init_platform() {
     platform::initialize_platform().expect("Failed to initialize V8 platform");
 }
@@ -29,7 +29,7 @@ pub fn find_available_port() -> u16 {
         .port()
 }
 
-/// Create a test VFS with the given hostname
+#[allow(dead_code)]
 pub fn create_test_vfs(hostname: &str) -> Arc<IsolateVfs> {
     Arc::new(IsolateVfs::new(
         VfsNamespace::from_hostname(hostname),
@@ -37,7 +37,7 @@ pub fn create_test_vfs(hostname: &str) -> Arc<IsolateVfs> {
     ))
 }
 
-/// Security test context for managing test state
+#[allow(dead_code)]
 pub struct SecurityTestContext {
     pub vfs: Arc<IsolateVfs>,
     pub hostname: String,

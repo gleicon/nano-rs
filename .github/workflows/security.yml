@@ -65,38 +65,23 @@ jobs:
           path: security-test-results.txt
           retention-days: 30
 
-  # CVE scanning for dependencies
-  cve-scan:
-    name: Dependency CVE Scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Run cargo-audit
-        uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  # License and security policy enforcement
+  # License, ban, and CVE policy enforcement (single tool, one config)
   cargo-deny:
-    name: License & Security Policy
+    name: License, Bans & CVE Policy
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check licenses bans
+          command: check licenses bans advisories
           arguments: --all-features
 
   # Security linting
@@ -140,7 +125,7 @@ jobs:
   # Summary job
   security-gate:
     name: Security Gate
-    needs: [security-tests, cve-scan, cargo-deny, security-lint]
+    needs: [security-tests, cargo-deny, security-lint]
     runs-on: ubuntu-latest
     if: always()
     
@@ -150,24 +135,18 @@ jobs:
           echo "Security Gate Summary"
           echo "===================="
           echo "Security Tests: ${{ needs.security-tests.result }}"
-          echo "CVE Scan: ${{ needs.cve-scan.result }}"
-          echo "Cargo Deny: ${{ needs.cargo-deny.result }}"
-          echo "Security Lint: ${{ needs.security-lint.result }}"
+          echo "Cargo Deny:     ${{ needs.cargo-deny.result }}"
+          echo "Security Lint:  ${{ needs.security-lint.result }}"
           echo ""
-          
+
           if [ "${{ needs.security-tests.result }}" != "success" ]; then
             echo "❌ Security tests failed"
             exit 1
           fi
-          
-          if [ "${{ needs.cve-scan.result }}" != "success" ]; then
-            echo "❌ CVE scan failed"
-            exit 1
-          fi
-          
+
           if [ "${{ needs.cargo-deny.result }}" != "success" ]; then
-            echo "❌ License/security policy check failed"
+            echo "❌ License/CVE/bans policy check failed"
             exit 1
           fi
-          
+
           echo "✅ Security gate passed - all checks successful"
