@@ -38,16 +38,6 @@ allow = [
     "MPL-2.0",
 ]
 
-# List of explicitly denied licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-3.0",
-]
-
-# Licenses that require explicit approval
-copyleft = "deny"
-
 # Confidence threshold for license detection
 confidence-threshold = 0.8
 
