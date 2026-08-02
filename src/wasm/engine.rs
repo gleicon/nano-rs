@@ -167,26 +167,38 @@ impl std::fmt::Display for WasmCompileError {
 
 impl std::error::Error for WasmCompileError {}
 
-/// Validate WASM bytes without compiling
-/// 
-/// This is a fast check that only validates the magic number and version.
-/// Use this for quick rejection of invalid input.
+/// Validate WASM bytes without compiling.
+///
+/// Checks magic number, version, and module size against
+/// `limits::wasm::MODULE_SIZE_BYTES_MAX`. Call this before any V8 compilation.
 pub fn validate_wasm_bytes(bytes: &[u8]) -> Result<(), WasmValidationError> {
     if bytes.len() < 8 {
         return Err(WasmValidationError::TooSmall);
     }
-    
-    // Check magic number: \0asm
+
+    // Size check before touching V8 — rejects large payloads cheaply.
+    let max = crate::limits::wasm::MODULE_SIZE_BYTES_MAX as usize;
+    if bytes.len() > max {
+        tracing::error!(
+            size_bytes = bytes.len(),
+            limit_bytes = max,
+            "WASM module rejected: exceeds MODULE_SIZE_BYTES_MAX"
+        );
+        crate::metrics::METRICS.wasm_size_rejected_total.inc();
+        return Err(WasmValidationError::ModuleTooLarge);
+    }
+
+    // Magic number: \0asm
     if &bytes[0..4] != b"\0asm" {
         return Err(WasmValidationError::InvalidMagic);
     }
-    
-    // Check version (1.0 or 2.0)
+
+    // Version (1.0 or 2.0)
     let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
     if version != 1 && version != 2 {
         return Err(WasmValidationError::UnsupportedVersion(version));
     }
-    
+
     Ok(())
 }
 
@@ -199,6 +211,8 @@ pub enum WasmValidationError {
     InvalidMagic,
     /// Unsupported version
     UnsupportedVersion(u32),
+    /// Module exceeds `limits::wasm::MODULE_SIZE_BYTES_MAX`
+    ModuleTooLarge,
 }
 
 impl std::fmt::Display for WasmValidationError {
@@ -207,6 +221,10 @@ impl std::fmt::Display for WasmValidationError {
             WasmValidationError::TooSmall => write!(f, "WASM file too small"),
             WasmValidationError::InvalidMagic => write!(f, "Invalid WASM magic number"),
             WasmValidationError::UnsupportedVersion(v) => write!(f, "Unsupported WASM version: {}", v),
+            WasmValidationError::ModuleTooLarge => write!(
+                f, "WASM module exceeds size limit ({} bytes)",
+                crate::limits::wasm::MODULE_SIZE_BYTES_MAX
+            ),
         }
     }
 }

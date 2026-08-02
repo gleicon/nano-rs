@@ -115,6 +115,32 @@ impl PrometheusExporter {
             registry.cpu_timeout_total.get(),
         );
 
+        // Export WASM limit counters
+        self.export_counter(
+            &mut output,
+            "nano_wasm_size_rejected_total",
+            "WASM modules rejected for exceeding MODULE_SIZE_BYTES_MAX",
+            registry.wasm_size_rejected_total.get(),
+        );
+        self.export_counter(
+            &mut output,
+            "nano_wasm_import_rejected_total",
+            "WASM modules rejected for exceeding IMPORT_COUNT_MAX",
+            registry.wasm_import_rejected_total.get(),
+        );
+        self.export_counter(
+            &mut output,
+            "nano_wasm_export_rejected_total",
+            "WASM modules rejected for exceeding EXPORT_COUNT_MAX",
+            registry.wasm_export_rejected_total.get(),
+        );
+        self.export_counter(
+            &mut output,
+            "nano_wasm_memory_oom_total",
+            "Isolate OOM events while WASM linear memory growth was active (see heap_limit_hits_total for total OOM)",
+            registry.wasm_memory_oom_total.get(),
+        );
+
         output
     }
 

@@ -13,6 +13,7 @@
 //! ```
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::vfs::{IsolateVfs, VfsError};
@@ -20,6 +21,8 @@ use crate::vfs::{IsolateVfs, VfsError};
 // Thread-local storage for the current isolate's VFS during JS execution
 thread_local! {
     static CURRENT_VFS: RefCell<Option<Arc<IsolateVfs>>> = RefCell::new(None);
+    /// Per-isolate env vars — set once per isolate lifetime, read by bind_nano_fs.
+    static CURRENT_ENV: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
 /// Set the current VFS context for JS callbacks
@@ -28,6 +31,14 @@ thread_local! {
 pub fn set_current_vfs(vfs: Option<Arc<IsolateVfs>>) {
     CURRENT_VFS.with(|cell| {
         *cell.borrow_mut() = vfs;
+    });
+}
+
+/// Set env vars for the current isolate. Call once before bind_all.
+/// Values are exposed as a read-only frozen `Nano.env` object in JS.
+pub fn set_current_env(env: HashMap<String, String>) {
+    CURRENT_ENV.with(|cell| {
+        *cell.borrow_mut() = env;
     });
 }
 
@@ -117,6 +128,26 @@ pub fn bind_nano_fs(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8:
     // Attach fs to Nano
     let fs_key = v8::String::new(&mut ctx_scope, "fs").unwrap();
     nano.set(&mut ctx_scope, fs_key.into(), fs.into());
+
+    // Build Nano.env: read-only frozen object from CURRENT_ENV thread-local.
+    // Values are never logged; the object is frozen so JS cannot mutate it.
+    let env_obj = v8::Object::new(&mut ctx_scope);
+    CURRENT_ENV.with(|cell| {
+        let env = cell.borrow();
+        for (k, v) in env.iter() {
+            if let (Some(k_str), Some(v_str)) = (
+                v8::String::new(&mut ctx_scope, k),
+                v8::String::new(&mut ctx_scope, v),
+            ) {
+                env_obj.set(&mut ctx_scope, k_str.into(), v_str.into());
+            }
+        }
+    });
+    // Freeze: prevents JS from writing, deleting, or adding properties.
+    env_obj.set_integrity_level(&mut ctx_scope, v8::IntegrityLevel::Frozen);
+    if let Some(env_key) = v8::String::new(&mut ctx_scope, "env") {
+        nano.set(&mut ctx_scope, env_key.into(), env_obj.into());
+    }
 
     // Attach Nano to global
     let nano_key = v8::String::new(&mut ctx_scope, "Nano").unwrap();

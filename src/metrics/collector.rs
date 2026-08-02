@@ -45,6 +45,14 @@ pub struct MetricsRegistry {
     pub heap_limit_hits_total: Counter,
     /// Total CPU timeout enforcement events
     pub cpu_timeout_total: Counter,
+    /// WASM modules rejected for exceeding MODULE_SIZE_BYTES_MAX
+    pub wasm_size_rejected_total: Counter,
+    /// WASM modules rejected for exceeding IMPORT_COUNT_MAX
+    pub wasm_import_rejected_total: Counter,
+    /// WASM modules rejected for exceeding EXPORT_COUNT_MAX
+    pub wasm_export_rejected_total: Counter,
+    /// Isolate OOMs attributed to WASM linear memory growth (heap limit fired during WASM execution)
+    pub wasm_memory_oom_total: Counter,
     /// Total runtime uptime in seconds (monotonic)
     uptime_seconds: AtomicU64,
     /// Timestamp when registry was created (for uptime calculation)
@@ -66,6 +74,10 @@ impl MetricsRegistry {
             worker_utilization: GaugeVec::new(vec!["hostname", "worker_id"]),
             heap_limit_hits_total: Counter::new(),
             cpu_timeout_total: Counter::new(),
+            wasm_size_rejected_total: Counter::new(),
+            wasm_import_rejected_total: Counter::new(),
+            wasm_export_rejected_total: Counter::new(),
+            wasm_memory_oom_total: Counter::new(),
             uptime_seconds: AtomicU64::new(0),
             start_time: std::time::Instant::now(),
         }

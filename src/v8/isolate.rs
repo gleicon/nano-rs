@@ -673,17 +673,17 @@ impl NanoIsolate {
                 current_limit / (1024 * 1024),
                 initial_limit / (1024 * 1024),
             );
+            crate::metrics::METRICS.record_heap_limit_hit();
 
-            // Terminate execution immediately to prevent memory DoS
-            // This is the key security fix - we terminate instead of extending the limit
-            // SAFETY: isolate_ptr is valid as long as NanoIsolate exists, and
-            // terminate_execution is safe to call multiple times (idempotent)
+            // Terminate execution immediately to prevent memory DoS.
+            // SAFETY: isolate_ptr is valid as long as NanoIsolate exists;
+            // terminate_execution is safe to call multiple times (idempotent).
             unsafe {
                 (*isolate_ptr).terminate_execution();
             }
 
-            // Return current_limit without increase
-            // V8 may invoke this callback again; terminate_execution is idempotent
+            // Return current_limit without increase.
+            // V8 may invoke this callback again; terminate_execution is idempotent.
             current_limit
         });
 
