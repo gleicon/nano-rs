@@ -39,54 +39,85 @@ use crate::wasm::WasmLoader;
 ///
 /// Key: FNV-32 hash of bytes as hex + ':' + byte length (collision-resistant
 /// for practical WASM module sizes in edge functions).
-pub const WASM_CACHE_POLYFILL: &str = r#"
-(function() {
+/// Limits injected from Rust constants at bind time — keep in sync with `limits::wasm`.
+pub const WASM_IMPORT_COUNT_MAX: u32 = crate::limits::wasm::IMPORT_COUNT_MAX;
+pub const WASM_EXPORT_COUNT_MAX: u32 = crate::limits::wasm::EXPORT_COUNT_MAX;
+
+/// Build the WASM cache + limit-enforcement polyfill, injecting the Rust limit constants.
+///
+/// Wraps `WebAssembly.compile` and `WebAssembly.instantiate` with:
+/// - Per-isolate module cache (FNV-32 key on bytes)
+/// - Import count check: rejects if `WebAssembly.Module.imports(m).length > IMPORT_MAX`
+/// - Export count check: rejects if `WebAssembly.Module.exports(m).length > EXPORT_MAX`
+///
+/// Rejection throws a `RangeError` with the limit and actual count, which the JS
+/// caller sees as a rejected Promise. Counters on the Rust side are incremented via
+/// `Nano.__wasm_import_rejected()` / `Nano.__wasm_export_rejected()` stubs registered
+/// at bind time — see `WebAssemblyAPI::bind`.
+pub fn wasm_cache_polyfill(import_max: u32, export_max: u32) -> String {
+    format!(r#"
+(function() {{
     var _wc = new Map();
     var _oc = WebAssembly.compile;
     var _oi = WebAssembly.instantiate;
+    var _IMAX = {import_max};
+    var _EMAX = {export_max};
 
-    function _h(src) {
+    function _h(src) {{
         var u8 = ArrayBuffer.isView(src)
             ? new Uint8Array(src.buffer, src.byteOffset, src.byteLength)
             : new Uint8Array(src);
         var h = 2166136261;
-        for (var i = 0; i < u8.length; i++) {
+        for (var i = 0; i < u8.length; i++) {{
             h = (Math.imul(h ^ u8[i], 16777619)) >>> 0;
-        }
+        }}
         return h.toString(16) + ':' + u8.length;
-    }
+    }}
 
-    function _isBytes(s) {
+    function _isBytes(s) {{
         return s instanceof ArrayBuffer || ArrayBuffer.isView(s);
-    }
+    }}
 
-    WebAssembly.compile = function(source) {
+    function _checkLimits(m) {{
+        var ic = WebAssembly.Module.imports(m).length;
+        if (ic > _IMAX) {{
+            if (typeof Nano !== 'undefined' && Nano.__wasm_import_rejected) Nano.__wasm_import_rejected();
+            throw new RangeError('WASM module has ' + ic + ' imports; limit is ' + _IMAX);
+        }}
+        var ec = WebAssembly.Module.exports(m).length;
+        if (ec > _EMAX) {{
+            if (typeof Nano !== 'undefined' && Nano.__wasm_export_rejected) Nano.__wasm_export_rejected();
+            throw new RangeError('WASM module has ' + ec + ' exports; limit is ' + _EMAX);
+        }}
+    }}
+
+    WebAssembly.compile = function(source) {{
         if (!_isBytes(source)) return _oc(source);
         var k = _h(source);
         if (_wc.has(k)) return Promise.resolve(_wc.get(k));
-        return _oc(source).then(function(m) { _wc.set(k, m); return m; });
-    };
+        return _oc(source).then(function(m) {{ _checkLimits(m); _wc.set(k, m); return m; }});
+    }};
 
-    WebAssembly.instantiate = function(source, imports) {
-        // Non-bytes: Module or other — pass through unchanged
+    WebAssembly.instantiate = function(source, imports) {{
         if (!_isBytes(source)) return _oi(source, imports);
         var k = _h(source);
-        if (_wc.has(k)) {
-            // instantiate(Module, imports) returns Promise<Instance> — wrap to {module,instance}
+        if (_wc.has(k)) {{
             var m = _wc.get(k);
-            return _oi(m, imports).then(function(inst) {
-                return { module: m, instance: inst };
-            });
-        }
-        return _oc(source).then(function(m) {
+            return _oi(m, imports).then(function(inst) {{
+                return {{ module: m, instance: inst }};
+            }});
+        }}
+        return _oc(source).then(function(m) {{
+            _checkLimits(m);
             _wc.set(k, m);
-            return _oi(m, imports).then(function(inst) {
-                return { module: m, instance: inst };
-            });
-        });
-    };
-})();
-"#;
+            return _oi(m, imports).then(function(inst) {{
+                return {{ module: m, instance: inst }};
+            }});
+        }});
+    }};
+}})();
+"#)
+}
 
 /// WebAssembly JavaScript API binder
 pub struct WebAssemblyAPI;
@@ -130,18 +161,54 @@ impl WebAssemblyAPI {
             }
         }
 
-        // Inject the compile cache polyfill — runs once per isolate, installs
-        // Map-backed wrappers over WebAssembly.compile and WebAssembly.instantiate.
-        let polyfill_src = v8::String::new(&mut ctx_scope, WASM_CACHE_POLYFILL).unwrap();
+        // Register Nano.__wasm_import_rejected / Nano.__wasm_export_rejected as Rust
+        // callbacks so the JS polyfill can increment metrics counters when limits fire.
+        {
+            let nano_key = v8::String::new(&mut ctx_scope, "Nano").unwrap();
+            if let Some(nano_val) = global.get(&mut ctx_scope, nano_key.into()) {
+                if let Some(nano_obj) = nano_val.to_object(&mut ctx_scope) {
+                    let import_fn = v8::Function::new(&mut ctx_scope, wasm_import_rejected_callback).unwrap();
+                    let import_key = v8::String::new(&mut ctx_scope, "__wasm_import_rejected").unwrap();
+                    nano_obj.set(&mut ctx_scope, import_key.into(), import_fn.into());
+
+                    let export_fn = v8::Function::new(&mut ctx_scope, wasm_export_rejected_callback).unwrap();
+                    let export_key = v8::String::new(&mut ctx_scope, "__wasm_export_rejected").unwrap();
+                    nano_obj.set(&mut ctx_scope, export_key.into(), export_fn.into());
+                }
+            }
+        }
+
+        // Inject the compile cache + limit-enforcement polyfill — runs once per isolate.
+        // Constants are baked in at bind time so the JS closure holds plain integers.
+        let polyfill = wasm_cache_polyfill(WASM_IMPORT_COUNT_MAX, WASM_EXPORT_COUNT_MAX);
+        let polyfill_src = v8::String::new(&mut ctx_scope, &polyfill).unwrap();
         if let Some(script) = v8::Script::compile(&mut ctx_scope, polyfill_src, None) {
             script.run(&mut ctx_scope);
         } else {
             tracing::warn!("WebAssembly cache polyfill failed to compile — running uncached");
         }
-        tracing::debug!("WebAssembly cache polyfill installed");
+        tracing::debug!("WebAssembly cache+limits polyfill installed (import_max={WASM_IMPORT_COUNT_MAX}, export_max={WASM_EXPORT_COUNT_MAX})");
 
         tracing::debug!("Bound WebAssembly API");
     }
+}
+
+fn wasm_import_rejected_callback(
+    _scope: &mut v8::PinnedRef<v8::HandleScope>,
+    _args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    tracing::error!("WASM module rejected: exceeds IMPORT_COUNT_MAX");
+    crate::metrics::METRICS.wasm_import_rejected_total.inc();
+}
+
+fn wasm_export_rejected_callback(
+    _scope: &mut v8::PinnedRef<v8::HandleScope>,
+    _args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    tracing::error!("WASM module rejected: exceeds EXPORT_COUNT_MAX");
+    crate::metrics::METRICS.wasm_export_rejected_total.inc();
 }
 
 /// WebAssembly.validate() callback implementation

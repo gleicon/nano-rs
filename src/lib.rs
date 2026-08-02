@@ -24,12 +24,25 @@ pub mod assertions;
 pub mod control_plane;
 pub mod data_plane;
 
-/// Library entry point for running the NANO runtime
+/// Library entry point — stub used by tests and binary glue.
 ///
-/// This is called by the binary's main() function and can also be used
-/// for integration testing.
+/// ## Integration boundary
+///
+/// External systems (PaaS layers, orchestrators) integrate with nano-rs via the
+/// **admin HTTP API** (`POST /admin/apps`, `reload`, `scale`, etc.) over the Unix
+/// socket or TCP address configured at startup. This is the only supported
+/// integration surface.
+///
+/// The `[lib]` crate target exists for internal test infrastructure. The module
+/// tree (`worker`, `runtime`, `wasm`, `vfs`, etc.) is `pub` for test access, but
+/// its API is **not stable** and may change between versions without notice.
+///
+/// ## Future embedding (not yet designed)
+///
+/// A `NanoRuntime::builder()` embedding API is a potential future path, but
+/// requires a design doc covering public API surface, lifecycle contract
+/// (start/reload/shutdown), and config model. Do not implement without that design.
 pub fn run() -> Result<()> {
     tracing::info!("NANO runtime initialized");
-    // Runtime initialization is handled by the CLI
     Ok(())
 }
