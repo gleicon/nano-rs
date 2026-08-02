@@ -33,14 +33,13 @@ use std::sync::Arc;
 use axum::{
     body::Body,
     extract::State,
-    extract::ws::{WebSocket, WebSocketUpgrade, Message as AxumWsMessage},
     http::{header, Request, Response, StatusCode},
     response::IntoResponse,
 };
 use tokio::sync::Mutex;
 
 use crate::http::{NanoRequest, NanoResponse, content_type_from_ext};
-use crate::worker::{HandlerTask, QueueError, WorkQueue, WsChannels};
+use crate::worker::{HandlerTask, QueueError, WorkQueue};
 use crate::logging::create_request_span;
 use crate::metrics::METRICS;
 use crate::app::registry::AppRegistry;

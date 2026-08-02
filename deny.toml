@@ -78,7 +78,7 @@ skip-tree = [
 
 [sources]
 # Allowed crate registries
-allowed-registry = [
+allow-registry = [
     "https://github.com/rust-lang/crates.io-index",
 ]
 

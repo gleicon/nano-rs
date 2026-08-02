@@ -180,6 +180,7 @@ pub struct WorkerPool {
     next_worker: AtomicU32,
     pub(crate) vfs_backend: crate::vfs::VfsBackendEnum,
     memory_limit_mb: u32,
+    #[allow(dead_code)]
     env_vars: std::collections::HashMap<String, String>,
 }
 

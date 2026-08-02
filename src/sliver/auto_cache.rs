@@ -492,7 +492,7 @@ pub fn get_optimized_handler_source(
     if let Some(data) = cache.try_load(hostname, entrypoint) {
         // Found valid cached sliver
         match unpack_sliver(&data) {
-            Ok(unpacked) => {
+            Ok(_unpacked) => {
                 debug!(
                     "Using cached sliver for {}:{} ({} bytes)",
                     hostname, entrypoint, data.len()
@@ -516,7 +516,7 @@ pub fn get_optimized_handler_source(
             for _ in 0..10 {
                 std::thread::sleep(Duration::from_millis(10));
                 if let Some(data) = cache.try_load(hostname, entrypoint) {
-                    if let Ok(unpacked) = unpack_sliver(&data) {
+                    if let Ok(_unpacked) = unpack_sliver(&data) {
                         info!(
                             "Hot-loaded fresh sliver for {}:{} after waiting for generation",
                             hostname, entrypoint

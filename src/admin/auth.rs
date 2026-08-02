@@ -9,7 +9,7 @@
 //! - API keys should be at least 32 characters long (configurable)
 //! - Keys should be cryptographically random (use `openssl rand -hex 32`)
 //! - Failed auth attempts are logged at WARN level for intrusion detection
-//! - Constant-time comparison via `ring::constant_time` prevents timing attacks
+//! - Constant-time XOR-fold comparison prevents timing attacks
 
 use axum::{
     extract::{Request, State},
@@ -67,8 +67,12 @@ impl AdminAuth {
         if key.is_empty() || self.api_key.is_empty() {
             return false;
         }
-        ring::constant_time::verify_slices_are_equal(key.as_bytes(), self.api_key.as_bytes())
-            .is_ok()
+        let a = key.as_bytes();
+        let b = self.api_key.as_bytes();
+        if a.len() != b.len() {
+            return false;
+        }
+        a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
     }
 
     /// Check if an API key is configured
