@@ -89,6 +89,17 @@ fn compile_esm_handler(
     Ok(v8::Global::new(ctx_scope, handler_val.cast::<v8::Function>()))
 }
 
+/// WinterTC addEventListener shim — injected before every classic handler.
+///
+/// The Service Worker / WinterTC pattern registers handlers with
+/// `addEventListener("fetch", fn)` but V8 has no built-in addEventListener.
+/// This shim defines it so that call sets `__nano_user_fetch` on the global,
+/// which `compile_classic_handler` looks for after the script runs.
+const WINTERTC_SHIM: &str = "var __nano_user_fetch;\
+\nglobalThis.addEventListener = function(type, fn) {\
+\n  if (type === 'fetch') { globalThis.__nano_user_fetch = fn; }\
+\n};\n";
+
 fn compile_classic_handler(
     ctx_scope: &mut v8::ContextScope<'_, '_, v8::HandleScope<'_, v8::Context>>,
     entrypoint: &str,
@@ -96,7 +107,8 @@ fn compile_classic_handler(
     context: v8::Local<'_, v8::Context>,
     cache_key: &str,
 ) -> Result<v8::Global<v8::Function>> {
-    let code_v8 = v8::String::new(ctx_scope, code)
+    let shimmed = format!("{}{}", WINTERTC_SHIM, code);
+    let code_v8 = v8::String::new(ctx_scope, &shimmed)
         .ok_or_else(|| anyhow!("V8 string alloc failed"))?;
 
     let unbound = if let Some(cached_bytes) = crate::data_plane::get_bytecode_cache(cache_key) {
