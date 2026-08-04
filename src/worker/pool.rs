@@ -89,29 +89,33 @@ fn compile_esm_handler(
     Ok(v8::Global::new(ctx_scope, handler_val.cast::<v8::Function>()))
 }
 
-/// WinterTC addEventListener shim — injected before every classic handler.
+/// WinterTC addEventListener shim — prefix+suffix wrapping the user script.
 ///
-/// The Service Worker / WinterTC pattern uses `addEventListener("fetch", fn)`
-/// where `fn(event)` receives a FetchEvent with `event.request` and
-/// `event.respondWith(response)`. But pool.rs calls handlers as `fn(request)`
-/// and reads the return value as the Response.
+/// Prefix: defines `addEventListener` that stores the user callback in a
+/// module-level var (`__nano_fetch_listener`), avoiding closure-over-parameter
+/// issues with V8's TryCatch scope in production.
 ///
-/// The wrapper bridges both conventions: it builds a fake FetchEvent, calls the
-/// user callback, and returns whatever was passed to `respondWith`.
-const WINTERTC_SHIM: &str = "var __nano_user_fetch;\
+/// Suffix: after user code has run and called `addEventListener`, builds
+/// `__nano_user_fetch` — the function pool.rs looks for — as a plain module-
+/// level FetchEvent adapter that returns `respondWith`'s argument (or the
+/// handler's return value as fallback).
+const WINTERTC_PREFIX: &str = "\
+var __nano_user_fetch;\
+\nvar __nano_fetch_listener = null;\
 \nglobalThis.addEventListener = function(type, fn) {\
-\n  if (type === 'fetch') {\
-\n    globalThis.__nano_user_fetch = function(request) {\
-\n      var captured;\
-\n      var event = {\
-\n        request: request,\
-\n        respondWith: function(r) { captured = r; }\
-\n      };\
-\n      fn(event);\
-\n      return captured;\
-\n    };\
-\n  }\
+\n  if (type === 'fetch') { __nano_fetch_listener = fn; }\
 \n};\n";
+
+const WINTERTC_SUFFIX: &str = "\
+\nif (typeof __nano_fetch_listener === 'function') {\
+\n  var __nano_fl = __nano_fetch_listener;\
+\n  globalThis.__nano_user_fetch = function(request) {\
+\n    var captured;\
+\n    var event = { request: request, respondWith: function(r) { captured = r; } };\
+\n    var ret = __nano_fl(event);\
+\n    return captured !== undefined ? captured : ret;\
+\n  };\
+\n}\n";
 
 fn compile_classic_handler(
     ctx_scope: &mut v8::ContextScope<'_, '_, v8::HandleScope<'_, v8::Context>>,
@@ -120,7 +124,7 @@ fn compile_classic_handler(
     context: v8::Local<'_, v8::Context>,
     cache_key: &str,
 ) -> Result<v8::Global<v8::Function>> {
-    let shimmed = format!("{}{}", WINTERTC_SHIM, code);
+    let shimmed = format!("{}{}{}", WINTERTC_PREFIX, code, WINTERTC_SUFFIX);
     let code_v8 = v8::String::new(ctx_scope, &shimmed)
         .ok_or_else(|| anyhow!("V8 string alloc failed"))?;
 
@@ -1011,6 +1015,49 @@ mod tests {
             VfsNamespace::from_hostname("test.example.com"),
             VfsBackendEnum::memory(MemoryBackend::default()),
         )
+    }
+
+    #[test]
+    fn test_wintertc_add_event_listener_shim() {
+        // Verify that WINTERTC_SHIM injects addEventListener and that calling it
+        // registers a working __nano_user_fetch wrapper on the global.
+        init_platform();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope_pin = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let mut scope = scope_pin.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
+
+        // Shim + user code that uses addEventListener pattern
+        let user_code = r#"
+addEventListener("fetch", function(event) {
+  event.respondWith({ status: 200, result: "wintertc_ok", has_respondWith: typeof event.respondWith });
+});
+"#;
+        let result = compile_classic_handler(&mut ctx_scope, "/test.js", user_code, context, "test::/test.js");
+        assert!(result.is_ok(), "addEventListener shim should produce a handler: {:?}", result);
+
+        // Verify the handler is callable and returns the event.respondWith result
+        let handler_g = result.unwrap();
+        let global_obj = context.global(&mut ctx_scope);
+        let handler_local = v8::Local::new(&mut ctx_scope, &handler_g);
+
+        // Create a minimal "request" object with a url property
+        let req_obj = v8::Object::new(&mut ctx_scope);
+        let url_k = v8::String::new(&mut ctx_scope, "url").unwrap();
+        let url_v = v8::String::new(&mut ctx_scope, "http://test/").unwrap();
+        req_obj.set(&mut ctx_scope, url_k.into(), url_v.into());
+
+        let call_result = handler_local.call(&mut ctx_scope, global_obj.into(), &[req_obj.into()]);
+        assert!(call_result.is_some(), "handler should not throw");
+
+        let returned = call_result.unwrap();
+        assert!(returned.is_object(), "handler should return the object from respondWith");
+        let obj = returned.to_object(&mut ctx_scope).unwrap();
+        let result_k = v8::String::new(&mut ctx_scope, "result").unwrap();
+        let result_v = obj.get(&mut ctx_scope, result_k.into()).unwrap();
+        let result_str = result_v.to_string(&mut ctx_scope).unwrap().to_rust_string_lossy(&mut ctx_scope);
+        assert_eq!(result_str, "wintertc_ok", "handler should return respondWith result");
     }
 
     #[test]
