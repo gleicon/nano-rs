@@ -539,11 +539,13 @@ impl AppState {
         Self::with_vfs_config(router, workers_per_pool, None, None)
     }
 
-    /// Create a new AppState from a shared router Arc (used when admin API shares the router)
+    /// Create a new AppState from a shared router Arc (used when admin API shares the router).
+    /// Uses disk VFS with "/" as base so admin-registered absolute entrypoint paths are readable.
     pub fn new_shared(router: Arc<tokio::sync::RwLock<VirtualHostRouter>>, workers_per_pool: u32) -> Self {
+        let vfs_disk = Some(crate::config::VfsDiskConfig { base_path: "/".to_string() });
         Self {
             router,
-            work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(workers_per_pool, None, None))),
+            work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(workers_per_pool, vfs_disk, None))),
             app_registry: None,
         }
     }
