@@ -581,8 +581,17 @@ impl WorkerPool {
                                 _ => task.entrypoint.clone(),
                             };
 
-                            // Compile + cache handler (once per entrypoint, per isolate lifetime)
-                            if !handler_cache.contains_key(&entrypoint) {
+                            // Versioned cache key: include file mtime so symlink-swap deploys
+                            // get fresh compilation without restarting workers.
+                            let mtime_ver = std::fs::metadata(&entrypoint)
+                                .and_then(|m| m.modified())
+                                .map(|t| t.duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default().as_secs())
+                                .unwrap_or(0);
+                            let versioned_entrypoint = format!("{}@{}", entrypoint, mtime_ver);
+
+                            // Compile + cache handler (once per entrypoint version, per isolate lifetime)
+                            if !handler_cache.contains_key(&versioned_entrypoint) {
                                 let code = match read_code_vfs_or_disk(&entrypoint, &vfs_clone) {
                                     Ok(c) => c,
                                     Err(e) => {
@@ -592,7 +601,7 @@ impl WorkerPool {
                                 };
 
                                 let is_esm = crate::v8::module::is_esm_module(&code);
-                                let cache_key = format!("{}::{}", worker_hostname, entrypoint);
+                                let cache_key = format!("{}::{}@{}", worker_hostname, entrypoint, mtime_ver);
                                 let handler_result = if is_esm {
                                     compile_esm_handler(&mut ctx_scope, &entrypoint, &code, vfs_clone.clone())
                                 } else {
@@ -600,7 +609,7 @@ impl WorkerPool {
                                 };
                                 match handler_result {
                                     Ok(g) => {
-                                        handler_cache.insert(entrypoint.clone(), g);
+                                        handler_cache.insert(versioned_entrypoint.clone(), g);
                                         info!("Worker {}: {} handler cached for '{}'", id,
                                               if is_esm { "ESM" } else { "classic" }, entrypoint);
                                     }
@@ -624,7 +633,7 @@ impl WorkerPool {
                                 WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
                                 WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
 
-                                                if let Some(handler_g) = handler_cache.get(&entrypoint) {
+                                                if let Some(handler_g) = handler_cache.get(&versioned_entrypoint) {
                                     let gobj = context.global(&mut ctx_scope);
                                     let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
                                     if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
@@ -775,7 +784,7 @@ impl WorkerPool {
 
                             // Execute handler using persistent context
                             // handler_cache.get is infallible: just inserted above if missing.
-                            let handler_g = handler_cache.get(&entrypoint)
+                            let handler_g = handler_cache.get(&versioned_entrypoint)
                                 .expect("handler must be cached: just inserted in block above");
                             let global_obj = context.global(&mut ctx_scope);
                             let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
