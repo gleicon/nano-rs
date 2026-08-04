@@ -91,13 +91,26 @@ fn compile_esm_handler(
 
 /// WinterTC addEventListener shim — injected before every classic handler.
 ///
-/// The Service Worker / WinterTC pattern registers handlers with
-/// `addEventListener("fetch", fn)` but V8 has no built-in addEventListener.
-/// This shim defines it so that call sets `__nano_user_fetch` on the global,
-/// which `compile_classic_handler` looks for after the script runs.
+/// The Service Worker / WinterTC pattern uses `addEventListener("fetch", fn)`
+/// where `fn(event)` receives a FetchEvent with `event.request` and
+/// `event.respondWith(response)`. But pool.rs calls handlers as `fn(request)`
+/// and reads the return value as the Response.
+///
+/// The wrapper bridges both conventions: it builds a fake FetchEvent, calls the
+/// user callback, and returns whatever was passed to `respondWith`.
 const WINTERTC_SHIM: &str = "var __nano_user_fetch;\
 \nglobalThis.addEventListener = function(type, fn) {\
-\n  if (type === 'fetch') { globalThis.__nano_user_fetch = fn; }\
+\n  if (type === 'fetch') {\
+\n    globalThis.__nano_user_fetch = function(request) {\
+\n      var captured;\
+\n      var event = {\
+\n        request: request,\
+\n        respondWith: function(r) { captured = r; }\
+\n      };\
+\n      fn(event);\
+\n      return captured;\
+\n    };\
+\n  }\
 \n};\n";
 
 fn compile_classic_handler(
