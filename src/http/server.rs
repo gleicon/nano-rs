@@ -480,6 +480,31 @@ pub async fn start_server_with_state(
 /// # Returns
 ///
 /// Returns a `Result` indicating success or failure.
+/// Start the HTTP server with a shared `Arc<RwLock<VirtualHostRouter>>`.
+///
+/// Used by `run_server()` so the admin API and HTTP server share the same
+/// live routing table — admin API writes are visible to in-flight dispatches.
+pub async fn start_server_with_shared_router(
+    router: std::sync::Arc<tokio::sync::RwLock<VirtualHostRouter>>,
+    config: ServerConfig,
+    shutdown_state: ShutdownState,
+) -> Result<()> {
+    let addr = config
+        .socket_addr()
+        .context("Failed to parse server address")?;
+
+    let listener = create_reuse_listener(&addr).await?;
+    tracing::info!("HTTP server listening on {}", addr);
+
+    let app_state = AppState::new_shared(router, 4);
+    let state = std::sync::Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
+    let app = create_app_with_shutdown(state);
+
+    axum::serve(listener, app).await.context("Server error")?;
+    tracing::info!("HTTP server shut down gracefully");
+    Ok(())
+}
+
 pub async fn start_server_with_router(
     router: VirtualHostRouter,
     config: ServerConfig,

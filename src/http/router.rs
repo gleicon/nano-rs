@@ -465,6 +465,32 @@ impl VirtualHostRouter {
         let lowercase_host = host.to_lowercase();
         self.routes.get(&lowercase_host).unwrap_or(&self.default)
     }
+
+    /// Remove a route by hostname. Returns true if the route existed.
+    pub fn deregister(&mut self, hostname: &str) -> bool {
+        self.routes.remove(&hostname.to_lowercase()).is_some()
+    }
+
+    /// Return the entrypoint path for a user-registered WinterTC route, if any.
+    pub fn get_user_route(&self, hostname: &str) -> Option<String> {
+        self.routes.get(&hostname.to_lowercase()).and_then(|t| {
+            match &t.handler_type {
+                HandlerType::WinterTCHandler(path) => Some(path.clone()),
+                HandlerType::WinterTCSliverHandler { entrypoint, .. } => Some(entrypoint.clone()),
+                _ => None,
+            }
+        })
+    }
+
+    /// Iterate over all user-registered WinterTC routes as (hostname, entrypoint) pairs.
+    pub fn user_routes(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.routes.iter().filter_map(|(host, target)| {
+            match &target.handler_type {
+                HandlerType::WinterTCHandler(path) => Some((host, path)),
+                _ => None,
+            }
+        })
+    }
 }
 
 impl Default for VirtualHostRouter {
@@ -487,8 +513,10 @@ impl Default for VirtualHostRouter {
 /// Wrapped in Arc for thread-safe sharing across requests.
 #[derive(Clone)]
 pub struct AppState {
-    /// The virtual host router for hostname-based request routing
-    pub router: VirtualHostRouter,
+    /// The virtual host router for hostname-based request routing.
+    /// Wrapped in Arc<RwLock<>> so the admin API can register routes at runtime
+    /// without restarting the HTTP server.
+    pub router: Arc<tokio::sync::RwLock<VirtualHostRouter>>,
     /// The WorkQueue for dispatching requests to worker pools
     pub work_queue: Arc<Mutex<WorkQueue>>,
     /// Optional AppRegistry for looking up app limits
@@ -498,7 +526,7 @@ pub struct AppState {
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
-            .field("router", &self.router)
+            .field("router", &"<VirtualHostRouter>")
             .field("work_queue", &"<WorkQueue>")
             .field("has_app_registry", &self.app_registry.is_some())
             .finish()
@@ -507,31 +535,20 @@ impl std::fmt::Debug for AppState {
 
 impl AppState {
     /// Create a new AppState with the given router and worker configuration
-    ///
-    /// # Arguments
-    ///
-    /// * `router` - The virtual host router
-    /// * `workers_per_pool` - Number of workers to create per hostname pool
-    ///
-    /// # Returns
-    ///
-    /// A new `AppState` with initialized WorkQueue (uses memory VFS backend)
     pub fn new(router: VirtualHostRouter, workers_per_pool: u32) -> Self {
         Self::with_vfs_config(router, workers_per_pool, None, None)
     }
 
+    /// Create a new AppState from a shared router Arc (used when admin API shares the router)
+    pub fn new_shared(router: Arc<tokio::sync::RwLock<VirtualHostRouter>>, workers_per_pool: u32) -> Self {
+        Self {
+            router,
+            work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(workers_per_pool, None, None))),
+            app_registry: None,
+        }
+    }
+
     /// Create a new AppState with VFS disk backend configuration
-    ///
-    /// # Arguments
-    ///
-    /// * `router` - The virtual host router
-    /// * `workers_per_pool` - Number of workers to create per hostname pool
-    /// * `vfs_disk_config` - Optional disk backend configuration for VFS
-    /// * `app_registry` - Optional AppRegistry for looking up app limits
-    ///
-    /// # Returns
-    ///
-    /// A new `AppState` with configured WorkQueue
     pub fn with_vfs_config(
         router: VirtualHostRouter,
         workers_per_pool: u32,
@@ -539,7 +556,7 @@ impl AppState {
         app_registry: Option<Arc<AppRegistry>>,
     ) -> Self {
         Self {
-            router,
+            router: Arc::new(tokio::sync::RwLock::new(router)),
             work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(
                 workers_per_pool,
                 vfs_disk_config,
@@ -653,8 +670,8 @@ pub async fn dispatch_to_worker_pool(
         }
     };
 
-    // Look up route target
-    let target = state.router.resolve(&host);
+    // Look up route target — clone to release the read lock before async dispatch.
+    let target = state.router.read().await.resolve(&host).clone();
 
     // Extract entrypoint from target or handle directly
     let entrypoint = match &target.handler_type {

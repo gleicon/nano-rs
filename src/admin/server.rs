@@ -50,6 +50,7 @@ use crate::admin::handlers::{
     ready_handler, reload_app, scale_app, tenant_metrics_json, update_app,
 };
 use crate::app::registry::AppRegistry;
+use crate::http::router::VirtualHostRouter;
 use crate::metrics::MetricsRegistry;
 
 /// Create a TCP listener with SO_REUSEADDR enabled for quick port reuse
@@ -202,6 +203,8 @@ impl AdminConfig {
 pub struct AdminState {
     /// Application registry for managing apps
     pub registry: Arc<RwLock<AppRegistry>>,
+    /// Shared HTTP router — admin API writes here; HTTP server reads from it.
+    pub http_router: Arc<RwLock<VirtualHostRouter>>,
     /// Metrics registry for exposing metrics
     pub metrics: Arc<MetricsRegistry>,
     /// Shutdown flag (when true, readiness returns 503)
@@ -209,10 +212,11 @@ pub struct AdminState {
 }
 
 impl AdminState {
-    /// Create new admin state
-    pub fn new(registry: Arc<RwLock<AppRegistry>>) -> Self {
+    /// Create new admin state with a shared HTTP router.
+    pub fn new(registry: Arc<RwLock<AppRegistry>>, http_router: Arc<RwLock<VirtualHostRouter>>) -> Self {
         Self {
             registry,
+            http_router,
             metrics: Arc::new(MetricsRegistry::new()),
             shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
@@ -347,21 +351,21 @@ async fn list_isolates_handler(
 async fn list_apps_handler(
     State(state): State<Arc<AdminStateAxum>>,
 ) -> impl axum::response::IntoResponse {
-    list_apps(axum::extract::State(state.inner.registry.clone())).await
+    list_apps(axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn create_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     body: axum::extract::Json<crate::admin::handlers::CreateAppRequest>,
 ) -> impl axum::response::IntoResponse {
-    create_app(axum::extract::State(state.inner.registry.clone()), body).await
+    create_app(axum::extract::State(state.inner.http_router.clone()), body).await
 }
 
 async fn get_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    get_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    get_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn update_app_handler(
@@ -369,42 +373,42 @@ async fn update_app_handler(
     axum::extract::Path(hostname): axum::extract::Path<String>,
     body: axum::extract::Json<crate::admin::handlers::UpdateAppRequest>,
 ) -> impl axum::response::IntoResponse {
-    update_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone()), body).await
+    update_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone()), body).await
 }
 
 async fn delete_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    delete_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    delete_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn activate_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    activate_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    activate_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn disable_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    disable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    disable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn enable_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    enable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    enable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn reload_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    reload_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    reload_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn scale_app_handler(
@@ -412,14 +416,14 @@ async fn scale_app_handler(
     axum::extract::Path(hostname): axum::extract::Path<String>,
     body: axum::extract::Json<crate::admin::handlers::ScaleRequest>,
 ) -> impl axum::response::IntoResponse {
-    scale_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone()), body).await
+    scale_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone()), body).await
 }
 
 async fn drain_app_handler(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    drain_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    drain_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 /// Handler wrapper for tenant metrics JSON endpoint
@@ -561,14 +565,16 @@ mod tests {
     #[test]
     fn test_admin_state_new() {
         let registry = Arc::new(RwLock::new(AppRegistry::default()));
-        let state = AdminState::new(registry);
+        let router = Arc::new(RwLock::new(VirtualHostRouter::default()));
+        let state = AdminState::new(registry, router);
         assert!(!state.is_shutting_down());
     }
 
     #[test]
     fn test_admin_state_shutdown() {
         let registry = Arc::new(RwLock::new(AppRegistry::default()));
-        let state = AdminState::new(registry);
+        let router = Arc::new(RwLock::new(VirtualHostRouter::default()));
+        let state = AdminState::new(registry, router);
         state.mark_shutting_down();
         assert!(state.is_shutting_down());
     }
@@ -577,7 +583,8 @@ mod tests {
     fn test_create_admin_router() {
         let auth = Arc::new(AdminAuth::new("test-key"));
         let registry = Arc::new(RwLock::new(AppRegistry::default()));
-        let state = AdminState::new(registry);
+        let router = Arc::new(RwLock::new(VirtualHostRouter::default()));
+        let state = AdminState::new(registry, router);
         let _router = create_admin_router(auth, state);
 
         // Router should be created without panicking

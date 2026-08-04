@@ -117,25 +117,31 @@ async fn run_server() -> Result<()> {
     );
     tracing::info!("Graceful shutdown initialized (timeout: {}s)", shutdown.state().drain().active_count());
 
-    // Create app registry for sharing between main server and admin API
+    // Shared registry (metadata) and HTTP router (live routing table).
+    // Both admin API and HTTP server hold a clone of the same Arc so admin
+    // API writes are immediately visible to the HTTP server.
     let registry = Arc::new(RwLock::new(nano::app::registry::AppRegistry::default()));
+    let shared_router = Arc::new(RwLock::new(
+        nano::http::router::VirtualHostRouter::default(),
+    ));
 
-    // Start HTTP server with virtual host routing
+    // Start HTTP server with the shared router.
     let config = nano::http::ServerConfig::default();
     tracing::info!("Starting HTTP server on {}", config.socket_addr()?);
 
     let shutdown_state = shutdown.state().clone();
+    let router_for_http = shared_router.clone();
     let server_handle = tokio::spawn(async move {
-        nano::http::start_server_with_state(config, shutdown_state).await
+        nano::http::start_server_with_shared_router(router_for_http, config, shutdown_state).await
     });
 
     // Start Admin API server (optional)
     let admin_api_key = std::env::var("NANO_ADMIN_API_KEY").unwrap_or_default();
     let unix_socket_path = std::env::var("NANO_ADMIN_UNIX_SOCKET").ok();
-    
+
     let admin_handle = if !admin_api_key.is_empty() {
         let admin_config = nano::admin::server::AdminConfig::new(admin_api_key);
-        let admin_state = nano::admin::server::AdminState::new(registry.clone());
+        let admin_state = nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
 
         match nano::admin::server::start_admin_server(admin_config, admin_state).await {
             Ok(admin_server) => {
@@ -156,7 +162,7 @@ async fn run_server() -> Result<()> {
     let unix_socket_handle = if let Some(socket_path) = unix_socket_path {
         let unix_config = nano::admin::unix_socket::UnixSocketConfig::new(socket_path);
         let unix_auth = std::sync::Arc::new(nano::admin::auth::AdminAuth::new("unix-socket-unused"));
-        let unix_state = nano::admin::server::AdminState::new(registry.clone());
+        let unix_state = nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
 
         match nano::admin::unix_socket::start_unix_socket_server(unix_config, unix_state, unix_auth).await {
             Ok(unix_server) => {
