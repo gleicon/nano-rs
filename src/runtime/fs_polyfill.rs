@@ -632,12 +632,14 @@ pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context:
     {
         let process = v8::Object::new(&mut ctx_scope);
 
-        // process.env — populated from std::env
+        // process.env — uses the per-app operator-configured allowlist, NOT std::env::vars().
+        // std::env::vars() would leak host secrets (API keys, DB passwords) into sandboxed JS.
         let env_obj = v8::Object::new(&mut ctx_scope);
-        for (key, val) in std::env::vars() {
+        let app_env = crate::runtime::vfs_bindings::current_env();
+        for (key, val) in &app_env {
             if let (Some(k), Some(v)) = (
-                v8::String::new(&mut ctx_scope, &key),
-                v8::String::new(&mut ctx_scope, &val),
+                v8::String::new(&mut ctx_scope, key.as_str()),
+                v8::String::new(&mut ctx_scope, val.as_str()),
             ) {
                 env_obj.set(&mut ctx_scope, k.into(), v.into());
             }
