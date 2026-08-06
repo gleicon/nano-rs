@@ -525,6 +525,8 @@ impl WorkerPool {
                     crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_arc));
                     // Expose app env vars as Nano.env frozen object.
                     crate::runtime::vfs_bindings::set_current_env(worker_env_vars.clone());
+                    // Set KV namespace hostname for tenant isolation.
+                    crate::runtime::kv::set_kv_hostname(worker_hostname.clone());
 
                     // Raw pointer for CPU timeout guards.
                     // SAFETY: nano lives for the entire scope block below.

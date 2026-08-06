@@ -144,6 +144,11 @@ impl ModuleLoader {
     /// - Bare specifiers (`lodash`): try `/node_modules/<spec>/index.js` in VFS,
     ///   then disk-walk (node_modules/<spec>/index.js relative to cwd)
     fn resolve_import_path(&self, base_path: &str, specifier: &str) -> Result<String> {
+        // nano: built-in modules — bypass VFS entirely
+        if specifier.starts_with("nano:") {
+            return Ok(specifier.to_string());
+        }
+
         // Absolute VFS path
         if specifier.starts_with('/') {
             return Ok(specifier.to_string());
@@ -762,10 +767,27 @@ pub(crate) fn module_resolve_callback<'a>(
     }
 
     // Check cache
-    // v147 API: v8::Local::new expects &PinnedRef<HandleScope>
-    // Note: CallbackScope derefs to PinnedRef<HandleScope>, which is compatible
     if let Some(cached) = loader.get_cached(&resolved_path) {
         return Some(v8::Local::new(&*callback_scope, &cached));
+    }
+
+    // nano: built-in synthetic modules
+    if resolved_path.starts_with("nano:") {
+        use crate::runtime::kv::get_nano_module_code;
+        let code = get_nano_module_code(&resolved_path)?;
+        let resource_name = v8::String::new(&*callback_scope, &resolved_path)?;
+        let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(&*callback_scope).into());
+        let origin = v8::ScriptOrigin::new(
+            &*callback_scope,
+            resource_name.into(),
+            0, 0, true, -1, source_map_url, false, false, true, None,
+        );
+        let code_str = v8::String::new(&*callback_scope, code)?;
+        let mut source = v8::script_compiler::Source::new(code_str, Some(&origin));
+        let module = v8::script_compiler::compile_module(&*callback_scope, &mut source)?;
+        let global_module = v8::Global::new(&**callback_scope, module);
+        loader.cache_module(&resolved_path, global_module.clone());
+        return Some(v8::Local::new(&*callback_scope, &global_module));
     }
 
     // Load module from VFS

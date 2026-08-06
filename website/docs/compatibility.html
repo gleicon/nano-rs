@@ -190,9 +190,29 @@ const result = instance.exports.add(1, 2);</pre>
             </section>
 
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">Node.js Compatibility</h2>
-                <p class="text-slate-400 mb-4">Limited Node.js compatibility available via nano-compat polyfills.</p>
-                
+                <h2 class="text-2xl font-semibold text-white mb-4">nano: Built-in Modules</h2>
+                <p class="text-slate-400 mb-4">nano-rs exposes its own APIs under the <code class="text-blue-400">nano:</code> ESM namespace — clearly distinct from WinterTC and Node.js. Import them in any ESM handler.</p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Example — nano:kv</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">import { kv, openKV } from 'nano:kv';
+
+// Default namespace (hostname-scoped, EdgeStore backed)
+await kv.set('hits', new TextEncoder().encode('1'));
+const val = await kv.get('hits');
+const num = await kv.getJSON('counter');
+
+// Named namespace
+const cache = openKV('cache');
+await cache.setJSON('config', { version: 2 });
+const cfg = await cache.getJSON('config');
+
+// List keys by prefix
+const entries = await kv.list('user:');</pre>
+                    </div>
+                </div>
+
                 <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
                     <table class="w-full text-sm">
                         <thead class="bg-slate-800">
@@ -204,59 +224,108 @@ const result = instance.exports.add(1, 2);</pre>
                         </thead>
                         <tbody class="divide-y divide-slate-800">
                             <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">assert</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Native</span></td>
-                                <td class="px-4 py-3 text-slate-400">WinterTC compatible</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">nano:kv</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">EdgeStore-backed KV. kv + openKV(name). Hostname-namespaced. Bytes primitive + JSON helpers.</td>
                             </tr>
                             <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">Buffer</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Polyfill</span></td>
-                                <td class="px-4 py-3 text-slate-400">Full implementation via nano-compat</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">nano:localStorage</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
+                                <td class="px-4 py-3 text-slate-400">JS shim over nano:kv. See examples/localStorage-shim.js for the current userland version.</td>
                             </tr>
                             <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">fs</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Polyfill</span></td>
-                                <td class="px-4 py-3 text-slate-400">VFS-based filesystem (Nano.fs.*)</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">nano:cache</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
+                                <td class="px-4 py-3 text-slate-400">WinterTC CacheStorage — VFS-backed Response serialization.</td>
                             </tr>
                             <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">path</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Polyfill</span></td>
-                                <td class="px-4 py-3 text-slate-400">Path manipulation utilities</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">nano:indexeddb</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-slate-500/20 text-slate-400 text-xs rounded">Phase 3</span></td>
+                                <td class="px-4 py-3 text-slate-400">Full IndexedDB — backend TBD (SQLite or structured JSON in VFS).</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-4">Node.js Compatibility</h2>
+                <p class="text-slate-400 mb-4">Common Node.js modules available via <code class="text-blue-400">require()</code>. These cover ~80% of npm packages that run in edge runtimes.</p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Example — require('path') + process.env</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const path = require('path');
+const { from, isBuffer, concat } = require('buffer');
+const assert = require('assert');
+
+const joined = path.join('/var', 'app', 'config.json'); // /var/app/config.json
+const dir    = path.dirname(joined);                    // /var/app
+const ext    = path.extname(joined);                    // .json
+const env    = process.env.NODE_ENV;                    // from host environment
+const ver    = process.version;                         // "v18.0.0"</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-800">
+                            <tr>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Module / Global</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Status</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800">
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">require('path')</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">join, dirname, basename, extname, resolve, isAbsolute, normalize, sep, delimiter</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">require('buffer')</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">Buffer.from, Buffer.alloc, Buffer.isBuffer, Buffer.concat. Returns Uint8Array.</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">require('assert')</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">assert.ok, assert.equal, assert.strictEqual, assert.notEqual</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">require('fs')</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">readFileSync, writeFileSync, existsSync, unlinkSync + async variants. VFS-backed.</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">process.env</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">Host environment variables. process.version = "v18.0.0", process.platform = "linux".</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">require('events')</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
+                                <td class="px-4 py-3 text-slate-400">EventEmitter — phase 2.</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">require('util')</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
+                                <td class="px-4 py-3 text-slate-400">util.promisify, util.inspect — phase 2.</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">crypto (Node)</td>
                                 <td class="px-4 py-3"><span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">Not Available</span></td>
-                                <td class="px-4 py-3 text-slate-400">Use WebCrypto crypto.subtle instead</td>
+                                <td class="px-4 py-3 text-slate-400">Use WebCrypto <code>crypto.subtle</code> instead.</td>
                             </tr>
                             <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">http</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">Not Available</span></td>
-                                <td class="px-4 py-3 text-slate-400">Use WinterTC fetch instead</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">http / https / net</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">Out of Scope</span></td>
+                                <td class="px-4 py-3 text-slate-400">Use WinterTC <code>fetch()</code> for outbound HTTP.</td>
                             </tr>
                             <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">https</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">Not Available</span></td>
-                                <td class="px-4 py-3 text-slate-400">Use WinterTC fetch instead</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">net</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">Not Available</span></td>
-                                <td class="px-4 py-3 text-slate-400">Raw sockets not supported</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">stream</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">Partial</span></td>
-                                <td class="px-4 py-3 text-slate-400">Limited via nano-compat</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">url</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Native</span></td>
-                                <td class="px-4 py-3 text-slate-400">WinterTC compatible</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">util</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Native</span></td>
-                                <td class="px-4 py-3 text-slate-400">WinterTC compatible</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">child_process</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">Out of Scope</span></td>
+                                <td class="px-4 py-3 text-slate-400">Sandboxed execution model — no subprocess spawning.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -287,36 +356,19 @@ const result = instance.exports.add(1, 2);</pre>
             </section>
 
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">nano-compat Library</h2>
-                <p class="text-slate-400 mb-4">Optional polyfills for Node.js APIs not part of WinterTC.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Usage</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300">import '@nano-rs/compat';</pre>
-                    </div>
-                </div>
+                <h2 class="text-2xl font-semibold text-white mb-4">Storage Architecture</h2>
+                <p class="text-slate-400 mb-4">Two distinct storage stacks — file operations and key-value operations are separate systems with different semantics.</p>
 
-                <div class="grid md:grid-cols-2 gap-4">
-                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
-                        <h4 class="font-semibold text-white mb-2">Buffer</h4>
-                        <p class="text-sm text-slate-400">Node.js Buffer implementation with proper toString()</p>
-                        <span class="inline-block mt-2 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="text-lg font-semibold text-white mb-2">File Storage (VFS)</h3>
+                        <p class="text-sm text-slate-400 mb-3">Named file access via <code>require('fs')</code> and <code>Nano.fs.*</code>. Memory or disk backend. Used for static assets and structured files.</p>
+                        <code class="text-xs text-slate-300">require('fs').readFileSync('/data/config.json')</code>
                     </div>
-                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
-                        <h4 class="font-semibold text-white mb-2">path</h4>
-                        <p class="text-sm text-slate-400">Path manipulation and normalization</p>
-                        <span class="inline-block mt-2 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span>
-                    </div>
-                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
-                        <h4 class="font-semibold text-white mb-2">fs</h4>
-                        <p class="text-sm text-slate-400">VFS-based filesystem operations</p>
-                        <span class="inline-block mt-2 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span>
-                    </div>
-                    <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
-                        <h4 class="font-semibold text-white mb-2">timers</h4>
-                        <p class="text-sm text-slate-400">setImmediate, nextTick polyfills</p>
-                        <span class="inline-block mt-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">Basic</span>
+                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+                        <h3 class="text-lg font-semibold text-white mb-2">Key-Value Storage (EdgeStore)</h3>
+                        <p class="text-sm text-slate-400 mb-3">Structured KV with namespace isolation via <code>nano:kv</code>. EdgeStore embedded engine. Hostname-prefixed so each app has its own isolated store. S3-compatible replication path available via EdgeStore tiers.</p>
+                        <code class="text-xs text-slate-300">import &#123; kv &#125; from 'nano:kv';</code>
                     </div>
                 </div>
             </section>

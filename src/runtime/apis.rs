@@ -55,6 +55,7 @@ impl RuntimeAPIs {
         Self::bind_fetch(scope, context);
         Self::bind_nano_fs(scope, context);
         Self::bind_fs_polyfill(scope, context);
+        Self::bind_kv(scope, context);
         Self::bind_timers(scope, context);
         Self::bind_buffer(scope, context);
         Self::bind_streams(scope, context);
@@ -112,6 +113,10 @@ impl RuntimeAPIs {
 
     fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         crate::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+    }
+
+    fn bind_kv(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+        crate::runtime::kv::bind_kv(scope, context);
     }
 
     fn bind_fetch(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {

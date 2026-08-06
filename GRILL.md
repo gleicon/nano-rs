@@ -46,3 +46,81 @@ Decisions recorded during `/ds-grill-me` session — 2026-08-02.
 **D2 (future, needs design):** `use nano::{NanoRuntime, NanoConfig}` — `NanoRuntime::builder().config(cfg).start() -> Result<NanoHandle>`. Would require: stable public API surface, versioning commitment, lifecycle contract (graceful shutdown, reload), config struct distinct from CLI args. Do not implement without a design doc.
 
 ---
+
+# Browser APIs, Storage, and Node.js Compat — 2026-08-06
+
+---
+
+**Q: One runtime mode or two (WinterTC vs browser-compat)?**
+Two distinct modes. WinterTC stays spec-clean. Browser-compat is opt-in and injects extra globals.
+_Rationale: mixing browser globals into the WinterTC context causes spec drift and confuses users writing portable workers._
+
+---
+
+**Q: What signals browser-compat mode?**
+Admin API flag (`mode: "browser"` on app registration). CLI shortcut: `--browser-app`.
+_Rationale: mode is infrastructure config, not application code. The JS file stays clean._
+
+---
+
+**Q: Entry pattern for browser-compat apps?**
+Same as WinterTC: `export default { fetch(request) {} }`. Mode flag controls which extra globals get injected at bind time, not the execution model.
+_Rationale: zero new dispatch logic. Works in both modes if using `nano:` imports._
+
+---
+
+**Q: Stateful persistent isolates (tab model) or stateless isolates with durable storage?**
+Stateless isolates with durable storage. The isolate is the execution context; state lives in storage backends.
+_Rationale: avoids session management, maps to existing VFS hostname-scoping, keeps isolates recyclable. In-isolate JS globals persist only within one worker thread — not consistent across the pool (N workers = N separate JS heaps)._
+
+---
+
+**Q: Module namespace for built-in nano-rs APIs?**
+`nano:` prefix — e.g. `import { kv } from 'nano:kv'`. Resolved in the ESM module loader before VFS lookup (prefix check in `resolve_import_path` in `v8/module.rs`).
+_Rationale: clearly marks nano-rs specific APIs as distinct from WinterTC spec and Node.js. No collision risk._
+
+---
+
+**Q: KV namespace model?**
+Named namespaces: `kv` (default, auto-scoped) + `openKV('name')` for multiple stores per app. Both hostname-scoped as `{hostname}::{kv_namespace}` via existing `IsolateVfs` prefix model.
+_Rationale: `kv` covers the simple case; `openKV` covers separation of concerns. Zero cost if only one namespace is used._
+
+---
+
+**Q: KV value types?**
+Bytes (`Uint8Array`) as the Rust-side primitive. JS-side convenience wrappers: `kv.getJSON(key)` / `kv.setJSON(key, value)`.
+_Rationale: bytes are unambiguous. JSON wrapper lives in the JS module layer, not Rust._
+
+---
+
+**Q: Tenant isolation across a multi-app process?**
+Free — inherited from `IsolateVfs.prefix_namespace()`. A worker only holds a reference to its own `IsolateVfs`; no cross-hostname VFS API exists. `nano:kv` routes through the same `IsolateVfs`, so isolation is automatic.
+_Rationale: no new isolation code needed._
+
+---
+
+**Q: Implementation order?**
+1. Close docs/code gap: `require('path')`, `require('buffer')`, `require('assert')`, `process.env` — documented as complete, not implemented
+2. `nano:kv` — async bytes KV, EdgeStore backend, hostname-namespaced
+3. `localStorage` shim + `sessionStorage` shim — JS-only wrappers over `nano:kv` and in-isolate Map respectively
+4. `CacheStorage` — WinterTC-specified, VFS-backed Response serialization
+5. `IndexedDB` — phase 3, backend TBD
+
+_Rationale: unblocks current users first. Storage primitives before high-level shims. IndexedDB last — V8 has no built-in; full implementation required._
+
+---
+
+**Q: Storage backend architecture?**
+Two separate stacks: file ops (`Nano.fs`, `require('fs')`) use VFS (memory/disk). KV ops (`nano:kv`) use EdgeStore (`gleicon/edgestore`, embedded crate, no separate process). S3 not wired now — EdgeStore handles S3 recovery through its own replication path when needed.
+_Rationale: VFS is designed for named file access; EdgeStore is designed for structured KV with namespaces. EdgeStore's `engine.get(namespace, key)` maps exactly to `openKV('name').get(key)`._
+
+---
+
+**Q: Node.js compat scope?**
+Minimal first: `require('path')`, `require('buffer')`, `require('assert')`, `process.env`. `require('events')` and `require('util')` are phase 2. `http`, `https`, `net`, `child_process` out of scope permanently. Node.js `crypto` deferred — Web Crypto (`crypto.subtle`) already complete.
+_Rationale: ~80% of npm packages that run in edge runtimes need only path/buffer/assert/process._
+
+---
+
+**Note — IndexedDB backend (unresolved, phase 3):**
+Options: SQLite (new dep) or structured JSON in VFS paths. Deferred until CacheStorage is done and usage patterns are clearer.

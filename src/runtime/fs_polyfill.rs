@@ -20,14 +20,13 @@ use std::sync::Arc;
 
 use crate::vfs::{IsolateVfs, VfsError};
 
-// Thread-local storage for the fs polyfill module
 thread_local! {
     static FS_POLYFILL: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
-}
-
-// Thread-local storage for VFS access (shared with vfs_bindings)
-thread_local! {
     static CURRENT_VFS: RefCell<Option<Arc<IsolateVfs>>> = RefCell::new(None);
+    // Virtual module objects built once per isolate context.
+    static PATH_MODULE: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
+    static BUFFER_MODULE: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
+    static ASSERT_MODULE: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
 }
 
 /// Set the fs polyfill module for the current context
@@ -179,6 +178,307 @@ macro_rules! create_error_obj {
     }};
 }
 
+// ============== Path normalization (pure Rust) ==============
+
+fn normalize_path(path: &str) -> String {
+    let is_absolute = path.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for component in path.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => { parts.pop(); }
+            c => parts.push(c),
+        }
+    }
+    let joined = parts.join("/");
+    if is_absolute {
+        format!("/{}", joined)
+    } else if joined.is_empty() {
+        ".".to_string()
+    } else {
+        joined
+    }
+}
+
+// ============== Path module callbacks ==============
+
+fn path_join(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let mut parts: Vec<String> = Vec::new();
+    for i in 0..args.length() {
+        if let Some(s) = args.get(i).to_string(scope) {
+            let s = s.to_rust_string_lossy(scope);
+            if !s.is_empty() {
+                parts.push(s);
+            }
+        }
+    }
+    let result = normalize_path(&parts.join("/"));
+    if let Some(s) = v8::String::new(scope, &result) {
+        retval.set(s.into());
+    }
+}
+
+fn path_dirname(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let p = extract_string_arg(scope, &args, 0).unwrap_or_default();
+    let result = match p.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(i) => p[..i].to_string(),
+        None => ".".to_string(),
+    };
+    if let Some(s) = v8::String::new(scope, &result) {
+        retval.set(s.into());
+    }
+}
+
+fn path_basename(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let p = extract_string_arg(scope, &args, 0).unwrap_or_default();
+    let ext = extract_string_arg(scope, &args, 1);
+    let base = p.split('/').last().unwrap_or("").to_string();
+    let result = if let Some(ref e) = ext {
+        if base.ends_with(e.as_str()) {
+            base[..base.len() - e.len()].to_string()
+        } else {
+            base
+        }
+    } else {
+        base
+    };
+    if let Some(s) = v8::String::new(scope, &result) {
+        retval.set(s.into());
+    }
+}
+
+fn path_extname(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let p = extract_string_arg(scope, &args, 0).unwrap_or_default();
+    let base = p.split('/').last().unwrap_or("");
+    let result = match base.rfind('.') {
+        Some(i) if i > 0 => base[i..].to_string(),
+        _ => String::new(),
+    };
+    if let Some(s) = v8::String::new(scope, &result) {
+        retval.set(s.into());
+    }
+}
+
+fn path_resolve(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let mut parts: Vec<String> = Vec::new();
+    for i in 0..args.length() {
+        if let Some(s) = args.get(i).to_string(scope) {
+            parts.push(s.to_rust_string_lossy(scope));
+        }
+    }
+    let joined = parts.join("/");
+    let normalized = normalize_path(&joined);
+    let result = if normalized.starts_with('/') {
+        normalized
+    } else {
+        format!("/{}", normalized)
+    };
+    if let Some(s) = v8::String::new(scope, &result) {
+        retval.set(s.into());
+    }
+}
+
+fn path_is_absolute(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let p = extract_string_arg(scope, &args, 0).unwrap_or_default();
+    retval.set(v8::Boolean::new(scope, p.starts_with('/')).into());
+}
+
+fn path_normalize_fn(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let p = extract_string_arg(scope, &args, 0).unwrap_or_default();
+    let result = normalize_path(&p);
+    if let Some(s) = v8::String::new(scope, &result) {
+        retval.set(s.into());
+    }
+}
+
+// ============== Buffer module callbacks ==============
+
+fn buffer_from(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let bytes = if args.length() > 0 {
+        extract_bytes_arg(scope, &args, 0).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let ab = v8::ArrayBuffer::new(scope, bytes.len());
+    {
+        let store = ab.get_backing_store();
+        for (i, &byte) in bytes.iter().enumerate() {
+            if let Some(cell) = store.get(i) { cell.set(byte); }
+        }
+    }
+    if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
+        retval.set(arr.into());
+    }
+}
+
+fn buffer_alloc(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let size = args.get(0).to_integer(scope).map(|n| n.value() as usize).unwrap_or(0);
+    let ab = v8::ArrayBuffer::new(scope, size);
+    if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, size) {
+        retval.set(arr.into());
+    }
+}
+
+fn buffer_is_buffer(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let is_buf = args.length() > 0 && args.get(0).is_uint8_array();
+    retval.set(v8::Boolean::new(scope, is_buf).into());
+}
+
+fn buffer_concat(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let mut all_bytes: Vec<u8> = Vec::new();
+    if args.length() > 0 {
+        let arr_val = args.get(0);
+        if arr_val.is_array() {
+            let arr = arr_val.cast::<v8::Array>();
+            for i in 0..arr.length() {
+                if let Some(item) = arr.get_index(scope, i) {
+                    if let Ok(uint8arr) = item.try_cast::<v8::Uint8Array>() {
+                        for j in 0..uint8arr.byte_length() {
+                            if let Some(v) = uint8arr.get_index(scope, j as u32) {
+                                if let Some(n) = v.to_integer(scope) {
+                                    all_bytes.push(n.value() as u8);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let ab = v8::ArrayBuffer::new(scope, all_bytes.len());
+    {
+        let store = ab.get_backing_store();
+        for (i, &byte) in all_bytes.iter().enumerate() {
+            if let Some(cell) = store.get(i) { cell.set(byte); }
+        }
+    }
+    if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, all_bytes.len()) {
+        retval.set(arr.into());
+    }
+}
+
+// ============== Assert module callbacks ==============
+
+fn assert_ok(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let passed = args.length() > 0 && {
+        let val = args.get(0);
+        // Truthy check: reject null, undefined, false, 0, ""
+        !val.is_null_or_undefined()
+            && !val.is_false()
+            && val.to_string(scope).map(|s| !s.to_rust_string_lossy(scope).is_empty()).unwrap_or(true)
+            && val.to_number(scope).map(|n| n.value() != 0.0).unwrap_or(true)
+    };
+    if !passed {
+        let msg = extract_string_arg(scope, &args, 1)
+            .unwrap_or_else(|| "Assertion failed".to_string());
+        if let Some(msg_str) = v8::String::new(scope, &msg) {
+            let error = v8::Exception::error(scope, msg_str);
+            scope.throw_exception(error);
+        }
+    }
+}
+
+fn assert_equal(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    if args.length() < 2 { return; }
+    let a = args.get(0).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
+    let b = args.get(1).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
+    if a != b {
+        let msg = extract_string_arg(scope, &args, 2)
+            .unwrap_or_else(|| format!("{} != {}", a, b));
+        if let Some(msg_str) = v8::String::new(scope, &msg) {
+            let error = v8::Exception::error(scope, msg_str);
+            scope.throw_exception(error);
+        }
+    }
+}
+
+fn assert_strict_equal(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    if args.length() < 2 { return; }
+    if !args.get(0).strict_equals(args.get(1)) {
+        let msg = extract_string_arg(scope, &args, 2)
+            .unwrap_or_else(|| "Strict equality assertion failed".to_string());
+        if let Some(msg_str) = v8::String::new(scope, &msg) {
+            let error = v8::Exception::error(scope, msg_str);
+            scope.throw_exception(error);
+        }
+    }
+}
+
+fn assert_not_equal(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    if args.length() < 2 { return; }
+    let a = args.get(0).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
+    let b = args.get(1).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
+    if a == b {
+        let msg = extract_string_arg(scope, &args, 2)
+            .unwrap_or_else(|| format!("{} == {}", a, b));
+        if let Some(msg_str) = v8::String::new(scope, &msg) {
+            let error = v8::Exception::error(scope, msg_str);
+            scope.throw_exception(error);
+        }
+    }
+}
+
 /// Create and bind the fs polyfill module to a V8 context
 ///
 /// This creates a module-like object that exposes Node.js fs API
@@ -262,6 +562,102 @@ pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context:
 
     // Store the polyfill globally for this thread
     set_fs_polyfill(Some(fs_module));
+
+    // === path module ===
+    let path_mod = {
+        let obj = v8::Object::new(&mut ctx_scope);
+        macro_rules! path_fn {
+            ($name:expr, $cb:expr) => {
+                if let (Some(f), Some(k)) = (v8::Function::new(&mut ctx_scope, $cb), v8::String::new(&mut ctx_scope, $name)) {
+                    obj.set(&mut ctx_scope, k.into(), f.into());
+                }
+            };
+        }
+        path_fn!("join", path_join);
+        path_fn!("dirname", path_dirname);
+        path_fn!("basename", path_basename);
+        path_fn!("extname", path_extname);
+        path_fn!("resolve", path_resolve);
+        path_fn!("isAbsolute", path_is_absolute);
+        path_fn!("normalize", path_normalize_fn);
+        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "sep"), v8::String::new(&mut ctx_scope, "/")) {
+            obj.set(&mut ctx_scope, k.into(), v.into());
+        }
+        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "delimiter"), v8::String::new(&mut ctx_scope, ":")) {
+            obj.set(&mut ctx_scope, k.into(), v.into());
+        }
+        v8::Global::new(&mut ctx_scope, obj)
+    };
+    PATH_MODULE.with(|cell| *cell.borrow_mut() = Some(path_mod));
+
+    // === buffer module ===
+    let buffer_mod = {
+        let obj = v8::Object::new(&mut ctx_scope);
+        macro_rules! buf_fn {
+            ($name:expr, $cb:expr) => {
+                if let (Some(f), Some(k)) = (v8::Function::new(&mut ctx_scope, $cb), v8::String::new(&mut ctx_scope, $name)) {
+                    obj.set(&mut ctx_scope, k.into(), f.into());
+                }
+            };
+        }
+        buf_fn!("from", buffer_from);
+        buf_fn!("alloc", buffer_alloc);
+        buf_fn!("isBuffer", buffer_is_buffer);
+        buf_fn!("concat", buffer_concat);
+        buf_fn!("Buffer", buffer_from);
+        v8::Global::new(&mut ctx_scope, obj)
+    };
+    BUFFER_MODULE.with(|cell| *cell.borrow_mut() = Some(buffer_mod));
+
+    // === assert module ===
+    let assert_mod = {
+        let obj = v8::Object::new(&mut ctx_scope);
+        macro_rules! assert_fn {
+            ($name:expr, $cb:expr) => {
+                if let (Some(f), Some(k)) = (v8::Function::new(&mut ctx_scope, $cb), v8::String::new(&mut ctx_scope, $name)) {
+                    obj.set(&mut ctx_scope, k.into(), f.into());
+                }
+            };
+        }
+        assert_fn!("ok", assert_ok);
+        assert_fn!("equal", assert_equal);
+        assert_fn!("strictEqual", assert_strict_equal);
+        assert_fn!("notEqual", assert_not_equal);
+        assert_fn!("assert", assert_ok);
+        v8::Global::new(&mut ctx_scope, obj)
+    };
+    ASSERT_MODULE.with(|cell| *cell.borrow_mut() = Some(assert_mod));
+
+    // === process global ===
+    {
+        let process = v8::Object::new(&mut ctx_scope);
+
+        // process.env — populated from std::env
+        let env_obj = v8::Object::new(&mut ctx_scope);
+        for (key, val) in std::env::vars() {
+            if let (Some(k), Some(v)) = (
+                v8::String::new(&mut ctx_scope, &key),
+                v8::String::new(&mut ctx_scope, &val),
+            ) {
+                env_obj.set(&mut ctx_scope, k.into(), v.into());
+            }
+        }
+        if let Some(env_key) = v8::String::new(&mut ctx_scope, "env") {
+            process.set(&mut ctx_scope, env_key.into(), env_obj.into());
+        }
+
+        // process.version (mock Node.js compat version)
+        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "version"), v8::String::new(&mut ctx_scope, "v18.0.0")) {
+            process.set(&mut ctx_scope, k.into(), v.into());
+        }
+        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "platform"), v8::String::new(&mut ctx_scope, "linux")) {
+            process.set(&mut ctx_scope, k.into(), v.into());
+        }
+
+        if let Some(process_key) = v8::String::new(&mut ctx_scope, "process") {
+            global.set(&mut ctx_scope, process_key.into(), process.into());
+        }
+    }
 }
 
 /// require() function implementation
@@ -287,7 +683,6 @@ fn require_callback(
 
     match module_name.as_str() {
         "fs" => {
-            // Return the fs module from global._nano_fs
             let global = scope.get_current_context().global(scope);
             let fs_key = v8::String::new(scope, "_nano_fs").unwrap();
             if let Some(fs_module) = global.get(scope, fs_key.into()) {
@@ -297,6 +692,42 @@ fn require_callback(
                 let error = v8::Exception::error(scope, msg);
                 scope.throw_exception(error);
             }
+        }
+        "path" => {
+            PATH_MODULE.with(|cell| {
+                if let Some(ref global_mod) = *cell.borrow() {
+                    let local = v8::Local::new(scope, global_mod);
+                    retval.set(local.into());
+                } else {
+                    let msg = v8::String::new(scope, "path module not initialized").unwrap();
+                    let error = v8::Exception::error(scope, msg);
+                    scope.throw_exception(error);
+                }
+            });
+        }
+        "buffer" | "node:buffer" => {
+            BUFFER_MODULE.with(|cell| {
+                if let Some(ref global_mod) = *cell.borrow() {
+                    let local = v8::Local::new(scope, global_mod);
+                    retval.set(local.into());
+                } else {
+                    let msg = v8::String::new(scope, "buffer module not initialized").unwrap();
+                    let error = v8::Exception::error(scope, msg);
+                    scope.throw_exception(error);
+                }
+            });
+        }
+        "assert" | "node:assert" => {
+            ASSERT_MODULE.with(|cell| {
+                if let Some(ref global_mod) = *cell.borrow() {
+                    let local = v8::Local::new(scope, global_mod);
+                    retval.set(local.into());
+                } else {
+                    let msg = v8::String::new(scope, "assert module not initialized").unwrap();
+                    let error = v8::Exception::error(scope, msg);
+                    scope.throw_exception(error);
+                }
+            });
         }
         _ => {
             let msg = v8::String::new(scope, &format!("Module '{}' not found", module_name)).unwrap();
