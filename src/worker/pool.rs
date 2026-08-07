@@ -891,8 +891,14 @@ impl WorkerPool {
                                                         return Err(anyhow!("CPU timeout"));
                                                     }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
+                                                    if tc.has_caught() {
+                                                        tc.reset();
+                                                    }
                                                     crate::runtime::apis::fire_pending_timeouts(&mut *tc);
-                                                    std::thread::sleep(std::time::Duration::from_millis(1));
+                                                    tc.perform_microtask_checkpoint();
+                                                    if promise.state() == v8::PromiseState::Pending {
+                                                        std::thread::sleep(std::time::Duration::from_millis(1));
+                                                    }
                                                 }
                                             }
                                         }

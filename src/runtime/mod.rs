@@ -33,6 +33,7 @@ pub mod websocket;
 pub mod subtle_v8;
 pub mod web_apis;
 pub mod kv;
+pub mod v8_helpers;
 
 // Re-export handler types for convenience
 pub use handler::{HandlerContext, execute_handler, execute_handler_with_context};
