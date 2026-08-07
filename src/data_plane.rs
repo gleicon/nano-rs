@@ -144,6 +144,24 @@ pub fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
     Ok(code_arc)
 }
 
+thread_local! {
+    /// Shared with the active CpuTimeoutGuard so that any code on the worker thread
+    /// (fetch, VFS, fs) can signal async I/O waits without holding the guard directly.
+    static CPU_ASYNC_WAIT_FLAG: RefCell<Option<Arc<AtomicBool>>> = RefCell::new(None);
+}
+
+/// Signal the active CPU timer that the current thread is about to wait for async I/O.
+///
+/// Call with `true` immediately before any `block_on` (network I/O, disk reads, etc.).
+/// Call with `false` immediately after. No-op if no `CpuTimeoutGuard` is active.
+pub fn signal_cpu_async_waiting(waiting: bool) {
+    CPU_ASYNC_WAIT_FLAG.with(|cell| {
+        if let Some(flag) = cell.borrow().as_ref() {
+            flag.store(waiting, Ordering::Relaxed);
+        }
+    });
+}
+
 /// Inner timer loop, extracted so it can be tested without a real V8 isolate.
 ///
 /// Ticks every 1 ms. Each tick counts toward `limit_ms` only when
@@ -218,6 +236,12 @@ impl CpuTimeoutGuard {
             on_expire,
         );
 
+        // Register the flag so fetch/VFS/fs bindings can signal waits via
+        // signal_cpu_async_waiting() without holding the guard directly.
+        CPU_ASYNC_WAIT_FLAG.with(|cell| {
+            *cell.borrow_mut() = Some(is_async_waiting.clone());
+        });
+
         Self {
             is_async_waiting,
             should_stop,
@@ -241,14 +265,17 @@ impl CpuTimeoutGuard {
 
 impl Drop for CpuTimeoutGuard {
     fn drop(&mut self) {
+        // Deregister the thread-local signal hook before stopping the timer.
+        CPU_ASYNC_WAIT_FLAG.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
         // Signal early exit; the thread sees this within 1 ms.
         self.should_stop.store(true, Ordering::Relaxed);
         if let Some(thread) = self.timer_thread.take() {
             let _ = thread.join();
         }
         if self.terminated.load(Ordering::SeqCst) {
-            // SAFETY: same as SendIsolatePtr invariant above; this drop runs on the
-            // worker thread that owns the isolate.
+            // SAFETY: this drop runs on the worker thread that owns the isolate.
             unsafe {
                 if let Some(isolate) = self.isolate_ptr.as_mut() {
                     isolate.cancel_terminate_execution();

@@ -71,12 +71,15 @@ where
     let handle = tokio::runtime::Handle::try_current()
         .ok()
         .or_else(|| crate::data_plane::with_worker_runtime(|h| h.clone()));
-    if let Some(handle) = handle {
+    crate::data_plane::signal_cpu_async_waiting(true);
+    let result = if let Some(handle) = handle {
         handle.block_on(make_fut())
     } else {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(make_fut())
-    }
+    };
+    crate::data_plane::signal_cpu_async_waiting(false);
+    result
 }
 
 /// Bind the Nano.fs API to the V8 global scope

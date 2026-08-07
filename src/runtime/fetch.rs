@@ -253,7 +253,10 @@ fn fetch_callback(
         return;
     }
     
-    let response_result: Result<(Bytes, Vec<(String, String)>, u16, String), String> = 
+    // Pause the CPU timer for the duration of the HTTP request — network I/O
+    // should not count toward the JS CPU budget.
+    crate::data_plane::signal_cpu_async_waiting(true);
+    let response_result: Result<(Bytes, Vec<(String, String)>, u16, String), String> =
         with_fetch_state(|state| {
             rt_handle.block_on(async {
                 let mut request_builder = state.client.request(
@@ -302,6 +305,7 @@ fn fetch_callback(
                 }
             })
         });
+    crate::data_plane::signal_cpu_async_waiting(false);
 
     // Create Response object
     match response_result {
