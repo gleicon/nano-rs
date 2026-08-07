@@ -1,5 +1,5 @@
 //! Unit tests for tenant metrics — extracted from src/metrics/tenant.rs
-use nano::metrics::{RequestResult, TenantMetrics, TenantMetricsCollector, GlobalMetrics};
+use nano::metrics::{GlobalMetrics, RequestResult, TenantMetrics, TenantMetricsCollector};
 
 #[test]
 fn test_tenant_metrics_creation() {

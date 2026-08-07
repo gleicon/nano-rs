@@ -18,7 +18,7 @@ fn test_heap_limit_stored() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     // Set 64MB heap limit
     isolate.set_heap_limits(32 * 1024 * 1024, 64 * 1024 * 1024);
 
@@ -35,10 +35,10 @@ fn test_heap_limit_terminates_execution() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     // Set a small 8MB heap limit to trigger quickly
     isolate.set_heap_limits(4 * 1024 * 1024, 8 * 1024 * 1024);
-    
+
     let context = isolate.create_context();
     {
         let scope_storage = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
@@ -58,14 +58,14 @@ fn test_heap_limit_terminates_execution() {
         "#;
 
         let code_str = v8::String::new(&mut ctx_scope, code).expect("Failed to create code string");
-        let script = v8::Script::compile(&mut ctx_scope, code_str, None)
-            .expect("Failed to compile script");
+        let script =
+            v8::Script::compile(&mut ctx_scope, code_str, None).expect("Failed to compile script");
 
         // Execute - this may be terminated by heap limit callback
         let start = std::time::Instant::now();
         let result = script.run(&mut ctx_scope);
         let elapsed = start.elapsed();
-        
+
         // Execution should complete (either successfully or with termination)
         // The important thing is it doesn't hang indefinitely
         assert!(
@@ -73,10 +73,14 @@ fn test_heap_limit_terminates_execution() {
             "Execution should not hang - took {:?}",
             elapsed
         );
-        
+
         // Result may be None (terminated) or Some (succeeded before limit hit)
         // Both are acceptable - the heap limit callback is registered
-        tracing::info!("Execution result: {:?}, elapsed: {:?}", result.is_some(), elapsed);
+        tracing::info!(
+            "Execution result: {:?}, elapsed: {:?}",
+            result.is_some(),
+            elapsed
+        );
     }
 }
 
@@ -88,10 +92,10 @@ fn test_isolate_usable_after_heap_termination() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     // Set heap limit before creating context
     isolate.set_heap_limits(4 * 1024 * 1024, 8 * 1024 * 1024);
-    
+
     // Create context and verify isolate is still usable
     let context = isolate.create_context();
     {
@@ -107,8 +111,8 @@ fn test_isolate_usable_after_heap_termination() {
         "#;
 
         let code_str = v8::String::new(&mut ctx_scope, code).expect("Failed to create code string");
-        let script = v8::Script::compile(&mut ctx_scope, code_str, None)
-            .expect("Failed to compile script");
+        let script =
+            v8::Script::compile(&mut ctx_scope, code_str, None).expect("Failed to compile script");
 
         let result = script.run(&mut ctx_scope);
         assert!(
@@ -132,18 +136,24 @@ fn test_heap_statistics_available() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     // Get heap stats before setting limits
     let stats_before = isolate.heap_statistics();
-    assert!(stats_before.total_heap_size() > 0, "Heap should have some size");
-    
+    assert!(
+        stats_before.total_heap_size() > 0,
+        "Heap should have some size"
+    );
+
     // Set heap limit
     isolate.set_heap_limits(10 * 1024 * 1024, 16 * 1024 * 1024);
-    
+
     // Get heap stats after setting limits
     let stats_after = isolate.heap_statistics();
-    assert!(stats_after.total_heap_size() > 0, "Heap should still have size after setting limits");
-    
+    assert!(
+        stats_after.total_heap_size() > 0,
+        "Heap should still have size after setting limits"
+    );
+
     // Heap limit should reflect our setting
     assert_eq!(isolate.heap_limit_bytes(), 16 * 1024 * 1024);
 }
@@ -157,18 +167,18 @@ fn test_heap_limit_update_value() {
     init_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     // Set initial limit
     isolate.set_heap_limits(10 * 1024 * 1024, 16 * 1024 * 1024);
     assert_eq!(isolate.heap_limit_bytes(), 16 * 1024 * 1024);
-    
+
     // Update to larger limit - stored value should change
     isolate.set_heap_limits(20 * 1024 * 1024, 32 * 1024 * 1024);
     assert_eq!(isolate.heap_limit_bytes(), 32 * 1024 * 1024);
-    
+
     // Isolate should still be functional after limit updates
     let _context = isolate.create_context();
-    
+
     // Try another update
     isolate.set_heap_limits(30 * 1024 * 1024, 64 * 1024 * 1024);
     assert_eq!(isolate.heap_limit_bytes(), 64 * 1024 * 1024);

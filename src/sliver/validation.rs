@@ -21,7 +21,11 @@ pub enum CorruptionType {
     /// Invalid metadata JSON
     InvalidMetadata { error: String },
     /// Truncated file
-    TruncatedFile { expected: u64, found: u64, entry: String },
+    TruncatedFile {
+        expected: u64,
+        found: u64,
+        entry: String,
+    },
     /// Empty required file
     EmptyFile { entry: String },
     /// Wrong file extension
@@ -38,13 +42,24 @@ impl std::fmt::Display for CorruptionType {
                 write!(f, "Missing {} (required)", METADATA_FILENAME)
             }
             CorruptionType::MissingPayload => {
-                write!(f, "Sliver has no payload (no bytecode, VFS entries, or heap blob)")
+                write!(
+                    f,
+                    "Sliver has no payload (no bytecode, VFS entries, or heap blob)"
+                )
             }
             CorruptionType::InvalidMetadata { error } => {
                 write!(f, "Corrupted {}: {}", METADATA_FILENAME, error)
             }
-            CorruptionType::TruncatedFile { expected, found, entry } => {
-                write!(f, "Truncated file {}: expected {} bytes, found {}", entry, expected, found)
+            CorruptionType::TruncatedFile {
+                expected,
+                found,
+                entry,
+            } => {
+                write!(
+                    f,
+                    "Truncated file {}: expected {} bytes, found {}",
+                    entry, expected, found
+                )
             }
             CorruptionType::EmptyFile { entry } => {
                 write!(f, "Empty required file: {}", entry)
@@ -62,7 +77,7 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
     if !path.exists() {
         return Err(SliverError::IoError(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("Sliver file not found: {}", path.display())
+            format!("Sliver file not found: {}", path.display()),
         )));
     }
 
@@ -70,15 +85,18 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
     let ext = path.extension().and_then(|e| e.to_str());
     if ext != Some("sliver") {
         return Err(SliverError::CorruptedArchive {
-            reason: format!("Invalid extension: {} (expected .sliver)", ext.unwrap_or("none")),
+            reason: format!(
+                "Invalid extension: {} (expected .sliver)",
+                ext.unwrap_or("none")
+            ),
         });
     }
 
     // Open and validate tar structure
     let file = std::fs::File::open(path)?;
-    
+
     let mut archive = tar::Archive::new(file);
-    
+
     let mut found_metadata = false;
     let mut found_payload = false; // heap.bin (v1) or bytecode.v8bc (v2) or vfs/* entries
     let mut errors = Vec::new();
@@ -90,28 +108,30 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
                     Ok(mut entry) => {
                         let path_result = entry.path();
                         let size = entry.size();
-                        
+
                         match path_result {
                             Ok(path) => {
                                 let path_str = path.to_string_lossy();
-                                
+
                                 match path_str.as_ref() {
                                     METADATA_FILENAME => {
                                         found_metadata = true;
                                         if size == 0 {
-                                            errors.push(CorruptionType::EmptyFile { 
-                                                entry: METADATA_FILENAME.to_string() 
+                                            errors.push(CorruptionType::EmptyFile {
+                                                entry: METADATA_FILENAME.to_string(),
                                             });
                                         } else {
                                             // Try to parse as JSON
                                             let mut content = String::new();
                                             if let Err(e) = entry.read_to_string(&mut content) {
-                                                errors.push(CorruptionType::InvalidMetadata { 
-                                                    error: e.to_string() 
+                                                errors.push(CorruptionType::InvalidMetadata {
+                                                    error: e.to_string(),
                                                 });
-                                            } else if let Err(e) = serde_json::from_str::<SliverMetadata>(&content) {
-                                                errors.push(CorruptionType::InvalidMetadata { 
-                                                    error: e.to_string() 
+                                            } else if let Err(e) =
+                                                serde_json::from_str::<SliverMetadata>(&content)
+                                            {
+                                                errors.push(CorruptionType::InvalidMetadata {
+                                                    error: e.to_string(),
                                                 });
                                             }
                                         }
@@ -131,15 +151,15 @@ pub fn validate_sliver_integrity(path: &Path) -> SliverResult<()> {
                                 }
                             }
                             Err(e) => {
-                                errors.push(CorruptionType::InvalidTar { 
-                                    reason: format!("Invalid entry path: {}", e) 
+                                errors.push(CorruptionType::InvalidTar {
+                                    reason: format!("Invalid entry path: {}", e),
                                 });
                             }
                         }
                     }
                     Err(e) => {
-                        errors.push(CorruptionType::InvalidTar { 
-                            reason: e.to_string() 
+                        errors.push(CorruptionType::InvalidTar {
+                            reason: e.to_string(),
                         });
                     }
                 }
@@ -182,7 +202,7 @@ pub fn find_sliver_file(name_or_path: &str) -> Option<PathBuf> {
     let home_dir = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_default();
-    
+
     let search_paths = vec![
         format!("./{}.sliver", name_or_path),
         format!("./slivers/{}.sliver", name_or_path),
@@ -273,11 +293,16 @@ pub fn check_version_compatibility(
     runtime_version: &str,
 ) -> SliverResult<()> {
     // Parse major versions from nano_version
-    let sliver_major = metadata.nano_version.split('.').next()
+    let sliver_major = metadata
+        .nano_version
+        .split('.')
+        .next()
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(0);
-    
-    let runtime_major = runtime_version.split('.').next()
+
+    let runtime_major = runtime_version
+        .split('.')
+        .next()
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(0);
 
@@ -311,15 +336,15 @@ pub fn can_restore_with_fallback(_metadata: &SliverMetadata) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use tempfile::TempDir;
 
     fn create_test_sliver(dir: &Path, name: &str, valid: bool) -> PathBuf {
         use tar::{Builder, Header};
-        
+
         let path = dir.join(format!("{}.sliver", name));
         let mut builder = Builder::new(Vec::new());
-        
+
         if valid {
             // Add metadata
             let metadata = r#"{"format_version":"1.0","hostname":"test.example.com","name":"test","created_at":"2026-04-20T00:00:00Z","nano_version":"1.1.0"}"#;
@@ -328,7 +353,7 @@ mod tests {
             header.set_size(metadata.len() as u64);
             header.set_cksum();
             builder.append(&header, metadata.as_bytes()).unwrap();
-            
+
             // Add heap
             let heap = vec![0u8; 1024];
             let mut header = Header::new_gnu();
@@ -345,7 +370,7 @@ mod tests {
             header.set_cksum();
             builder.append(&header, metadata.as_bytes()).unwrap();
         }
-        
+
         let data = builder.into_inner().unwrap();
         std::fs::write(&path, data).unwrap();
         path
@@ -355,7 +380,7 @@ mod tests {
     fn test_validate_valid_sliver() {
         let temp_dir = TempDir::new().unwrap();
         let path = create_test_sliver(temp_dir.path(), "valid", true);
-        
+
         let result = validate_sliver_integrity(&path);
         if let Err(ref e) = result {
             eprintln!("Validation error: {:?}", e);
@@ -367,7 +392,7 @@ mod tests {
     fn test_validate_missing_metadata() {
         let temp_dir = TempDir::new().unwrap();
         let path = temp_dir.path().join("bad.sliver");
-        
+
         // Create tar without metadata
         use tar::{Builder, Header};
         let mut builder = Builder::new(Vec::new());
@@ -377,21 +402,25 @@ mod tests {
         header.set_size(heap.len() as u64);
         header.set_cksum();
         builder.append(&header, heap.as_slice()).unwrap();
-        
+
         let data = builder.into_inner().unwrap();
         std::fs::write(&path, data).unwrap();
-        
+
         let result = validate_sliver_integrity(&path);
         assert!(result.is_err());
         let err_str = format!("{}", result.unwrap_err());
-        assert!(err_str.contains("meta.json"), "Error should mention meta.json, got: {}", err_str);
+        assert!(
+            err_str.contains("meta.json"),
+            "Error should mention meta.json, got: {}",
+            err_str
+        );
     }
 
     #[test]
     fn test_find_sliver_file_direct() {
         let temp_dir = TempDir::new().unwrap();
         let path = create_test_sliver(temp_dir.path(), "test", true);
-        
+
         let found = find_sliver_file(path.to_str().unwrap());
         assert_eq!(found, Some(path));
     }
@@ -400,21 +429,21 @@ mod tests {
     fn test_find_sliver_file_by_name() {
         let temp_dir = TempDir::new().unwrap();
         let _path = create_test_sliver(temp_dir.path(), "my-sliver", true);
-        
+
         // Change to temp dir and search
         let original = std::env::current_dir().unwrap();
         std::env::set_current_dir(&temp_dir).unwrap();
-        
+
         let found = find_sliver_file("my-sliver");
         std::env::set_current_dir(original).unwrap();
-        
+
         assert!(found.is_some());
     }
 
     #[test]
     fn test_check_version_compatibility_same_version() {
         let metadata = SliverMetadata::new("test.example.com", "1.1.0");
-        
+
         assert!(check_version_compatibility(&metadata, "1.1.0").is_ok());
     }
 
@@ -423,7 +452,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let _path1 = create_test_sliver(temp_dir.path(), "api-prod", true);
         let _path2 = create_test_sliver(temp_dir.path(), "api-staging", true);
-        
+
         let similar = find_similar_slivers("api-prd", &[temp_dir.path().to_path_buf()]);
         assert_eq!(similar, Some("api-prod".to_string()));
     }

@@ -33,7 +33,7 @@ impl SliverPacker {
     /// Serializes the metadata to JSON and adds it as meta.json
     pub fn add_metadata(&mut self, metadata: &SliverMetadata) -> SliverResult<()> {
         let json_data = metadata.to_json()?;
-        
+
         let mut header = Header::new_gnu();
         header.set_path(METADATA_FILENAME)?;
         header.set_size(json_data.len() as u64);
@@ -65,11 +65,11 @@ impl SliverPacker {
     /// Uses GNU long-name extension for paths exceeding 100 characters.
     pub fn add_vfs_entry(&mut self, path: &VfsPath, file: &VfsFile) -> SliverResult<()> {
         let archive_path = format!("{}{}", VFS_PREFIX, path.as_str());
-        
+
         let mut header = Header::new_gnu();
         header.set_size(file.content.len() as u64);
         header.set_mode(0o644);
-        
+
         // Use file's modification time if available, otherwise current time
         let mtime = file
             .modified_at
@@ -82,11 +82,12 @@ impl SliverPacker {
                     .as_secs()
             });
         header.set_mtime(mtime);
-        
+
         header.set_cksum();
 
         // Use append_data to support long paths (>100 chars) via GNU extensions
-        self.builder.append_data(&mut header, &archive_path, file.content.as_slice())?;
+        self.builder
+            .append_data(&mut header, &archive_path, file.content.as_slice())?;
         self.entries.push(archive_path);
 
         Ok(())
@@ -95,10 +96,7 @@ impl SliverPacker {
     /// Add multiple VFS entries from a collection
     ///
     /// Convenience method for bulk adding VFS entries.
-    pub fn add_vfs_entries(
-        &mut self,
-        entries: &[(VfsPath, VfsFile)],
-    ) -> SliverResult<()> {
+    pub fn add_vfs_entries(&mut self, entries: &[(VfsPath, VfsFile)]) -> SliverResult<()> {
         for (path, file) in entries {
             self.add_vfs_entry(path, file)?;
         }
@@ -141,10 +139,10 @@ impl SliverPacker {
 
         // Finalize the tar archive
         self.builder.finish()?;
-        
+
         // Extract the underlying vector
         let data = self.builder.into_inner()?;
-        
+
         Ok(data)
     }
 }
@@ -179,13 +177,12 @@ pub fn pack_sliver(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn test_packer_basic() {
         let metadata = SliverMetadata::new("app.example.com", "1.1.0");
         let archive = pack_sliver(&metadata, None, None).unwrap();
-        
+
         // Should be non-empty
         assert!(!archive.is_empty());
         // Should be valid tar (starts with tar magic)
@@ -207,7 +204,7 @@ mod tests {
         ];
 
         let archive = pack_sliver(&metadata, None, Some(&vfs_entries)).unwrap();
-        
+
         // Verify it's a valid tar
         assert!(!archive.is_empty());
     }

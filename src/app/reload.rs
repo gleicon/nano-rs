@@ -119,7 +119,7 @@ fn calculate_diff(current: &AppRegistry, new: &AppRegistry) -> ConfigDiff {
         if current_hostnames.contains(hostname) {
             let current_app = current.get(hostname);
             let new_app = new.get(hostname);
-            
+
             if current_app != new_app {
                 diff.modified.push(hostname.clone());
             }
@@ -170,7 +170,7 @@ mod tests {
                 (h.to_string(), app)
             })
             .collect();
-        
+
         AppRegistry::new(apps)
     }
 
@@ -193,7 +193,7 @@ mod tests {
         let new = create_test_registry(vec!["app1", "app2"]);
 
         let diff = calculate_diff(&current, &new);
-        
+
         assert_eq!(diff.added, vec!["app2"]);
         assert!(diff.removed.is_empty());
         assert!(diff.modified.is_empty());
@@ -205,7 +205,7 @@ mod tests {
         let new = create_test_registry(vec!["app1"]);
 
         let diff = calculate_diff(&current, &new);
-        
+
         assert!(diff.added.is_empty());
         assert_eq!(diff.removed, vec!["app2"]);
         assert!(diff.modified.is_empty());

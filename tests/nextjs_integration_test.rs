@@ -7,8 +7,8 @@
 //! on the same thread to avoid "Cannot create a handle without a HandleScope" errors.
 //! We use std::sync::Once for thread-safe initialization within spawn_blocking.
 
-use nano::runtime::{HandlerContext, execute_handler};
-use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
+use nano::runtime::{execute_handler, HandlerContext};
 use nano::v8::{initialize_platform, NanoIsolate};
 use std::sync::Once;
 
@@ -44,16 +44,11 @@ async fn test_nextjs_home_page() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init and all V8 operations must be in the same thread
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://nextjs.example.com/").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -63,9 +58,15 @@ async fn test_nextjs_home_page() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(
@@ -86,16 +87,11 @@ async fn test_nextjs_about_page() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://nextjs.example.com/about").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -105,9 +101,15 @@ async fn test_nextjs_about_page() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
 }
@@ -120,16 +122,11 @@ async fn test_nextjs_blog_post() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://nextjs.example.com/blog/hello-world").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -139,9 +136,15 @@ async fn test_nextjs_blog_post() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
 }
@@ -154,16 +157,11 @@ async fn test_nextjs_404() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://nextjs.example.com/nonexistent-page").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -173,9 +171,15 @@ async fn test_nextjs_404() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 404);
     assert_eq!(
@@ -192,16 +196,12 @@ async fn test_nextjs_static_css_asset() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let url = NanoUrl::parse("http://nextjs.example.com/_next/static/css/pages/index.css").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let url =
+            NanoUrl::parse("http://nextjs.example.com/_next/static/css/pages/index.css").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -211,9 +211,15 @@ async fn test_nextjs_static_css_asset() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(
@@ -230,16 +236,12 @@ async fn test_nextjs_static_js_asset() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
-        let url = NanoUrl::parse("http://nextjs.example.com/_next/static/js/pages/index.js").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let url =
+            NanoUrl::parse("http://nextjs.example.com/_next/static/js/pages/index.js").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -249,9 +251,15 @@ async fn test_nextjs_static_js_asset() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(

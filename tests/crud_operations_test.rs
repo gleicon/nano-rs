@@ -9,15 +9,14 @@ use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::v8::initialize_platform;
 use nano::worker::{HandlerTask, WorkQueue};
 
-
 /// Test CREATE operation - POST request creates a resource
 #[tokio::test]
 async fn test_crud_create() {
     let _ = initialize_platform();
-    
+
     let mut queue = WorkQueue::new(1);
     let hostname = "crud-test.local";
-    
+
     // Handler with in-memory storage
     let js_code = r#"
         const storage = new Map();
@@ -43,25 +42,25 @@ async fn test_crud_create() {
             }
         };
     "#;
-    
+
     // Write JS to temp file
     let temp_dir = std::env::temp_dir();
     let entrypoint_path = temp_dir.join(format!("crud_{}.js", hostname.replace(".", "_")));
     std::fs::write(&entrypoint_path, js_code).unwrap();
-    
+
     // Create request
     let (tx, rx) = oneshot::channel();
     let url = NanoUrl::parse(&format!("http://{}/items", hostname)).unwrap();
     let mut headers = NanoHeaders::new();
     headers.set("Content-Type", "application/json");
-    
+
     let request = NanoRequest::new(
         "POST".to_string(),
         url,
         headers,
         Some(r#"{"name":"Test Item","value":42}"#.as_bytes().to_vec().into()),
     );
-    
+
     let task = HandlerTask::new_with_request_id(
         entrypoint_path.to_str().unwrap().to_string(),
         request,
@@ -69,17 +68,26 @@ async fn test_crud_create() {
         hostname.to_string(),
         "req_crud_create_001".to_string(),
     );
-    
+
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    
+
     assert_eq!(response.status(), 201, "CREATE should return 201 Created");
-    
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-    assert!(body.contains("id"), "Response should contain created item with id");
-    assert!(body.contains("Test Item"), "Response should contain item name");
+
+    let body = response
+        .body()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
+    assert!(
+        body.contains("id"),
+        "Response should contain created item with id"
+    );
+    assert!(
+        body.contains("Test Item"),
+        "Response should contain item name"
+    );
     assert!(body.contains("42"), "Response should contain item value");
-    
+
     println!("✅ CRUD CREATE test passed!");
 }
 
@@ -87,10 +95,10 @@ async fn test_crud_create() {
 #[tokio::test]
 async fn test_crud_read() {
     let _ = initialize_platform();
-    
+
     let mut queue = WorkQueue::new(1);
     let hostname = "crud-read-test.local";
-    
+
     let js_code = r#"
         const items = new Map([
             [1, { id: 1, name: 'Item 1', value: 100 }],
@@ -123,7 +131,7 @@ async fn test_crud_read() {
             }
         };
     "#;
-    
+
     // Write JS to temp file
     let temp_dir = std::env::temp_dir();
     let entrypoint_path = temp_dir.join(format!("crud_{}.js", hostname.replace(".", "_")));
@@ -132,13 +140,8 @@ async fn test_crud_read() {
     // Test READ ALL
     let (tx, rx) = oneshot::channel();
     let url = NanoUrl::parse(&format!("http://{}/items", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "GET".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
-    
+    let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+
     let task = HandlerTask::new_with_request_id(
         entrypoint_path.to_str().unwrap().to_string(),
         request,
@@ -146,25 +149,23 @@ async fn test_crud_read() {
         hostname.to_string(),
         "req_crud_read_all".to_string(),
     );
-    
+
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    
+
     assert_eq!(response.status(), 200);
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+    let body = response
+        .body()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
     assert!(body.contains("Item 1"));
     assert!(body.contains("Item 2"));
-    
+
     // Test READ ONE
     let (tx, rx) = oneshot::channel();
     let url = NanoUrl::parse(&format!("http://{}/items/1", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "GET".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
-    
+    let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+
     let task = HandlerTask::new_with_request_id(
         entrypoint_path.to_str().unwrap().to_string(),
         request,
@@ -172,15 +173,18 @@ async fn test_crud_read() {
         hostname.to_string(),
         "req_crud_read_one".to_string(),
     );
-    
+
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    
+
     assert_eq!(response.status(), 200);
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+    let body = response
+        .body()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
     assert!(body.contains("Item 1"));
     assert!(!body.contains("Item 2")); // Should only have one item
-    
+
     println!("✅ CRUD READ test passed!");
 }
 
@@ -188,10 +192,10 @@ async fn test_crud_read() {
 #[tokio::test]
 async fn test_crud_update() {
     let _ = initialize_platform();
-    
+
     let mut queue = WorkQueue::new(1);
     let hostname = "crud-update-test.local";
-    
+
     let js_code = r#"
         const items = new Map([
             [1, { id: 1, name: 'Original', value: 100 }]
@@ -232,14 +236,14 @@ async fn test_crud_update() {
     let url = NanoUrl::parse(&format!("http://{}/items/1", hostname)).unwrap();
     let mut headers = NanoHeaders::new();
     headers.set("Content-Type", "application/json");
-    
+
     let request = NanoRequest::new(
         "PUT".to_string(),
         url,
         headers,
         Some(r#"{"name":"Updated","value":999}"#.as_bytes().to_vec().into()),
     );
-    
+
     let task = HandlerTask::new_with_request_id(
         entrypoint_path.to_str().unwrap().to_string(),
         request,
@@ -247,16 +251,28 @@ async fn test_crud_update() {
         hostname.to_string(),
         "req_crud_update".to_string(),
     );
-    
+
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    
+
     assert_eq!(response.status(), 200);
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-    assert!(body.contains("Updated"), "Response should contain updated name");
-    assert!(body.contains("999"), "Response should contain updated value");
-    assert!(body.contains("updated"), "Response should have updated timestamp");
-    
+    let body = response
+        .body()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
+    assert!(
+        body.contains("Updated"),
+        "Response should contain updated name"
+    );
+    assert!(
+        body.contains("999"),
+        "Response should contain updated value"
+    );
+    assert!(
+        body.contains("updated"),
+        "Response should have updated timestamp"
+    );
+
     println!("✅ CRUD UPDATE test passed!");
 }
 
@@ -303,12 +319,7 @@ async fn test_crud_delete() {
     // Test DELETE existing item -> 204
     let (tx, rx) = oneshot::channel();
     let url = NanoUrl::parse(&format!("http://{}/items/1", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "DELETE".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
+    let request = NanoRequest::new("DELETE".to_string(), url, NanoHeaders::new(), None);
 
     let task = HandlerTask::new_with_request_id(
         entrypoint_path.to_str().unwrap().to_string(),
@@ -320,17 +331,16 @@ async fn test_crud_delete() {
 
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    assert_eq!(response.status(), 204, "DELETE should return 204 No Content");
+    assert_eq!(
+        response.status(),
+        204,
+        "DELETE should return 204 No Content"
+    );
 
     // Test DELETE non-existent item -> 404 (each request has fresh context)
     let (tx, rx) = oneshot::channel();
     let url = NanoUrl::parse(&format!("http://{}/items/99", hostname)).unwrap();
-    let request = NanoRequest::new(
-        "DELETE".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
+    let request = NanoRequest::new("DELETE".to_string(), url, NanoHeaders::new(), None);
 
     let task = HandlerTask::new_with_request_id(
         entrypoint_path.to_str().unwrap().to_string(),
@@ -342,7 +352,11 @@ async fn test_crud_delete() {
 
     queue.dispatch(hostname, task).await.unwrap();
     let response = rx.await.unwrap().unwrap();
-    assert_eq!(response.status(), 404, "DELETE non-existent should return 404");
+    assert_eq!(
+        response.status(),
+        404,
+        "DELETE non-existent should return 404"
+    );
 
     println!("✅ CRUD DELETE test passed!");
 }
@@ -416,12 +430,7 @@ async fn test_crud_full_cycle() {
     let (tx, rx) = oneshot::channel();
     let url = NanoUrl::parse(&format!("http://{}/test-cycle", hostname)).unwrap();
 
-    let request = NanoRequest::new(
-        "POST".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
+    let request = NanoRequest::new("POST".to_string(), url, NanoHeaders::new(), None);
 
     let task = HandlerTask::new_with_request_id(
         entrypoint_path.to_str().unwrap().to_string(),
@@ -435,10 +444,22 @@ async fn test_crud_full_cycle() {
     let response = rx.await.unwrap().unwrap();
     assert_eq!(response.status(), 200, "Full cycle should succeed");
 
-    let body = response.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-    assert!(body.contains("\"passed\":true"), "Full cycle should report passed=true");
-    assert!(body.contains("\"finalCount\":0"), "Final count should be 0 after delete");
-    assert!(body.contains("\"name\":\"Updated\""), "Updated name should be present");
+    let body = response
+        .body()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
+    assert!(
+        body.contains("\"passed\":true"),
+        "Full cycle should report passed=true"
+    );
+    assert!(
+        body.contains("\"finalCount\":0"),
+        "Final count should be 0 after delete"
+    );
+    assert!(
+        body.contains("\"name\":\"Updated\""),
+        "Updated name should be present"
+    );
 
     println!("✅ CRUD FULL CYCLE test passed!");
 }

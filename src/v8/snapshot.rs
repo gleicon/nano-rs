@@ -54,14 +54,18 @@ impl SnapshotCache {
 
     /// Attempt to load snapshot from a file path.
     pub fn from_file(path: &std::path::Path) -> Result<Self> {
-        let data = std::fs::read(path)
-            .map_err(|e| anyhow!("Failed to read snapshot file: {}", e))?;
-        
+        let data =
+            std::fs::read(path).map_err(|e| anyhow!("Failed to read snapshot file: {}", e))?;
+
         if data.is_empty() {
             return Err(anyhow!("Snapshot file is empty"));
         }
-        
-        tracing::info!("Loaded V8 snapshot from {} ({} bytes)", path.display(), data.len());
+
+        tracing::info!(
+            "Loaded V8 snapshot from {} ({} bytes)",
+            path.display(),
+            data.len()
+        );
         Ok(Self { data })
     }
 

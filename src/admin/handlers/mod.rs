@@ -11,10 +11,9 @@ pub mod health;
 pub mod isolates;
 
 pub use apps::{
-    activate_app, create_app, delete_app, disable_app, drain_app, enable_app,
-    get_app, list_apps, reload_app, scale_app, update_app,
-    AppActionResponse, AppError, AppInfo, AppStatus, CreateAppRequest,
-    CreateAppResponse, ListAppsResponse, ScaleRequest, UpdateAppRequest,
+    activate_app, create_app, delete_app, disable_app, drain_app, enable_app, get_app, list_apps,
+    reload_app, scale_app, update_app, AppActionResponse, AppError, AppInfo, AppStatus,
+    CreateAppRequest, CreateAppResponse, ListAppsResponse, ScaleRequest, UpdateAppRequest,
     UpdateAppResponse,
 };
 pub use health::{

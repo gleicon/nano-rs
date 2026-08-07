@@ -52,12 +52,7 @@ async fn test_isolate_id_changes_after_oom_recovery() {
     // First request - normal operation, capture isolate_id
     let (tx1, rx1) = oneshot::channel();
     let url1 = NanoUrl::parse("http://oom-test.local/").unwrap();
-    let request1 = NanoRequest::new(
-        "GET".to_string(),
-        url1,
-        NanoHeaders::new(),
-        None,
-    );
+    let request1 = NanoRequest::new("GET".to_string(), url1, NanoHeaders::new(), None);
 
     let task1 = HandlerTask::new_with_request_id(
         entrypoint.clone(),
@@ -76,23 +71,24 @@ async fn test_isolate_id_changes_after_oom_recovery() {
     let isolate_id1 = response1.isolate_id();
 
     assert!(worker_id1.is_some(), "First request should have worker_id");
-    assert!(isolate_id1.is_some(), "First request should have isolate_id");
+    assert!(
+        isolate_id1.is_some(),
+        "First request should have isolate_id"
+    );
 
     let first_worker_id = worker_id1.unwrap();
     let first_isolate_id = isolate_id1.unwrap().to_string();
 
-    println!("First request: worker_id={}, isolate_id={}", first_worker_id, first_isolate_id);
+    println!(
+        "First request: worker_id={}, isolate_id={}",
+        first_worker_id, first_isolate_id
+    );
 
     // Second request - this one might trigger OOM depending on memory usage
     // In a real test, we'd use a handler that allocates significant memory
     let (tx2, rx2) = oneshot::channel();
     let url2 = NanoUrl::parse("http://oom-test.local/memory-heavy").unwrap();
-    let request2 = NanoRequest::new(
-        "GET".to_string(),
-        url2,
-        NanoHeaders::new(),
-        None,
-    );
+    let request2 = NanoRequest::new("GET".to_string(), url2, NanoHeaders::new(), None);
 
     let task2 = HandlerTask::new_with_request_id(
         entrypoint.clone(),
@@ -112,12 +108,7 @@ async fn test_isolate_id_changes_after_oom_recovery() {
     // If no OOM, isolate_id should be the same
     let (tx3, rx3) = oneshot::channel();
     let url3 = NanoUrl::parse("http://oom-test.local/").unwrap();
-    let request3 = NanoRequest::new(
-        "GET".to_string(),
-        url3,
-        NanoHeaders::new(),
-        None,
-    );
+    let request3 = NanoRequest::new("GET".to_string(), url3, NanoHeaders::new(), None);
 
     let task3 = HandlerTask::new_with_request_id(
         entrypoint.clone(),
@@ -145,11 +136,16 @@ async fn test_isolate_id_changes_after_oom_recovery() {
             let third_worker_id = wid;
             let third_isolate_id = iid.to_string();
 
-            println!("Third request: worker_id={}, isolate_id={}", third_worker_id, third_isolate_id);
+            println!(
+                "Third request: worker_id={}, isolate_id={}",
+                third_worker_id, third_isolate_id
+            );
 
             // Worker should be the same (same worker thread)
-            assert_eq!(first_worker_id, third_worker_id,
-                "Worker ID should remain the same - same OS thread");
+            assert_eq!(
+                first_worker_id, third_worker_id,
+                "Worker ID should remain the same - same OS thread"
+            );
 
             // If OOM occurred, isolate_id should be different
             // If no OOM, isolate_id should be the same
@@ -160,8 +156,10 @@ async fn test_isolate_id_changes_after_oom_recovery() {
                 println!("  Third isolate:  {}", third_isolate_id);
 
                 // Verify the format is correct
-                assert!(third_isolate_id.starts_with("iso_"),
-                    "Isolate ID should start with 'iso_' prefix");
+                assert!(
+                    third_isolate_id.starts_with("iso_"),
+                    "Isolate ID should start with 'iso_' prefix"
+                );
             } else {
                 println!("Isolate ID unchanged - no OOM occurred (memory usage was normal)");
             }
@@ -177,20 +175,23 @@ async fn test_isolate_id_changes_after_oom_recovery() {
 /// 3. After OOM recovery, age resets to 0
 #[test]
 fn test_isolate_age_tracking() {
-    use nano::worker::eviction::{IsolateMetadata, IsolateId};
+    use nano::worker::eviction::{IsolateId, IsolateMetadata};
     use std::thread;
-    
+
     // Create metadata for a new isolate
     let meta = IsolateMetadata::new("test.local", 0);
-    
+
     // Age should be very small (just created)
     let age = meta.age();
     assert!(age.as_secs() < 1, "New isolate should have age < 1 second");
-    
+
     // Format should be in seconds
     let age_str = meta.age_formatted();
-    assert!(age_str.ends_with('s'), "Age format should end with 's' for seconds");
-    
+    assert!(
+        age_str.ends_with('s'),
+        "Age format should end with 's' for seconds"
+    );
+
     // Wait a bit and check age increased
     thread::sleep(Duration::from_millis(100));
     let age2 = meta.age();
@@ -223,12 +224,7 @@ async fn test_request_tracing_combo() {
     for i in 0..5 {
         let (tx, rx) = oneshot::channel();
         let url = NanoUrl::parse(&format!("http://{}/request-{}", hostname, i)).unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let request_id = format!("req_test_{:03}", i);
         let task = HandlerTask::new_with_request_id(
@@ -243,7 +239,8 @@ async fn test_request_tracing_combo() {
 
         let response = rx.await.unwrap().unwrap();
 
-        println!("Request {}: request_id={}, worker_id={:?}, isolate_id={:?}",
+        println!(
+            "Request {}: request_id={}, worker_id={:?}, isolate_id={:?}",
             i,
             request_id,
             response.worker_id(),
@@ -256,7 +253,9 @@ async fn test_request_tracing_combo() {
 
         // Verify format
         let isolate_id = response.isolate_id().unwrap();
-        assert!(isolate_id.starts_with("iso_"),
-            "isolate_id should start with 'iso_'");
+        assert!(
+            isolate_id.starts_with("iso_"),
+            "isolate_id should start with 'iso_'"
+        );
     }
 }

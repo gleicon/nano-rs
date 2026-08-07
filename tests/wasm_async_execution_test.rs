@@ -25,33 +25,33 @@ where
 #[test]
 fn test_simple_promise_creation() {
     initialize_platform();
-    
+
     // Create a fresh isolate
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     with_nano_context(&mut isolate, |context_scope, _context| {
         // Execute JavaScript that returns a resolved Promise
         let code = "Promise.resolve(42)";
         let source = v8::String::new(context_scope, code).unwrap();
         let script = v8::Script::compile(context_scope, source.into(), None)
             .expect("Failed to compile script");
-        
+
         let result = script.run(context_scope);
-        
+
         // The result should be a Promise
         assert!(result.is_some(), "Script should return a result");
         let result_val = result.unwrap();
         assert!(result_val.is_promise(), "Result should be a Promise");
-        
+
         // Verify the promise is in fulfilled state (V8 v147 resolves synchronously for simple cases)
         let promise = result_val.cast::<v8::Promise>();
         assert!(
-            promise.state() == v8::PromiseState::Fulfilled || 
-            promise.state() == v8::PromiseState::Pending,
+            promise.state() == v8::PromiseState::Fulfilled
+                || promise.state() == v8::PromiseState::Pending,
             "Promise should be fulfilled or pending"
         );
     });
-    
+
     println!("✅ Simple Promise creation test passed!");
 }
 
@@ -61,9 +61,9 @@ fn test_simple_promise_creation() {
 #[test]
 fn test_async_await_creation() {
     initialize_platform();
-    
+
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     with_nano_context(&mut isolate, |context_scope, _context| {
         // Execute an async function
         let code = r#"
@@ -72,26 +72,26 @@ fn test_async_await_creation() {
                 return result;
             })()
         "#;
-        
+
         let source = v8::String::new(context_scope, code).unwrap();
         let script = v8::Script::compile(context_scope, source.into(), None)
             .expect("Failed to compile script");
-        
+
         let result = script.run(context_scope);
         assert!(result.is_some(), "Script should return a result");
-        
+
         let result_val = result.unwrap();
         assert!(result_val.is_promise(), "Result should be a Promise");
-        
+
         let promise = result_val.cast::<v8::Promise>();
         // V8 v147 may resolve simple promises synchronously
         assert!(
-            promise.state() == v8::PromiseState::Fulfilled || 
-            promise.state() == v8::PromiseState::Pending,
+            promise.state() == v8::PromiseState::Fulfilled
+                || promise.state() == v8::PromiseState::Pending,
             "Async function should return a fulfilled or pending Promise"
         );
     });
-    
+
     println!("✅ Async/await creation test passed!");
 }
 
@@ -99,27 +99,28 @@ fn test_async_await_creation() {
 #[test]
 fn test_basic_js_execution() {
     initialize_platform();
-    
+
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     with_nano_context(&mut isolate, |context_scope, _context| {
         // Simple synchronous code
         let code = "1 + 1";
         let source = v8::String::new(context_scope, code).unwrap();
         let script = v8::Script::compile(context_scope, source.into(), None)
             .expect("Failed to compile script");
-        
+
         let result = script.run(context_scope);
         assert!(result.is_some(), "Script should return a result");
-        
+
         let result_val = result.unwrap();
-        let int_val = result_val.to_integer(context_scope)
+        let int_val = result_val
+            .to_integer(context_scope)
             .map(|i| i.value() as i32)
             .unwrap_or(-1);
-        
+
         assert_eq!(int_val, 2, "1 + 1 should equal 2");
     });
-    
+
     println!("✅ Basic JS execution test passed!");
 }
 
@@ -127,22 +128,22 @@ fn test_basic_js_execution() {
 #[test]
 fn test_microtask_checkpoint() {
     initialize_platform();
-    
+
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     with_nano_context(&mut isolate, |context_scope, _context| {
         // Run microtask checkpoint - this should not panic
         context_scope.perform_microtask_checkpoint();
-        
+
         // Execute some code
         let code = "'test'";
         let source = v8::String::new(context_scope, code).unwrap();
         let script = v8::Script::compile(context_scope, source.into(), None).unwrap();
         let _result = script.run(context_scope);
-        
+
         // Run microtask checkpoint again
         context_scope.perform_microtask_checkpoint();
     });
-    
+
     println!("✅ Microtask checkpoint test passed!");
 }

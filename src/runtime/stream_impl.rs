@@ -3,8 +3,8 @@
 //! Provides WritableStream, WritableStreamDefaultWriter, and related types
 //! for streaming data from JavaScript to Rust.
 
-use bytes::Bytes;
 use super::UnderlyingSink;
+use bytes::Bytes;
 
 /// WritableStream for streaming data from JavaScript to Rust
 ///
@@ -129,7 +129,12 @@ impl WritableStream {
             }
         }
 
-        let stream = Self::new(BufferSink { buffer: buffer_clone }, Some(4));
+        let stream = Self::new(
+            BufferSink {
+                buffer: buffer_clone,
+            },
+            Some(4),
+        );
         (stream, buffer)
     }
 
@@ -155,7 +160,8 @@ impl WritableStream {
             || self.aborted.load(std::sync::atomic::Ordering::SeqCst)
         {
             // Release lock since we can't provide a valid writer
-            self.locked.store(false, std::sync::atomic::Ordering::SeqCst);
+            self.locked
+                .store(false, std::sync::atomic::Ordering::SeqCst);
             return None;
         }
 
@@ -194,19 +200,23 @@ impl WritableStream {
     /// Internal: Mark stream as closed
     fn mark_closed(&self) {
         self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
-        self.locked.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.locked
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Internal: Mark stream as aborted
     fn mark_aborted(&self, reason: Option<String>) {
-        self.aborted.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.aborted
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         *self.abort_reason.lock().unwrap() = reason;
-        self.locked.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.locked
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Internal: Release the lock (called when writer is dropped)
     fn release_lock(&self) {
-        self.locked.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.locked
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -332,7 +342,9 @@ impl<'a> Drop for WritableStreamDefaultWriter<'a> {
             // If not explicitly closed, mark the stream as errored
             if let Some(ref sender) = self.sender {
                 // Try to send abort (non-blocking since we're in drop)
-                let _ = sender.try_send(StreamCommand::Abort(Some("Writer dropped without close".to_string())));
+                let _ = sender.try_send(StreamCommand::Abort(Some(
+                    "Writer dropped without close".to_string(),
+                )));
             }
         }
         self.stream.release_lock();
@@ -509,7 +521,8 @@ mod tests {
                 Ok(())
             }
             async fn abort(&mut self, reason: Option<String>) -> Result<(), anyhow::Error> {
-                self.aborted.store(true, std::sync::atomic::Ordering::SeqCst);
+                self.aborted
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
                 *self.reason.lock().unwrap() = reason;
                 Ok(())
             }
@@ -538,7 +551,10 @@ mod tests {
 
         // Verify sink was aborted
         assert!(aborted.load(std::sync::atomic::Ordering::SeqCst));
-        assert_eq!(&*reason.lock().unwrap(), &Some("Test abort reason".to_string()));
+        assert_eq!(
+            &*reason.lock().unwrap(),
+            &Some("Test abort reason".to_string())
+        );
     }
 
     /// Test 7: Multiple writes are processed in order

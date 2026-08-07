@@ -62,13 +62,15 @@ pub(crate) fn fire_pending_intervals(scope: &mut v8::PinnedRef<v8::HandleScope>)
             // Browser behavior: interval callbacks that throw are logged but
             // not cancelled. The caller (pool.rs) resets TryCatch state
             // after fire_pending_intervals returns.
-            tracing::warn!("setInterval callback threw (id={}); interval continues", entry.id);
+            tracing::warn!(
+                "setInterval callback threw (id={}); interval continues",
+                entry.id
+            );
         }
 
         let cleared = INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow().contains(&entry.id));
         if !cleared {
-            entry.next_fire = Instant::now()
-                + std::time::Duration::from_millis(entry.interval_ms);
+            entry.next_fire = Instant::now() + std::time::Duration::from_millis(entry.interval_ms);
             PENDING_INTERVALS.with(|iv| iv.borrow_mut().push(entry));
         }
     }
@@ -239,7 +241,9 @@ fn clear_timeout_callback(
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    if args.length() == 0 { return; }
+    if args.length() == 0 {
+        return;
+    }
     if let Some(n) = args.get(0).to_number(scope) {
         let target_id = n.value() as u32;
         PENDING_TIMEOUTS.with(|tv| {
@@ -253,7 +257,9 @@ fn clear_interval_callback(
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    if args.length() == 0 { return; }
+    if args.length() == 0 {
+        return;
+    }
     if let Some(n) = args.get(0).to_number(scope) {
         let target_id = n.value() as u32;
         PENDING_INTERVALS.with(|iv| {

@@ -17,15 +17,24 @@ pub enum AlgorithmIdentifier {
     /// AES-GCM symmetric encryption
     AesGcm { length: u16 },
     /// HMAC message authentication
-    Hmac { hash: HashAlgorithm, length: Option<u32> },
+    Hmac {
+        hash: HashAlgorithm,
+        length: Option<u32>,
+    },
     /// RSA-OAEP encryption
     RsaOaep { hash: HashAlgorithm },
     /// RSA-PSS signing
-    RsaPss { hash: HashAlgorithm, salt_length: Option<u32> },
+    RsaPss {
+        hash: HashAlgorithm,
+        salt_length: Option<u32>,
+    },
     /// RSASSA-PKCS1-v1_5 signing
     RsaSsaPkcs1V1_5 { hash: HashAlgorithm },
     /// ECDSA signing
-    Ecdsa { named_curve: String, hash: HashAlgorithm },
+    Ecdsa {
+        named_curve: String,
+        hash: HashAlgorithm,
+    },
     /// ECDH key agreement
     Ecdh { named_curve: String },
 }
@@ -71,7 +80,7 @@ impl HashAlgorithm {
             HashAlgorithm::Sha512 => "SHA-512",
         }
     }
-    
+
     /// Get the hash output size in bytes
     pub fn output_size(&self) -> usize {
         match self {
@@ -80,7 +89,7 @@ impl HashAlgorithm {
             HashAlgorithm::Sha512 => 64,
         }
     }
-    
+
     /// Parse a hash algorithm name from a string
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
@@ -119,7 +128,7 @@ impl KeyUsage {
             KeyUsage::UnwrapKey => "unwrapKey",
         }
     }
-    
+
     /// Parse a key usage from a string
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
@@ -198,7 +207,7 @@ impl Drop for CryptoKeyHandle {
 }
 
 /// WebCrypto CryptoKey object
-/// 
+///
 /// Represents a cryptographic key that can be used with the SubtleCrypto API.
 /// Keys have:
 /// - Opaque key material (CryptoKeyHandle)
@@ -232,7 +241,7 @@ impl CryptoKey {
             usages,
         }
     }
-    
+
     /// Get the key type ("secret" for symmetric, "public" or "private" for asymmetric)
     pub fn key_type(&self) -> &'static str {
         match self.handle.as_ref() {
@@ -244,12 +253,12 @@ impl CryptoKey {
             CryptoKeyHandle::EcdsaPublicKey(_) => "public",
         }
     }
-    
+
     /// Check if the key has a specific usage
     pub fn has_usage(&self, usage: KeyUsage) -> bool {
         self.usages.contains(&usage)
     }
-    
+
     /// Check if the key can be used for a specific operation
     pub fn can(&self, usage: KeyUsage) -> bool {
         self.has_usage(usage)
@@ -342,13 +351,14 @@ impl JwkObject {
             key_ops: Some(key_ops),
         }
     }
-    
+
     /// Parse a JWK from JSON bytes
     pub fn from_slice(data: &[u8]) -> Result<Self, crate::runtime::crypto::CryptoError> {
-        serde_json::from_slice(data)
-            .map_err(|e| crate::runtime::crypto::CryptoError::DataError(format!("Invalid JWK: {}", e)))
+        serde_json::from_slice(data).map_err(|e| {
+            crate::runtime::crypto::CryptoError::DataError(format!("Invalid JWK: {}", e))
+        })
     }
-    
+
     /// Parse a JWK from a JavaScript object
     pub fn from_v8_object(
         scope: &mut v8::PinnedRef<v8::HandleScope>,
@@ -356,13 +366,13 @@ impl JwkObject {
     ) -> Option<Self> {
         // Extract kty (required)
         let kty = Self::get_string_property(scope, obj, "kty")?;
-        
+
         // Extract optional fields
         let alg = Self::get_string_property(scope, obj, "alg");
         let k = Self::get_string_property(scope, obj, "k");
         let ext = Self::get_bool_property(scope, obj, "ext");
         let key_ops = Self::get_string_array_property(scope, obj, "key_ops");
-        
+
         Some(Self {
             kty,
             alg,
@@ -371,21 +381,21 @@ impl JwkObject {
             key_ops,
         })
     }
-    
+
     /// Convert this JWK to a V8 JavaScript object
     pub fn to_v8_object(
         &self,
         scope: &mut v8::PinnedRef<v8::HandleScope>,
     ) -> Option<v8::Global<v8::Object>> {
         let obj = v8::Object::new(scope);
-        
+
         // Set kty
         if let Some(key) = v8::String::new(scope, "kty") {
             if let Some(val) = v8::String::new(scope, &self.kty) {
                 obj.set(scope, key.into(), val.into());
             }
         }
-        
+
         // Set alg
         if let Some(ref alg) = self.alg {
             if let Some(key) = v8::String::new(scope, "alg") {
@@ -394,7 +404,7 @@ impl JwkObject {
                 }
             }
         }
-        
+
         // Set k
         if let Some(ref k) = self.k {
             if let Some(key) = v8::String::new(scope, "k") {
@@ -403,7 +413,7 @@ impl JwkObject {
                 }
             }
         }
-        
+
         // Set ext
         if let Some(ext) = self.ext {
             if let Some(key) = v8::String::new(scope, "ext") {
@@ -411,7 +421,7 @@ impl JwkObject {
                 obj.set(scope, key.into(), val.into());
             }
         }
-        
+
         // Set key_ops
         if let Some(ref key_ops) = self.key_ops {
             if let Some(key) = v8::String::new(scope, "key_ops") {
@@ -425,7 +435,7 @@ impl JwkObject {
                 obj.set(scope, key.into(), arr.into());
             }
         }
-        
+
         Some(v8::Global::new(scope, obj))
     }
 
@@ -443,7 +453,7 @@ impl JwkObject {
         let str_val = val.to_string(scope)?;
         Some(str_val.to_rust_string_lossy(scope))
     }
-    
+
     fn get_bool_property(
         scope: &mut v8::PinnedRef<v8::HandleScope>,
         obj: v8::Local<v8::Object>,
@@ -456,7 +466,7 @@ impl JwkObject {
         }
         Some(val.is_true())
     }
-    
+
     fn get_string_array_property(
         scope: &mut v8::PinnedRef<v8::HandleScope>,
         obj: v8::Local<v8::Object>,
@@ -467,12 +477,12 @@ impl JwkObject {
         if val.is_undefined() || val.is_null() {
             return None;
         }
-        
+
         let arr = val.to_object(scope)?;
         let length_key = v8::String::new(scope, "length")?;
         let length_val = arr.get(scope, length_key.into())?;
         let length = length_val.to_number(scope)?.value() as usize;
-        
+
         let mut result = Vec::with_capacity(length);
         for i in 0..length {
             let idx = v8::Number::new(scope, i as f64);
@@ -480,7 +490,7 @@ impl JwkObject {
             let item_str = item.to_string(scope)?;
             result.push(item_str.to_rust_string_lossy(scope));
         }
-        
+
         Some(result)
     }
 }
@@ -488,12 +498,12 @@ impl JwkObject {
 /// Utility functions for base64url encoding/decoding
 pub mod base64url {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    
+
     /// Encode bytes to base64url (no padding)
     pub fn encode(bytes: &[u8]) -> String {
         URL_SAFE_NO_PAD.encode(bytes)
     }
-    
+
     /// Decode base64url to bytes
     pub fn decode(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
         URL_SAFE_NO_PAD.decode(s)
@@ -503,7 +513,7 @@ pub mod base64url {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_algorithm_identifier_name() {
         assert_eq!(
@@ -511,19 +521,32 @@ mod tests {
             "AES-GCM"
         );
         assert_eq!(
-            AlgorithmIdentifier::Hmac { hash: HashAlgorithm::Sha256, length: None }.name(),
+            AlgorithmIdentifier::Hmac {
+                hash: HashAlgorithm::Sha256,
+                length: None
+            }
+            .name(),
             "HMAC"
         );
     }
-    
+
     #[test]
     fn test_hash_algorithm_from_name() {
-        assert_eq!(HashAlgorithm::from_name("SHA-256"), Some(HashAlgorithm::Sha256));
-        assert_eq!(HashAlgorithm::from_name("SHA-384"), Some(HashAlgorithm::Sha384));
-        assert_eq!(HashAlgorithm::from_name("SHA-512"), Some(HashAlgorithm::Sha512));
+        assert_eq!(
+            HashAlgorithm::from_name("SHA-256"),
+            Some(HashAlgorithm::Sha256)
+        );
+        assert_eq!(
+            HashAlgorithm::from_name("SHA-384"),
+            Some(HashAlgorithm::Sha384)
+        );
+        assert_eq!(
+            HashAlgorithm::from_name("SHA-512"),
+            Some(HashAlgorithm::Sha512)
+        );
         assert_eq!(HashAlgorithm::from_name("invalid"), None);
     }
-    
+
     #[test]
     fn test_key_usage_parsing() {
         assert_eq!(KeyUsage::from_str("encrypt"), Some(KeyUsage::Encrypt));
@@ -532,7 +555,7 @@ mod tests {
         assert_eq!(KeyUsage::from_str("verify"), Some(KeyUsage::Verify));
         assert_eq!(KeyUsage::from_str("invalid"), None);
     }
-    
+
     #[test]
     fn test_crypto_key_creation() {
         let key_material = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
@@ -542,14 +565,14 @@ mod tests {
             true,
             vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
         );
-        
+
         assert_eq!(key.key_type(), "secret");
         assert!(key.extractable);
         assert!(key.has_usage(KeyUsage::Encrypt));
         assert!(key.has_usage(KeyUsage::Decrypt));
         assert!(!key.has_usage(KeyUsage::Sign));
     }
-    
+
     #[test]
     fn test_base64url_encoding() {
         let data = vec![0u8, 1, 2, 255, 254, 253];

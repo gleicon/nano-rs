@@ -72,8 +72,8 @@ impl AppRegistry {
         sliver_path: &std::path::Path,
         config_base: Option<AppConfig>,
     ) -> anyhow::Result<String> {
-        use anyhow::Context;
         use crate::sliver::unpack_sliver;
+        use anyhow::Context;
 
         // Read sliver file
         let sliver_data = std::fs::read(sliver_path)
@@ -95,7 +95,10 @@ impl AppRegistry {
         // The actual entrypoint is encoded in the V8 heap snapshot
         if app_config.entrypoint.is_empty() {
             // This is expected for pure sliver-based apps
-            tracing::debug!("Sliver-based app '{}' has no entrypoint (uses snapshot)", hostname);
+            tracing::debug!(
+                "Sliver-based app '{}' has no entrypoint (uses snapshot)",
+                hostname
+            );
         }
 
         // Get mutable references to update the registry
@@ -106,7 +109,11 @@ impl AppRegistry {
         apps.insert(hostname.clone(), app_config);
         sliver_data_map.insert(hostname.clone(), unpacked);
 
-        tracing::info!("Registered sliver-based app '{}' from {}", hostname, sliver_path.display());
+        tracing::info!(
+            "Registered sliver-based app '{}' from {}",
+            hostname,
+            sliver_path.display()
+        );
 
         Ok(hostname)
     }
@@ -278,7 +285,9 @@ mod tests {
             hostname: "ignored.example.com".to_string(), // Will be overridden
             entrypoint: "".to_string(),
             sliver: None,
-            env_vars: [("KEY".to_string(), "VALUE".to_string())].into_iter().collect(),
+            env_vars: [("KEY".to_string(), "VALUE".to_string())]
+                .into_iter()
+                .collect(),
             limits: crate::config::AppLimits {
                 memory_mb: 256,
                 timeout_secs: 60,
@@ -336,7 +345,8 @@ mod tests {
     #[test]
     fn test_register_from_sliver_missing_file() {
         let mut registry = AppRegistry::default();
-        let result = registry.register_from_sliver(std::path::Path::new("/nonexistent.sliver"), None);
+        let result =
+            registry.register_from_sliver(std::path::Path::new("/nonexistent.sliver"), None);
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();

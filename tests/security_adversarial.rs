@@ -11,22 +11,22 @@
 //! - Cryptographic attacks (weak keys, timing)
 //!
 //! Run with: cargo test --test security_adversarial
-//! 
+//!
 //! NOTE: Network and isolation tests are in separate standalone files
 //! to avoid module initialization hangs. See:
 //! - adversarial_network_standalone.rs
 //! - adversarial_isolation_standalone.rs
 
 // Security test modules (local tests only - no subprocess spawning)
-#[path = "common.rs"]
-mod common;
 mod adversarial_cpu;
+mod adversarial_crypto;
 mod adversarial_memory;
 mod adversarial_vfs;
 mod adversarial_wasm;
-mod adversarial_crypto;
+#[path = "common.rs"]
+mod common;
 
-// Note: adversarial_js_injection tests are temporarily disabled due to 
+// Note: adversarial_js_injection tests are temporarily disabled due to
 // pre-existing failures in eval/Function blocking
 
 // Re-export utilities

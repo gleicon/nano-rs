@@ -5,9 +5,9 @@
 //! and responses are returned via oneshot channels.
 
 use crate::v8::{initialize_platform, NanoIsolate};
+use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
-use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use base64::Engine as _;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -25,9 +25,7 @@ use tracing::{debug, error, info, warn};
 /// VFS path like `/index.js` is tried against the isolate's VFS;
 /// on miss (or non-VFS entrypoints like absolute disk paths), falls back to `read_code_cached`.
 fn read_code_vfs_or_disk(entrypoint: &str, vfs: &IsolateVfs) -> Result<std::sync::Arc<str>> {
-    let vfs_result = crate::data_plane::with_worker_runtime(|h| {
-        h.block_on(vfs.read(entrypoint))
-    });
+    let vfs_result = crate::data_plane::with_worker_runtime(|h| h.block_on(vfs.read(entrypoint)));
     if let Some(Ok(bytes)) = vfs_result {
         if let Ok(s) = String::from_utf8(bytes) {
             return Ok(s.into());
@@ -42,51 +40,82 @@ fn compile_esm_handler(
     code: &str,
     vfs: IsolateVfs,
 ) -> Result<v8::Global<v8::Function>> {
-    use crate::v8::module::{ModuleLoader, set_current_loader, module_resolve_callback};
-    let ep_v8 = v8::String::new(ctx_scope, entrypoint)
-        .ok_or_else(|| anyhow!("OOM: module origin"))?;
+    use crate::v8::module::{module_resolve_callback, set_current_loader, ModuleLoader};
+    let ep_v8 =
+        v8::String::new(ctx_scope, entrypoint).ok_or_else(|| anyhow!("OOM: module origin"))?;
     let origin = v8::ScriptOrigin::new(
-        ctx_scope, ep_v8.into(), 0, 0, true, -1, None, false, false, true, None,
+        ctx_scope,
+        ep_v8.into(),
+        0,
+        0,
+        true,
+        -1,
+        None,
+        false,
+        false,
+        true,
+        None,
     );
-    let code_v8 = v8::String::new(ctx_scope, code)
-        .ok_or_else(|| anyhow!("OOM: module source"))?;
+    let code_v8 = v8::String::new(ctx_scope, code).ok_or_else(|| anyhow!("OOM: module source"))?;
     let mut esm_source = v8::script_compiler::Source::new(code_v8, Some(&origin));
     let esm_module = v8::script_compiler::compile_module(ctx_scope, &mut esm_source)
         .ok_or_else(|| anyhow!("ESM compile failed: {}", entrypoint))?;
 
     let mut loader = ModuleLoader::new(vfs);
     // SAFETY: loader lives until instantiate_module returns.
-    unsafe { set_current_loader(Some(&mut loader as *mut _)); }
-    let inst_ok = esm_module.instantiate_module(ctx_scope, module_resolve_callback).is_some();
-    unsafe { set_current_loader(None); }
-    if !inst_ok { return Err(anyhow!("ESM instantiate failed: {}", entrypoint)); }
+    unsafe {
+        set_current_loader(Some(&mut loader as *mut _));
+    }
+    let inst_ok = esm_module
+        .instantiate_module(ctx_scope, module_resolve_callback)
+        .is_some();
+    unsafe {
+        set_current_loader(None);
+    }
+    if !inst_ok {
+        return Err(anyhow!("ESM instantiate failed: {}", entrypoint));
+    }
 
-    esm_module.evaluate(ctx_scope)
+    esm_module
+        .evaluate(ctx_scope)
         .ok_or_else(|| anyhow!("ESM evaluate failed: {}", entrypoint))?;
 
-    let ns = esm_module.get_module_namespace().to_object(ctx_scope)
+    let ns = esm_module
+        .get_module_namespace()
+        .to_object(ctx_scope)
         .ok_or_else(|| anyhow!("ESM namespace not object: {}", entrypoint))?;
 
     // Try `export function fetch` first, then `export default { fetch }`.
     let fk = v8::String::new(ctx_scope, "fetch");
-    let fk_val = fk.and_then(|k| ns.get(ctx_scope, k.into())).filter(|v| v.is_function());
+    let fk_val = fk
+        .and_then(|k| ns.get(ctx_scope, k.into()))
+        .filter(|v| v.is_function());
     let handler_val = match fk_val {
         Some(v) => v,
         None => {
             let dk = v8::String::new(ctx_scope, "default");
-            let default_obj = dk.and_then(|k| ns.get(ctx_scope, k.into()))
+            let default_obj = dk
+                .and_then(|k| ns.get(ctx_scope, k.into()))
                 .and_then(|d| d.to_object(ctx_scope));
             let fk2 = v8::String::new(ctx_scope, "fetch");
-            match default_obj.and_then(|o| fk2.and_then(|k| o.get(ctx_scope, k.into()))).filter(|v| v.is_function()) {
+            match default_obj
+                .and_then(|o| fk2.and_then(|k| o.get(ctx_scope, k.into())))
+                .filter(|v| v.is_function())
+            {
                 Some(v) => v,
-                None => return Err(anyhow!(
-                    "No 'fetch' export in '{}'. Use: export function fetch(req){{...}}",
-                    entrypoint
-                )),
+                None => {
+                    return Err(anyhow!(
+                        "No 'fetch' export in '{}'. Use: export function fetch(req){{...}}",
+                        entrypoint
+                    ))
+                }
             }
         }
     };
-    Ok(v8::Global::new(ctx_scope, handler_val.cast::<v8::Function>()))
+    Ok(v8::Global::new(
+        ctx_scope,
+        handler_val.cast::<v8::Function>(),
+    ))
 }
 
 /// WinterTC addEventListener shim — prefix+suffix wrapping the user script.
@@ -125,21 +154,24 @@ fn compile_classic_handler(
     cache_key: &str,
 ) -> Result<v8::Global<v8::Function>> {
     let shimmed = format!("{}{}{}", WINTERTC_PREFIX, code, WINTERTC_SUFFIX);
-    let code_v8 = v8::String::new(ctx_scope, &shimmed)
-        .ok_or_else(|| anyhow!("V8 string alloc failed"))?;
+    let code_v8 =
+        v8::String::new(ctx_scope, &shimmed).ok_or_else(|| anyhow!("V8 string alloc failed"))?;
 
     let unbound = if let Some(cached_bytes) = crate::data_plane::get_bytecode_cache(cache_key) {
         let cached_data = v8::script_compiler::CachedData::new(&cached_bytes);
-        let mut source = v8::script_compiler::Source::new_with_cached_data(code_v8, None, cached_data);
+        let mut source =
+            v8::script_compiler::Source::new_with_cached_data(code_v8, None, cached_data);
         v8::script_compiler::compile_unbound_script(
-            ctx_scope, &mut source,
+            ctx_scope,
+            &mut source,
             v8::script_compiler::CompileOptions::ConsumeCodeCache,
             v8::script_compiler::NoCacheReason::NoReason,
         )
     } else {
         let mut source = v8::script_compiler::Source::new(code_v8, None);
         let unbound = v8::script_compiler::compile_unbound_script(
-            ctx_scope, &mut source,
+            ctx_scope,
+            &mut source,
             v8::script_compiler::CompileOptions::NoCompileOptions,
             v8::script_compiler::NoCacheReason::NoReason,
         );
@@ -155,22 +187,30 @@ fn compile_classic_handler(
     let script = unbound
         .ok_or_else(|| anyhow!("Script compile failed for '{}'", entrypoint))?
         .bind_to_current_context(ctx_scope);
-    script.run(ctx_scope)
+    script
+        .run(ctx_scope)
         .ok_or_else(|| anyhow!("Script execution failed for '{}'", entrypoint))?;
 
     let global_obj = context.global(ctx_scope);
     let nano_k = v8::String::new(ctx_scope, "__nano_user_fetch")
         .ok_or_else(|| anyhow!("V8 OOM allocating key"))?;
-    let fetch_k = v8::String::new(ctx_scope, "fetch")
-        .ok_or_else(|| anyhow!("V8 OOM allocating key"))?;
-    global_obj.get(ctx_scope, nano_k.into())
+    let fetch_k =
+        v8::String::new(ctx_scope, "fetch").ok_or_else(|| anyhow!("V8 OOM allocating key"))?;
+    global_obj
+        .get(ctx_scope, nano_k.into())
         .filter(|v| v.is_function())
-        .or_else(|| global_obj.get(ctx_scope, fetch_k.into()).filter(|v| v.is_function()))
+        .or_else(|| {
+            global_obj
+                .get(ctx_scope, fetch_k.into())
+                .filter(|v| v.is_function())
+        })
         .map(|f| v8::Global::new(ctx_scope, f.cast::<v8::Function>()))
-        .ok_or_else(|| anyhow!(
-            "No fetch handler found in '{}'. Export a 'fetch' function.",
-            entrypoint
-        ))
+        .ok_or_else(|| {
+            anyhow!(
+                "No fetch handler found in '{}'. Export a 'fetch' function.",
+                entrypoint
+            )
+        })
 }
 
 /// Dropping closes the channel, signaling the worker to exit.
@@ -328,14 +368,17 @@ impl WorkerPool {
                 let base_dir_for_thread = base_dir.clone();
                 let base_dir_for_error = base_dir.clone();
                 // DiskBackend::new is async; block on it from a spawned thread.
-                let backend_result = std::thread::spawn(move || {
-                    match tokio::runtime::Runtime::new() {
+                let backend_result =
+                    std::thread::spawn(move || match tokio::runtime::Runtime::new() {
                         Ok(rt) => rt.block_on(async {
                             crate::vfs::DiskBackend::new(&base_dir_for_thread).await
                         }),
-                        Err(e) => Err(crate::vfs::VfsError::IoError(format!("Failed to create tokio runtime: {}", e)))
-                    }
-                }).join();
+                        Err(e) => Err(crate::vfs::VfsError::IoError(format!(
+                            "Failed to create tokio runtime: {}",
+                            e
+                        ))),
+                    })
+                    .join();
 
                 match backend_result {
                     Ok(Ok(disk_backend)) => {
@@ -365,7 +408,10 @@ impl WorkerPool {
                 }
             }
             AppSource::Sliver { .. } => {
-                tracing::debug!("Using MemoryBackend for sliver app at hostname: {}", hostname);
+                tracing::debug!(
+                    "Using MemoryBackend for sliver app at hostname: {}",
+                    hostname
+                );
                 crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
             }
             AppSource::Static { .. } => {
@@ -391,7 +437,14 @@ impl WorkerPool {
         vfs_backend: crate::vfs::VfsBackendEnum,
         source: crate::worker::AppSource,
     ) -> Self {
-        Self::with_source_backend_and_env(hostname, worker_count, memory_limit_mb, vfs_backend, source, std::collections::HashMap::new())
+        Self::with_source_backend_and_env(
+            hostname,
+            worker_count,
+            memory_limit_mb,
+            vfs_backend,
+            source,
+            std::collections::HashMap::new(),
+        )
     }
 
     pub fn with_source_backend_and_env(
@@ -434,7 +487,10 @@ impl WorkerPool {
 
                 let rt = match tokio::runtime::Runtime::new() {
                     Ok(r) => r,
-                    Err(e) => { error!("Worker {}: tokio runtime failed: {}", id, e); return; }
+                    Err(e) => {
+                        error!("Worker {}: tokio runtime failed: {}", id, e);
+                        return;
+                    }
                 };
                 crate::data_plane::set_worker_runtime(rt.handle().clone());
 
@@ -469,7 +525,11 @@ impl WorkerPool {
                             if let Err(e) = rt.block_on(data.restore_to_vfs(&vfs)) {
                                 warn!("Worker {}: VFS restore failed: {}", id, e);
                             } else {
-                                debug!("Worker {}: restored {} VFS entries", id, data.vfs_entries.len());
+                                debug!(
+                                    "Worker {}: restored {} VFS entries",
+                                    id,
+                                    data.vfs_entries.len()
+                                );
                             }
                             if data.bytecode_matches_v8() {
                                 if let Some(ref bc) = data.bytecode {
@@ -477,23 +537,35 @@ impl WorkerPool {
                                     let cache_key = format!("{}::{}", worker_hostname, entrypoint);
                                     let bytes: std::sync::Arc<[u8]> = bc.as_slice().into();
                                     crate::data_plane::set_bytecode_cache(&cache_key, bytes);
-                                    debug!("Worker {}: sliver bytecode pre-loaded for '{}'", id, entrypoint);
+                                    debug!(
+                                        "Worker {}: sliver bytecode pre-loaded for '{}'",
+                                        id, entrypoint
+                                    );
                                 }
                             }
                             match NanoIsolate::new_with_vfs_and_limit(vfs, heap_limit_bytes) {
                                 Ok(iso) => iso,
-                                Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
+                                Err(e) => {
+                                    error!("Worker {}: isolate failed: {}", id, e);
+                                    return;
+                                }
                             }
                         }
                         AppSource::Entrypoint { .. } if first_isolate => {
                             first_isolate = false;
                             match NanoIsolate::new_with_vfs_and_limit(vfs, heap_limit_bytes) {
                                 Ok(iso) => iso,
-                                Err(e) => { error!("Worker {}: isolate failed: {}", id, e); return; }
+                                Err(e) => {
+                                    error!("Worker {}: isolate failed: {}", id, e);
+                                    return;
+                                }
                             }
                         }
                         AppSource::Static { .. } => {
-                            error!("Worker {}: Static source in unified worker — should not happen", id);
+                            error!(
+                                "Worker {}: Static source in unified worker — should not happen",
+                                id
+                            );
                             return;
                         }
                         _ => {
@@ -505,7 +577,10 @@ impl WorkerPool {
                             }
                             match NanoIsolate::new_with_vfs_and_limit(vfs, heap_limit_bytes) {
                                 Ok(iso) => iso,
-                                Err(e) => { error!("Worker {}: isolate create failed: {}", id, e); return; }
+                                Err(e) => {
+                                    error!("Worker {}: isolate create failed: {}", id, e);
+                                    return;
+                                }
                             }
                         }
                     };
@@ -543,7 +618,8 @@ impl WorkerPool {
                         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
 
                         let mut handler_cache: std::collections::HashMap<
-                            String, v8::Global<v8::Function>
+                            String,
+                            v8::Global<v8::Function>,
                         > = std::collections::HashMap::new();
 
                         let mut served: u32 = 0;
@@ -557,12 +633,19 @@ impl WorkerPool {
 
                             // Signal V8 GC scheduler that we're idle while waiting.
                             // SAFETY: iso_ptr is valid for the duration of the scope block.
-                            unsafe { (*iso_ptr).set_idle(true); }
+                            unsafe {
+                                (*iso_ptr).set_idle(true);
+                            }
                             let task = match task_rx.recv() {
                                 Ok(t) => t,
-                                Err(_) => { debug!("Worker {}: channel closed", id); break 'isolate; }
+                                Err(_) => {
+                                    debug!("Worker {}: channel closed", id);
+                                    break 'isolate;
+                                }
                             };
-                            unsafe { (*iso_ptr).set_idle(false); }
+                            unsafe {
+                                (*iso_ptr).set_idle(false);
+                            }
 
                             // OOM pre-check
                             if let Some(ref mon) = oom_monitor {
@@ -570,7 +653,8 @@ impl WorkerPool {
                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
                                 if let Err(oom) = mon.check(iso_ref) {
                                     mon.log_oom_event(&oom, &task.request_id);
-                                    let _ = task.response_tx.send(Ok(mon.create_oom_response(&oom)));
+                                    let _ =
+                                        task.response_tx.send(Ok(mon.create_oom_response(&oom)));
                                     break 'requests;
                                 }
                             }
@@ -587,8 +671,11 @@ impl WorkerPool {
                             // get fresh compilation without restarting workers.
                             let mtime_ver = std::fs::metadata(&entrypoint)
                                 .and_then(|m| m.modified())
-                                .map(|t| t.duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default().as_secs())
+                                .map(|t| {
+                                    t.duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs()
+                                })
                                 .unwrap_or(0);
                             let versioned_entrypoint = format!("{}@{}", entrypoint, mtime_ver);
 
@@ -603,17 +690,33 @@ impl WorkerPool {
                                 };
 
                                 let is_esm = crate::v8::module::is_esm_module(&code);
-                                let cache_key = format!("{}::{}@{}", worker_hostname, entrypoint, mtime_ver);
+                                let cache_key =
+                                    format!("{}::{}@{}", worker_hostname, entrypoint, mtime_ver);
                                 let handler_result = if is_esm {
-                                    compile_esm_handler(&mut ctx_scope, &entrypoint, &code, vfs_clone.clone())
+                                    compile_esm_handler(
+                                        &mut ctx_scope,
+                                        &entrypoint,
+                                        &code,
+                                        vfs_clone.clone(),
+                                    )
                                 } else {
-                                    compile_classic_handler(&mut ctx_scope, &entrypoint, &code, context, &cache_key)
+                                    compile_classic_handler(
+                                        &mut ctx_scope,
+                                        &entrypoint,
+                                        &code,
+                                        context,
+                                        &cache_key,
+                                    )
                                 };
                                 match handler_result {
                                     Ok(g) => {
                                         handler_cache.insert(versioned_entrypoint.clone(), g);
-                                        info!("Worker {}: {} handler cached for '{}'", id,
-                                              if is_esm { "ESM" } else { "classic" }, entrypoint);
+                                        info!(
+                                            "Worker {}: {} handler cached for '{}'",
+                                            id,
+                                            if is_esm { "ESM" } else { "classic" },
+                                            entrypoint
+                                        );
                                     }
                                     Err(e) => {
                                         let _ = task.response_tx.send(Err(e));
@@ -625,20 +728,24 @@ impl WorkerPool {
                             // --- WebSocket mode (D-01 pin-a-worker, D-10b isolate recycle) ---
                             if let Some(ws_channels) = task.ws {
                                 use crate::worker::tenant_pool::{
-                                    WS_OUTBOUND, WS_ACCEPTED, WS_MESSAGE_HANDLERS,
-                                    WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS,
-                                    set_ws_readystate, clear_ws_thread_locals,
+                                    clear_ws_thread_locals, set_ws_readystate, WS_ACCEPTED,
+                                    WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS, WS_MESSAGE_HANDLERS,
+                                    WS_OUTBOUND,
                                 };
-                                WS_OUTBOUND.with(|tx| *tx.borrow_mut() = Some(ws_channels.outbound_tx.clone()));
+                                WS_OUTBOUND.with(|tx| {
+                                    *tx.borrow_mut() = Some(ws_channels.outbound_tx.clone())
+                                });
                                 WS_ACCEPTED.with(|a| a.set(false));
                                 WS_MESSAGE_HANDLERS.with(|h| h.borrow_mut().clear());
                                 WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
                                 WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
 
-                                                if let Some(handler_g) = handler_cache.get(&versioned_entrypoint) {
+                                if let Some(handler_g) = handler_cache.get(&versioned_entrypoint) {
                                     let gobj = context.global(&mut ctx_scope);
                                     let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
-                                    if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
+                                    if let Some(url_str) =
+                                        v8::String::new(&mut ctx_scope, &task.request.url().href())
+                                    {
                                         let tc_s = v8::TryCatch::new(&mut *ctx_scope);
                                         let tc_pin = std::pin::pin!(tc_s);
                                         let tc = tc_pin.init();
@@ -649,7 +756,10 @@ impl WorkerPool {
                                 set_ws_readystate(&mut ctx_scope, 1);
                                 let _ = task.response_tx; // 101 already sent by router
 
-                                info!("Worker {}: entering ws_messages loop for '{}'", id, entrypoint);
+                                info!(
+                                    "Worker {}: entering ws_messages loop for '{}'",
+                                    id, entrypoint
+                                );
                                 let idle_dur = std::time::Duration::from_millis(30_000);
 
                                 // Expands to: OOM check → log → send Close(Error/OOM) → break $label.
@@ -693,7 +803,14 @@ impl WorkerPool {
                                         Ok(tungstenite::Message::Text(s)) => {
                                             ws_oom_break!('ws_messages);
                                             // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
-                                            let _cg = if task.cpu_time_limit_ms > 0 { Some(crate::data_plane::CpuTimeoutGuard::new(unsafe { &mut *iso_ptr }, task.cpu_time_limit_ms)) } else { None };
+                                            let _cg = if task.cpu_time_limit_ms > 0 {
+                                                Some(crate::data_plane::CpuTimeoutGuard::new(
+                                                    unsafe { &mut *iso_ptr },
+                                                    task.cpu_time_limit_ms,
+                                                ))
+                                            } else {
+                                                None
+                                            };
                                             let event = v8::Object::new(&mut ctx_scope);
                                             if let (Some(tk), Some(tv), Some(dk), Some(dv)) = (
                                                 v8::String::new(&mut ctx_scope, "type"),
@@ -709,10 +826,21 @@ impl WorkerPool {
                                         Ok(tungstenite::Message::Binary(b)) => {
                                             ws_oom_break!('ws_messages);
                                             // SAFETY: iso_ptr valid for isolate lifetime; V8 terminate_execution is thread-safe
-                                            let _cg = if task.cpu_time_limit_ms > 0 { Some(crate::data_plane::CpuTimeoutGuard::new(unsafe { &mut *iso_ptr }, task.cpu_time_limit_ms)) } else { None };
-                                            let ab_store = v8::ArrayBuffer::new_backing_store_from_vec(b);
+                                            let _cg = if task.cpu_time_limit_ms > 0 {
+                                                Some(crate::data_plane::CpuTimeoutGuard::new(
+                                                    unsafe { &mut *iso_ptr },
+                                                    task.cpu_time_limit_ms,
+                                                ))
+                                            } else {
+                                                None
+                                            };
+                                            let ab_store =
+                                                v8::ArrayBuffer::new_backing_store_from_vec(b);
                                             let shared = ab_store.make_shared();
-                                            let ab = v8::ArrayBuffer::with_backing_store(&mut ctx_scope, &shared);
+                                            let ab = v8::ArrayBuffer::with_backing_store(
+                                                &mut ctx_scope,
+                                                &shared,
+                                            );
                                             let event = v8::Object::new(&mut ctx_scope);
                                             if let (Some(tk), Some(tv), Some(dk)) = (
                                                 v8::String::new(&mut ctx_scope, "type"),
@@ -730,7 +858,14 @@ impl WorkerPool {
                                                 .map(|f| (u16::from(f.code), f.reason.into_owned()))
                                                 .unwrap_or((1000, String::new()));
                                             let close_event = v8::Object::new(&mut ctx_scope);
-                                            if let (Some(tyk), Some(tyv), Some(ck), Some(rk), Some(rv), Some(wck)) = (
+                                            if let (
+                                                Some(tyk),
+                                                Some(tyv),
+                                                Some(ck),
+                                                Some(rk),
+                                                Some(rv),
+                                                Some(wck),
+                                            ) = (
                                                 v8::String::new(&mut ctx_scope, "type"),
                                                 v8::String::new(&mut ctx_scope, "close"),
                                                 v8::String::new(&mut ctx_scope, "code"),
@@ -738,18 +873,44 @@ impl WorkerPool {
                                                 v8::String::new(&mut ctx_scope, &reason_str),
                                                 v8::String::new(&mut ctx_scope, "wasClean"),
                                             ) {
-                                                let code_int = v8::Integer::new(&mut ctx_scope, code_val as i32);
-                                                let was_clean = v8::Boolean::new(&mut ctx_scope, true);
-                                                close_event.set(&mut ctx_scope, tyk.into(), tyv.into());
-                                                close_event.set(&mut ctx_scope, ck.into(), code_int.into());
-                                                close_event.set(&mut ctx_scope, rk.into(), rv.into());
-                                                close_event.set(&mut ctx_scope, wck.into(), was_clean.into());
+                                                let code_int = v8::Integer::new(
+                                                    &mut ctx_scope,
+                                                    code_val as i32,
+                                                );
+                                                let was_clean =
+                                                    v8::Boolean::new(&mut ctx_scope, true);
+                                                close_event.set(
+                                                    &mut ctx_scope,
+                                                    tyk.into(),
+                                                    tyv.into(),
+                                                );
+                                                close_event.set(
+                                                    &mut ctx_scope,
+                                                    ck.into(),
+                                                    code_int.into(),
+                                                );
+                                                close_event.set(
+                                                    &mut ctx_scope,
+                                                    rk.into(),
+                                                    rv.into(),
+                                                );
+                                                close_event.set(
+                                                    &mut ctx_scope,
+                                                    wck.into(),
+                                                    was_clean.into(),
+                                                );
                                                 ws_dispatch!(WS_CLOSE_HANDLERS, close_event);
                                             }
                                             break 'ws_messages;
                                         }
-                                        Ok(tungstenite::Message::Ping(_)) | Ok(tungstenite::Message::Pong(_)) => continue 'ws_messages,
-                                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { info!("Worker {}: WS idle timeout", id); break 'ws_messages; }
+                                        Ok(tungstenite::Message::Ping(_))
+                                        | Ok(tungstenite::Message::Pong(_)) => {
+                                            continue 'ws_messages
+                                        }
+                                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                            info!("Worker {}: WS idle timeout", id);
+                                            break 'ws_messages;
+                                        }
                                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                             set_ws_readystate(&mut ctx_scope, 3);
                                             let error_event = v8::Object::new(&mut ctx_scope);
@@ -757,7 +918,11 @@ impl WorkerPool {
                                                 v8::String::new(&mut ctx_scope, "type"),
                                                 v8::String::new(&mut ctx_scope, "error"),
                                             ) {
-                                                error_event.set(&mut ctx_scope, tyk.into(), tyv.into());
+                                                error_event.set(
+                                                    &mut ctx_scope,
+                                                    tyk.into(),
+                                                    tyv.into(),
+                                                );
                                                 ws_dispatch!(WS_ERROR_HANDLERS, error_event);
                                             }
                                             break 'ws_messages;
@@ -771,7 +936,9 @@ impl WorkerPool {
                             // Clear any stale termination flag from a previous request
                             // before arming the new timeout. The previous guard's Drop already
                             // called cancel_terminate_execution(), but this is cheap insurance.
-                            unsafe { (*iso_ptr).cancel_terminate_execution(); }
+                            unsafe {
+                                (*iso_ptr).cancel_terminate_execution();
+                            }
 
                             // CPU timeout guard
                             let _timeout = if task.cpu_time_limit_ms > 0 {
@@ -779,30 +946,40 @@ impl WorkerPool {
                                 // CpuTimeoutGuard calls terminate_execution() from a timer thread,
                                 // which V8 documents as safe to call from any thread.
                                 let iso_ref: &mut v8::Isolate = unsafe { &mut *iso_ptr };
-                                Some(crate::data_plane::CpuTimeoutGuard::new(iso_ref, task.cpu_time_limit_ms))
+                                Some(crate::data_plane::CpuTimeoutGuard::new(
+                                    iso_ref,
+                                    task.cpu_time_limit_ms,
+                                ))
                             } else {
                                 None
                             };
 
                             // Execute handler using persistent context
                             // handler_cache.get is infallible: just inserted above if missing.
-                            let handler_g = handler_cache.get(&versioned_entrypoint)
+                            let handler_g = handler_cache
+                                .get(&versioned_entrypoint)
                                 .expect("handler must be cached: just inserted in block above");
                             let global_obj = context.global(&mut ctx_scope);
                             let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
 
                             let result: anyhow::Result<crate::http::NanoResponse> = (|| {
-                                let url_str = v8::String::new(&mut ctx_scope, &task.request.url().href())
-                                    .ok_or_else(|| anyhow!("URL string alloc failed"))?;
+                                let url_str =
+                                    v8::String::new(&mut ctx_scope, &task.request.url().href())
+                                        .ok_or_else(|| anyhow!("URL string alloc failed"))?;
                                 let opts = v8::Object::new(&mut ctx_scope);
 
-                                let mk = v8::String::new(&mut ctx_scope, "method").ok_or_else(|| anyhow!("method key"))?;
-                                let mv = v8::String::new(&mut ctx_scope, task.request.method()).ok_or_else(|| anyhow!("method val"))?;
+                                let mk = v8::String::new(&mut ctx_scope, "method")
+                                    .ok_or_else(|| anyhow!("method key"))?;
+                                let mv = v8::String::new(&mut ctx_scope, task.request.method())
+                                    .ok_or_else(|| anyhow!("method val"))?;
                                 opts.set(&mut ctx_scope, mk.into(), mv.into());
 
-                                let hk = v8::String::new(&mut ctx_scope, "headers").ok_or_else(|| anyhow!("headers key"))?;
-                                let hck = v8::String::new(&mut ctx_scope, "Headers").ok_or_else(|| anyhow!("Headers key"))?;
-                                let hctor = global_obj.get(&mut ctx_scope, hck.into())
+                                let hk = v8::String::new(&mut ctx_scope, "headers")
+                                    .ok_or_else(|| anyhow!("headers key"))?;
+                                let hck = v8::String::new(&mut ctx_scope, "Headers")
+                                    .ok_or_else(|| anyhow!("Headers key"))?;
+                                let hctor = global_obj
+                                    .get(&mut ctx_scope, hck.into())
                                     .filter(|v| v.is_function())
                                     .ok_or_else(|| anyhow!("Headers constructor not found"))?
                                     .cast::<v8::Function>();
@@ -816,23 +993,30 @@ impl WorkerPool {
                                         hinit.set(&mut ctx_scope, k.into(), v.into());
                                     }
                                 }
-                                let hobj = hctor.new_instance(&mut ctx_scope, &[hinit.into()])
+                                let hobj = hctor
+                                    .new_instance(&mut ctx_scope, &[hinit.into()])
                                     .ok_or_else(|| anyhow!("Headers instantiation failed"))?;
                                 opts.set(&mut ctx_scope, hk.into(), hobj.into());
 
                                 if let Some(body) = task.request.body() {
-                                    let bk = v8::String::new(&mut ctx_scope, "body").ok_or_else(|| anyhow!("body key"))?;
-                                    let encoded = base64::engine::general_purpose::STANDARD.encode(body);
-                                    let bv = v8::String::new(&mut ctx_scope, &encoded).ok_or_else(|| anyhow!("body val"))?;
+                                    let bk = v8::String::new(&mut ctx_scope, "body")
+                                        .ok_or_else(|| anyhow!("body key"))?;
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(body);
+                                    let bv = v8::String::new(&mut ctx_scope, &encoded)
+                                        .ok_or_else(|| anyhow!("body val"))?;
                                     opts.set(&mut ctx_scope, bk.into(), bv.into());
                                 }
 
-                                let rck = v8::String::new(&mut ctx_scope, "Request").ok_or_else(|| anyhow!("Request key"))?;
-                                let rctor = global_obj.get(&mut ctx_scope, rck.into())
+                                let rck = v8::String::new(&mut ctx_scope, "Request")
+                                    .ok_or_else(|| anyhow!("Request key"))?;
+                                let rctor = global_obj
+                                    .get(&mut ctx_scope, rck.into())
                                     .filter(|v| v.is_function())
                                     .ok_or_else(|| anyhow!("Request constructor not found"))?
                                     .cast::<v8::Function>();
-                                let js_req = rctor.new_instance(&mut ctx_scope, &[url_str.into(), opts.into()])
+                                let js_req = rctor
+                                    .new_instance(&mut ctx_scope, &[url_str.into(), opts.into()])
                                     .ok_or_else(|| anyhow!("Request instantiation failed"))?;
 
                                 // TryCatch intercepts any JS exception thrown by the handler.
@@ -847,11 +1031,13 @@ impl WorkerPool {
                                 crate::runtime::apis::clear_pending_intervals();
                                 crate::runtime::apis::clear_pending_timeouts();
 
-                                let call_result = handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
+                                let call_result =
+                                    handler_local.call(&tc, global_obj.into(), &[js_req.into()]);
 
                                 let resolved = match call_result {
                                     None => {
-                                        let msg = tc.exception()
+                                        let msg = tc
+                                            .exception()
                                             .and_then(|e| e.to_string(&tc))
                                             .map(|s| s.to_rust_string_lossy(&tc))
                                             .unwrap_or_else(|| "unknown JS exception".to_string());
@@ -860,52 +1046,76 @@ impl WorkerPool {
                                     Some(v) if v.is_promise() => {
                                         let promise = v.cast::<v8::Promise>();
                                         let platform = v8::V8::get_current_platform();
-                                        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                                        let deadline = std::time::Instant::now()
+                                            + std::time::Duration::from_secs(30);
                                         loop {
                                             for _ in 0..5 {
                                                 // SAFETY: pump_message_loop requires &Isolate.
                                                 // iso_ptr is valid and pinned to this thread.
                                                 let iso: &v8::Isolate = unsafe { &*iso_ptr };
-                                                v8::Platform::pump_message_loop(&platform, iso, false);
+                                                v8::Platform::pump_message_loop(
+                                                    &platform, iso, false,
+                                                );
                                             }
                                             tc.perform_microtask_checkpoint();
                                             match promise.state() {
-                                                v8::PromiseState::Fulfilled => break promise.result(&tc),
+                                                v8::PromiseState::Fulfilled => {
+                                                    break promise.result(&tc)
+                                                }
                                                 v8::PromiseState::Rejected => {
                                                     let err = promise.result(&tc);
-                                                    let msg = err.to_string(&tc)
+                                                    let msg = err
+                                                        .to_string(&tc)
                                                         .map(|s| s.to_rust_string_lossy(&tc))
-                                                        .unwrap_or_else(|| "Promise rejected".to_string());
-                                                    return Err(anyhow!("Promise rejected: {}", msg));
+                                                        .unwrap_or_else(|| {
+                                                            "Promise rejected".to_string()
+                                                        });
+                                                    return Err(anyhow!(
+                                                        "Promise rejected: {}",
+                                                        msg
+                                                    ));
                                                 }
                                                 v8::PromiseState::Pending => {
                                                     if std::time::Instant::now() > deadline {
-                                                        return Err(anyhow!("Async handler timed out after 30s"));
+                                                        return Err(anyhow!(
+                                                            "Async handler timed out after 30s"
+                                                        ));
                                                     }
                                                     // Detect CPU timeout that fired while WASM or async code
                                                     // ran inside perform_microtask_checkpoint. TerminateExecution
                                                     // interrupts WASM JIT loops but does not automatically reject
                                                     // the outer async Promise — it stays Pending. Check both the
                                                     // timer flag and the TryCatch termination flag.
-                                                    if _timeout.as_ref().map_or(false, |g| g.is_terminated()) || tc.has_terminated() {
+                                                    if _timeout
+                                                        .as_ref()
+                                                        .map_or(false, |g| g.is_terminated())
+                                                        || tc.has_terminated()
+                                                    {
                                                         return Err(anyhow!("CPU timeout"));
                                                     }
-                                                    crate::runtime::apis::fire_pending_intervals(&mut *tc);
+                                                    crate::runtime::apis::fire_pending_intervals(
+                                                        &mut *tc,
+                                                    );
                                                     if tc.has_caught() {
                                                         tc.reset();
                                                     }
-                                                    crate::runtime::apis::fire_pending_timeouts(&mut *tc);
+                                                    crate::runtime::apis::fire_pending_timeouts(
+                                                        &mut *tc,
+                                                    );
                                                     if tc.has_caught() {
                                                         tc.reset();
                                                     }
                                                     tc.perform_microtask_checkpoint();
-                                                    if promise.state() == v8::PromiseState::Pending {
+                                                    if promise.state() == v8::PromiseState::Pending
+                                                    {
                                                         // Pause CPU timer during async sleep — only actual JS
                                                         // execution time counts toward the cpu_time_ms limit.
                                                         if let Some(ref cg) = _timeout {
                                                             cg.set_async_waiting(true);
                                                         }
-                                                        std::thread::sleep(std::time::Duration::from_millis(1));
+                                                        std::thread::sleep(
+                                                            std::time::Duration::from_millis(1),
+                                                        );
                                                         if let Some(ref cg) = _timeout {
                                                             cg.set_async_waiting(false);
                                                         }
@@ -917,36 +1127,57 @@ impl WorkerPool {
                                     Some(v) => v,
                                 };
 
-                                let obj = resolved.to_object(&tc)
+                                let obj = resolved
+                                    .to_object(&tc)
                                     .ok_or_else(|| anyhow!("Handler response is not an object"))?;
 
-                                let sk = v8::String::new(&tc, "status").ok_or_else(|| anyhow!("status key"))?;
-                                let status = obj.get(&tc, sk.into())
+                                let sk = v8::String::new(&tc, "status")
+                                    .ok_or_else(|| anyhow!("status key"))?;
+                                let status = obj
+                                    .get(&tc, sk.into())
                                     .and_then(|v| v.to_integer(&tc))
                                     .map(|i| i.value() as u16)
                                     .unwrap_or(200);
 
                                 let mut response = crate::http::NanoResponse::with_status(status);
 
-                                let h2k = v8::String::new(&tc, "headers").ok_or_else(|| anyhow!("headers key"))?;
+                                let h2k = v8::String::new(&tc, "headers")
+                                    .ok_or_else(|| anyhow!("headers key"))?;
                                 if let Some(hval) = obj.get(&tc, h2k.into()) {
                                     if let Some(hobj) = hval.to_object(&tc) {
-                                        let ik = v8::String::new(&tc, "__headers__").ok_or_else(|| anyhow!("__headers__ key"))?;
-                                        let hsrc = hobj.get(&tc, ik.into())
+                                        let ik = v8::String::new(&tc, "__headers__")
+                                            .ok_or_else(|| anyhow!("__headers__ key"))?;
+                                        let hsrc = hobj
+                                            .get(&tc, ik.into())
                                             .and_then(|v| v.to_object(&tc))
                                             .unwrap_or(hobj);
-                                        if let Some(names) = hsrc.get_own_property_names(&tc, Default::default()) {
+                                        if let Some(names) =
+                                            hsrc.get_own_property_names(&tc, Default::default())
+                                        {
                                             for i in 0..names.length() {
                                                 if let Some(key) = names.get_index(&tc, i) {
                                                     if let Some(ks) = key.to_string(&tc) {
                                                         let k = ks.to_rust_string_lossy(&tc);
-                                                        if k.starts_with("__") || matches!(k.as_str(), "set" | "get" | "forEach") {
+                                                        if k.starts_with("__")
+                                                            || matches!(
+                                                                k.as_str(),
+                                                                "set" | "get" | "forEach"
+                                                            )
+                                                        {
                                                             continue;
                                                         }
-                                                        if let Some(val) = hsrc.get(&tc, key.into()) {
+                                                        if let Some(val) = hsrc.get(&tc, key.into())
+                                                        {
                                                             if !val.is_function() {
-                                                                if let Some(vs) = val.to_string(&tc) {
-                                                                    response = response.with_header(&k, &vs.to_rust_string_lossy(&tc));
+                                                                if let Some(vs) = val.to_string(&tc)
+                                                                {
+                                                                    response = response
+                                                                        .with_header(
+                                                                        &k,
+                                                                        &vs.to_rust_string_lossy(
+                                                                            &tc,
+                                                                        ),
+                                                                    );
                                                                 }
                                                             }
                                                         }
@@ -957,17 +1188,20 @@ impl WorkerPool {
                                     }
                                 }
 
-                                let b2k = v8::String::new(&tc, "body").ok_or_else(|| anyhow!("body key"))?;
+                                let b2k = v8::String::new(&tc, "body")
+                                    .ok_or_else(|| anyhow!("body key"))?;
                                 if let Some(bval) = obj.get(&tc, b2k.into()) {
                                     if !bval.is_null() && !bval.is_undefined() {
                                         if let Some(bs) = bval.to_string(&tc) {
-                                            response = response.with_body(bs.to_rust_string_lossy(&tc));
+                                            response =
+                                                response.with_body(bs.to_rust_string_lossy(&tc));
                                         }
                                     }
                                 }
 
                                 Ok(response)
-                            })();
+                            })(
+                            );
 
                             let duration_ms = t0.elapsed().as_millis() as u64;
                             let status_code = match &result {
@@ -1062,8 +1296,18 @@ addEventListener("fetch", function(event) {
   event.respondWith({ status: 200, result: "wintertc_ok", has_respondWith: typeof event.respondWith });
 });
 "#;
-        let result = compile_classic_handler(&mut ctx_scope, "/test.js", user_code, context, "test::/test.js");
-        assert!(result.is_ok(), "addEventListener shim should produce a handler: {:?}", result);
+        let result = compile_classic_handler(
+            &mut ctx_scope,
+            "/test.js",
+            user_code,
+            context,
+            "test::/test.js",
+        );
+        assert!(
+            result.is_ok(),
+            "addEventListener shim should produce a handler: {:?}",
+            result
+        );
 
         // Verify the handler is callable and returns the event.respondWith result
         let handler_g = result.unwrap();
@@ -1080,12 +1324,21 @@ addEventListener("fetch", function(event) {
         assert!(call_result.is_some(), "handler should not throw");
 
         let returned = call_result.unwrap();
-        assert!(returned.is_object(), "handler should return the object from respondWith");
+        assert!(
+            returned.is_object(),
+            "handler should return the object from respondWith"
+        );
         let obj = returned.to_object(&mut ctx_scope).unwrap();
         let result_k = v8::String::new(&mut ctx_scope, "result").unwrap();
         let result_v = obj.get(&mut ctx_scope, result_k.into()).unwrap();
-        let result_str = result_v.to_string(&mut ctx_scope).unwrap().to_rust_string_lossy(&mut ctx_scope);
-        assert_eq!(result_str, "wintertc_ok", "handler should return respondWith result");
+        let result_str = result_v
+            .to_string(&mut ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(&mut ctx_scope);
+        assert_eq!(
+            result_str, "wintertc_ok",
+            "handler should return respondWith result"
+        );
     }
 
     #[test]
@@ -1097,7 +1350,8 @@ addEventListener("fetch", function(event) {
         let context = v8::Context::new(&scope, Default::default());
         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
         let result = compile_classic_handler(
-            &mut ctx_scope, "/handler.js",
+            &mut ctx_scope,
+            "/handler.js",
             "function fetch(req) { return { status: 200 }; }",
             context,
             "test::/handler.js",
@@ -1113,7 +1367,13 @@ addEventListener("fetch", function(event) {
         let mut scope = scope_pin.init();
         let context = v8::Context::new(&scope, Default::default());
         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
-        let result = compile_classic_handler(&mut ctx_scope, "/handler.js", "var x = 1;", context, "test::/handler.js");
+        let result = compile_classic_handler(
+            &mut ctx_scope,
+            "/handler.js",
+            "var x = 1;",
+            context,
+            "test::/handler.js",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No fetch handler"));
     }
@@ -1127,11 +1387,16 @@ addEventListener("fetch", function(event) {
         let context = v8::Context::new(&scope, Default::default());
         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
         let result = compile_esm_handler(
-            &mut ctx_scope, "/handler.js",
+            &mut ctx_scope,
+            "/handler.js",
             "export function fetch(req) { return { status: 200 }; }",
             make_vfs(),
         );
-        assert!(result.is_ok(), "named ESM fetch should compile: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "named ESM fetch should compile: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -1143,11 +1408,16 @@ addEventListener("fetch", function(event) {
         let context = v8::Context::new(&scope, Default::default());
         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
         let result = compile_esm_handler(
-            &mut ctx_scope, "/handler.js",
+            &mut ctx_scope,
+            "/handler.js",
             "export default { fetch(req) { return { status: 200 }; } }",
             make_vfs(),
         );
-        assert!(result.is_ok(), "default ESM export should compile: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "default ESM export should compile: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -1159,7 +1429,8 @@ addEventListener("fetch", function(event) {
         let context = v8::Context::new(&scope, Default::default());
         let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
         let result = compile_esm_handler(
-            &mut ctx_scope, "/handler.js",
+            &mut ctx_scope,
+            "/handler.js",
             "export const x = 1;",
             make_vfs(),
         );
@@ -1175,8 +1446,10 @@ addEventListener("fetch", function(event) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let js_path = temp_dir.path().join("test.js");
         let mut f = fs::File::create(&js_path).expect("Failed to create test file");
-        f.write_all(b"function fetch(request) { return { status: 200, headers: {}, body: \"\" }; }")
-            .expect("Failed to write test code");
+        f.write_all(
+            b"function fetch(request) { return { status: 200, headers: {}, body: \"\" }; }",
+        )
+        .expect("Failed to write test code");
         let entrypoint = js_path.to_string_lossy().to_string();
 
         assert_eq!(pool.next_worker.load(Ordering::SeqCst), 0);
@@ -1185,11 +1458,16 @@ addEventListener("fetch", function(event) {
             let url = NanoUrl::parse("http://test/").unwrap();
             let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
             let (tx, rx) = oneshot::channel();
-            pool.dispatch(HandlerTask::new(entrypoint.clone(), request, tx)).expect("Dispatch failed");
+            pool.dispatch(HandlerTask::new(entrypoint.clone(), request, tx))
+                .expect("Dispatch failed");
             let _ = rx.blocking_recv();
         }
 
-        assert_eq!(pool.next_worker.load(Ordering::SeqCst), 6, "counter must advance once per dispatch");
+        assert_eq!(
+            pool.next_worker.load(Ordering::SeqCst),
+            6,
+            "counter must advance once per dispatch"
+        );
 
         pool.shutdown().expect("Shutdown failed");
     }

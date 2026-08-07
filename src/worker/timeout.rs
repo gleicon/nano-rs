@@ -52,7 +52,7 @@ pub struct TimeoutConfig {
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
-            cpu_time_limit_ms: 50,   // 50ms default like Cloudflare
+            cpu_time_limit_ms: 50,       // 50ms default like Cloudflare
             wall_clock_limit_ms: 30_000, // 30 seconds
             termination_grace_us: 100,   // 100 microseconds
         }
@@ -278,11 +278,12 @@ impl ExecutionTimer {
         F: Future<Output = T>,
     {
         // Start CPU tracking
-        let cpu_start = self.cpu_tracker.start().map_err(|e| {
-            TimeoutError::ConfigError {
+        let cpu_start = self
+            .cpu_tracker
+            .start()
+            .map_err(|e| TimeoutError::ConfigError {
                 message: format!("Failed to start CPU tracking: {}", e),
-            }
-        })?;
+            })?;
 
         self.active.store(true, Ordering::SeqCst);
         reset_timeout_signal();
@@ -390,11 +391,12 @@ impl ExecutionTimer {
         f: impl FnOnce() -> T,
     ) -> Result<T, TimeoutError> {
         // Start CPU tracking
-        let cpu_start = self.cpu_tracker.start().map_err(|e| {
-            TimeoutError::ConfigError {
+        let cpu_start = self
+            .cpu_tracker
+            .start()
+            .map_err(|e| TimeoutError::ConfigError {
                 message: format!("Failed to start CPU tracking: {}", e),
-            }
-        })?;
+            })?;
 
         self.active.store(true, Ordering::SeqCst);
         reset_timeout_signal();
@@ -622,9 +624,7 @@ mod tests {
         let timer = ExecutionTimer::with_cpu_limit(5000); // 5 seconds
         let mut isolate = v8::Isolate::new(v8::CreateParams::default());
 
-        let result = timer.execute_and_check(&mut isolate, || {
-            "success"
-        });
+        let result = timer.execute_and_check(&mut isolate, || "success");
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");

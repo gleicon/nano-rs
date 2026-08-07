@@ -11,10 +11,14 @@ pub(crate) fn headers_set_callback(
 
     // Get header name and value
     if args.length() >= 2 {
-        let name = args.get(0).to_string(scope)
+        let name = args
+            .get(0)
+            .to_string(scope)
             .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
             .unwrap_or_default();
-        let value = args.get(1).to_string(scope)
+        let value = args
+            .get(1)
+            .to_string(scope)
             .map(|s| s.to_rust_string_lossy(scope))
             .unwrap_or_default();
 
@@ -40,7 +44,8 @@ fn url_constructor(
 
     // Get the URL string argument
     let url_string = if args.length() > 0 {
-        args.get(0).to_string(scope)
+        args.get(0)
+            .to_string(scope)
             .map(|s| s.to_rust_string_lossy(scope))
             .unwrap_or_default()
     } else {
@@ -48,9 +53,8 @@ fn url_constructor(
     };
 
     // Parse the URL to extract components
-    let parsed = url::Url::parse(&url_string).unwrap_or_else(|_| {
-        url::Url::parse("http://localhost/").unwrap()
-    });
+    let parsed = url::Url::parse(&url_string)
+        .unwrap_or_else(|_| url::Url::parse("http://localhost/").unwrap());
 
     // Set href property (full URL)
     let href_key = v8::String::new(scope, "href").unwrap();
@@ -220,7 +224,9 @@ fn usp_get_callback(
         return;
     }
 
-    let name = args.get(0).to_string(scope)
+    let name = args
+        .get(0)
+        .to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
 
@@ -255,10 +261,14 @@ fn usp_set_callback(
         return;
     }
 
-    let name = args.get(0).to_string(scope)
+    let name = args
+        .get(0)
+        .to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
-    let value = args.get(1).to_string(scope)
+    let value = args
+        .get(1)
+        .to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
 
@@ -289,7 +299,9 @@ fn usp_has_callback(
         return;
     }
 
-    let name = args.get(0).to_string(scope)
+    let name = args
+        .get(0)
+        .to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
 
@@ -325,7 +337,9 @@ fn usp_delete_callback(
         return;
     }
 
-    let name = args.get(0).to_string(scope)
+    let name = args
+        .get(0)
+        .to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
 
@@ -448,7 +462,8 @@ fn headers_get_callback(
 
     // Get the header name and normalize to lowercase (per Fetch spec)
     let name = if args.length() > 0 {
-        args.get(0).to_string(scope)
+        args.get(0)
+            .to_string(scope)
             .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
             .unwrap_or_default()
     } else {
@@ -483,10 +498,14 @@ fn headers_set_callback_v2(
 
     if args.length() >= 2 {
         // Normalize header name to lowercase (per Fetch spec)
-        let name = args.get(0).to_string(scope)
+        let name = args
+            .get(0)
+            .to_string(scope)
             .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
             .unwrap_or_default();
-        let value = args.get(1).to_string(scope)
+        let value = args
+            .get(1)
+            .to_string(scope)
             .map(|s| s.to_rust_string_lossy(scope))
             .unwrap_or_default();
 
@@ -534,7 +553,11 @@ fn headers_foreach_callback(
                             if let Some(value) = headers_obj.get(scope, key.into()) {
                                 // Call the callback with (value, key, headers)
                                 let key_js = v8::String::new(scope, &key_name).unwrap();
-                                let _ = callback_fn.call(scope, this.into(), &[value, key_js.into(), this.into()]);
+                                let _ = callback_fn.call(
+                                    scope,
+                                    this.into(),
+                                    &[value, key_js.into(), this.into()],
+                                );
                             }
                         }
                     }
@@ -584,7 +607,8 @@ pub(crate) fn bind_url(
                     proto_obj.set(&mut ctx_scope, delete_key.into(), delete_fn.into());
                 }
                 // Bind toString method
-                if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, usp_tostring_callback) {
+                if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, usp_tostring_callback)
+                {
                     let tostring_key = v8::String::new(&mut ctx_scope, "toString").unwrap();
                     proto_obj.set(&mut ctx_scope, tostring_key.into(), tostring_fn.into());
                 }
@@ -605,7 +629,8 @@ pub(crate) fn bind_url(
         let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
         if let Some(proto) = ctor_obj.get(&mut ctx_scope, proto_key.into()) {
             if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
-                if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, url_tostring_callback) {
+                if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, url_tostring_callback)
+                {
                     let tostring_key = v8::String::new(&mut ctx_scope, "toString").unwrap();
                     proto_obj.set(&mut ctx_scope, tostring_key.into(), tostring_fn.into());
                 }

@@ -10,7 +10,9 @@ use axum::{
     http::{Request, StatusCode},
     response::IntoResponse,
 };
-use nano::http::router::{dispatch_to_worker_pool, AppState, HandlerType, RouteTarget, VirtualHostRouter};
+use nano::http::router::{
+    dispatch_to_worker_pool, AppState, HandlerType, RouteTarget, VirtualHostRouter,
+};
 use std::sync::Arc;
 
 /// Setup a test router with sample routes
@@ -53,11 +55,7 @@ async fn test_routes_by_host_header() {
         .body(Body::empty())
         .unwrap();
 
-    let response = dispatch_to_worker_pool(
-        axum::extract::State(state.clone()),
-        request,
-    )
-    .await;
+    let response = dispatch_to_worker_pool(axum::extract::State(state.clone()), request).await;
 
     // Convert response to check body
     let response = response.into_response();
@@ -80,11 +78,7 @@ async fn test_blog_host_routing() {
         .body(Body::empty())
         .unwrap();
 
-    let response = dispatch_to_worker_pool(
-        axum::extract::State(state.clone()),
-        request,
-    )
-    .await;
+    let response = dispatch_to_worker_pool(axum::extract::State(state.clone()), request).await;
 
     let response = response.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -105,11 +99,7 @@ async fn test_fallback_routing() {
         .body(Body::empty())
         .unwrap();
 
-    let response = dispatch_to_worker_pool(
-        axum::extract::State(state.clone()),
-        request,
-    )
-    .await;
+    let response = dispatch_to_worker_pool(axum::extract::State(state.clone()), request).await;
 
     let response = response.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -130,11 +120,7 @@ async fn test_case_insensitive_host() {
         .body(Body::empty())
         .unwrap();
 
-    let response = dispatch_to_worker_pool(
-        axum::extract::State(state.clone()),
-        request,
-    )
-    .await;
+    let response = dispatch_to_worker_pool(axum::extract::State(state.clone()), request).await;
 
     let response = response.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -155,11 +141,7 @@ async fn test_mixed_case_host() {
         .body(Body::empty())
         .unwrap();
 
-    let response = dispatch_to_worker_pool(
-        axum::extract::State(state.clone()),
-        request,
-    )
-    .await;
+    let response = dispatch_to_worker_pool(axum::extract::State(state.clone()), request).await;
 
     let response = response.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -168,7 +150,6 @@ async fn test_mixed_case_host() {
     let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
     assert_eq!(body_str, "api-handler");
 }
-
 
 #[tokio::test]
 async fn test_no_host_header_uses_default() {
@@ -181,11 +162,7 @@ async fn test_no_host_header_uses_default() {
         .body(Body::empty())
         .unwrap();
 
-    let response = dispatch_to_worker_pool(
-        axum::extract::State(state.clone()),
-        request,
-    )
-    .await;
+    let response = dispatch_to_worker_pool(axum::extract::State(state.clone()), request).await;
 
     let response = response.into_response();
     assert_eq!(response.status(), StatusCode::OK);

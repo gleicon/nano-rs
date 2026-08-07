@@ -27,7 +27,9 @@ pub mod types;
 
 pub use collector::MetricsRegistry;
 pub use exporter::PrometheusExporter;
-pub use tenant::{TenantMetrics, TenantMetricsCollector, MetricsSnapshot, RequestResult, GlobalMetrics};
+pub use tenant::{
+    GlobalMetrics, MetricsSnapshot, RequestResult, TenantMetrics, TenantMetricsCollector,
+};
 pub use types::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, MetricLabels};
 
 use std::sync::LazyLock;
@@ -105,5 +107,5 @@ mod tests {
 ///     10       // Duration in milliseconds
 /// );
 /// ```
-pub static TENANT_METRICS: LazyLock<TenantMetricsCollector> = 
+pub static TENANT_METRICS: LazyLock<TenantMetricsCollector> =
     LazyLock::new(TenantMetricsCollector::new);

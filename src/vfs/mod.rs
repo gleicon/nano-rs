@@ -526,7 +526,8 @@ pub mod security {
             if delta > 0 {
                 self.total_bytes.fetch_add(delta as usize, Ordering::SeqCst);
             } else if delta < 0 {
-                self.total_bytes.fetch_sub((-delta) as usize, Ordering::SeqCst);
+                self.total_bytes
+                    .fetch_sub((-delta) as usize, Ordering::SeqCst);
             }
         }
 

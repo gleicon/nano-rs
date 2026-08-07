@@ -35,9 +35,7 @@ fn test_router_fallback() {
     let router = VirtualHostRouter::new(default);
 
     let resolved = router.resolve("unknown.host.com");
-    assert!(
-        matches!(resolved.handler_type, HandlerType::StaticResponse(ref s) if s == "fallback")
-    );
+    assert!(matches!(resolved.handler_type, HandlerType::StaticResponse(ref s) if s == "fallback"));
 }
 
 #[test]
@@ -65,7 +63,12 @@ fn test_case_insensitive_variations() {
         },
     );
 
-    for case in &["test.host.com", "TEST.HOST.COM", "Test.Host.COM", "tEsT.hOsT.cOm"] {
+    for case in &[
+        "test.host.com",
+        "TEST.HOST.COM",
+        "Test.Host.COM",
+        "tEsT.hOsT.cOm",
+    ] {
         let resolved = router.resolve(case);
         assert!(
             matches!(resolved.handler_type, HandlerType::StaticResponse(ref s) if s == "test"),
@@ -152,7 +155,10 @@ fn test_sliver_handler_routing() {
 
     let resolved = router.resolve("sliver.example.com");
     match &resolved.handler_type {
-        HandlerType::WinterTCSliverHandler { entrypoint, hostname } => {
+        HandlerType::WinterTCSliverHandler {
+            entrypoint,
+            hostname,
+        } => {
             assert_eq!(entrypoint, "/app/index.js");
             assert_eq!(hostname, "sliver.example.com");
         }

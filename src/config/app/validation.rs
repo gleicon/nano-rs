@@ -149,7 +149,8 @@ pub fn validate_config(
                 if disk_config.base_path.is_empty() {
                     errors.add("vfs_disk.base_path cannot be empty");
                 } else if disk_config.base_path.contains("..") {
-                    errors.add("vfs_disk.base_path contains '..' which is not allowed for security");
+                    errors
+                        .add("vfs_disk.base_path contains '..' which is not allowed for security");
                 }
             }
         }
@@ -745,7 +746,10 @@ mod tests {
         let result = validate_config(&config, None);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.errors.iter().any(|e| e.contains("vfs_disk") && e.contains("missing")));
+        assert!(errors
+            .errors
+            .iter()
+            .any(|e| e.contains("vfs_disk") && e.contains("missing")));
     }
 
     #[test]
@@ -764,7 +768,10 @@ mod tests {
         let result = validate_config(&config, None);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.errors.iter().any(|e| e.contains("vfs_s3") && e.contains("missing")));
+        assert!(errors
+            .errors
+            .iter()
+            .any(|e| e.contains("vfs_s3") && e.contains("missing")));
     }
 
     #[test]
@@ -785,7 +792,10 @@ mod tests {
         let result = validate_config(&config, None);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.errors.iter().any(|e| e.contains("base_path") && e.contains("..")));
+        assert!(errors
+            .errors
+            .iter()
+            .any(|e| e.contains("base_path") && e.contains("..")));
     }
 
     #[test]
@@ -802,7 +812,10 @@ mod tests {
         let result = validate_config(&config, None);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.errors.iter().any(|e| e.contains("either") && e.contains("entrypoint") && e.contains("sliver")));
+        assert!(errors
+            .errors
+            .iter()
+            .any(|e| e.contains("either") && e.contains("entrypoint") && e.contains("sliver")));
     }
 
     #[test]
@@ -849,7 +862,10 @@ mod tests {
         let result = validate_config(&config, None);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.errors.iter().any(|e| e.contains("sliver") && e.contains("..")));
+        assert!(errors
+            .errors
+            .iter()
+            .any(|e| e.contains("sliver") && e.contains("..")));
     }
 
     #[test]
@@ -1015,7 +1031,10 @@ mod tests {
         assert_eq!(limits.effective_ws_idle_timeout_ms(), 30_000);
 
         // Custom workers value: floor(workers / 2)
-        let limits_8 = AppLimits { workers: 8, ..Default::default() };
+        let limits_8 = AppLimits {
+            workers: 8,
+            ..Default::default()
+        };
         assert_eq!(limits_8.effective_max_ws_connections(), 4);
 
         // Configured values override defaults

@@ -3,8 +3,8 @@
 //! Cross-backend verification tests to ensure all storage backends
 //! (Memory, Disk, S3) behave consistently.
 
-use nano::vfs::{BackendFactory, DiskBackend, MemoryBackend, VfsBackend, VfsBackendEnum, VfsPath};
 use nano::config::{VfsBackendType, VfsDiskConfig};
+use nano::vfs::{BackendFactory, DiskBackend, MemoryBackend, VfsBackend, VfsBackendEnum, VfsPath};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -23,9 +23,7 @@ async fn create_disk_backend() -> (Arc<dyn VfsBackend>, TempDir) {
 #[tokio::test]
 async fn test_all_backends_basic_roundtrip() {
     // Test that all backends can write and read back data
-    let factories = [
-        ("memory", create_memory_backend()),
-    ];
+    let factories = [("memory", create_memory_backend())];
 
     for (name, backend) in factories.iter().cloned() {
         let path = VfsPath::new("test::data.txt").unwrap();
@@ -36,14 +34,26 @@ async fn test_all_backends_basic_roundtrip() {
 
         // Read back
         let read_data = backend.read(&path).await.unwrap();
-        assert_eq!(read_data, data, "{} backend should read back written data", name);
+        assert_eq!(
+            read_data, data,
+            "{} backend should read back written data",
+            name
+        );
 
         // Verify exists
-        assert!(backend.exists(&path).await.unwrap(), "{} backend should report file exists", name);
+        assert!(
+            backend.exists(&path).await.unwrap(),
+            "{} backend should report file exists",
+            name
+        );
 
         // Delete
         backend.delete(&path).await.unwrap();
-        assert!(!backend.exists(&path).await.unwrap(), "{} backend should report file deleted", name);
+        assert!(
+            !backend.exists(&path).await.unwrap(),
+            "{} backend should report file deleted",
+            name
+        );
     }
 
     // Test disk backend separately (requires async setup)
@@ -53,7 +63,10 @@ async fn test_all_backends_basic_roundtrip() {
 
     disk_backend.write(&path, data).await.unwrap();
     let read_data = disk_backend.read(&path).await.unwrap();
-    assert_eq!(read_data, data, "disk backend should read back written data");
+    assert_eq!(
+        read_data, data,
+        "disk backend should read back written data"
+    );
 }
 
 #[tokio::test]
@@ -185,5 +198,8 @@ async fn test_all_backends_handle_empty_files() {
 
     mem.write(&path, b"").await.unwrap();
     let data = mem.read(&path).await.unwrap();
-    assert!(data.is_empty(), "Empty file in memory should read back as empty");
+    assert!(
+        data.is_empty(),
+        "Empty file in memory should read back as empty"
+    );
 }

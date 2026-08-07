@@ -13,14 +13,12 @@
 //! All APIs are bound to the V8 global scope via RuntimeAPIs::bind_all().
 
 use crate::runtime::subtle_v8::{
-    subtle_generate_key, subtle_import_key, subtle_export_key,
-    subtle_encrypt, subtle_decrypt,
-    subtle_sign, subtle_verify, subtle_digest,
+    subtle_decrypt, subtle_digest, subtle_encrypt, subtle_export_key, subtle_generate_key,
+    subtle_import_key, subtle_sign, subtle_verify,
 };
 
 pub(crate) use super::timers::{
-    fire_pending_intervals, clear_pending_intervals,
-    fire_pending_timeouts, clear_pending_timeouts,
+    clear_pending_intervals, clear_pending_timeouts, fire_pending_intervals, fire_pending_timeouts,
 };
 
 /// RuntimeAPIs manages all JavaScript API bindings
@@ -70,7 +68,10 @@ impl RuntimeAPIs {
     /// Must be called after all other binds. Removes `eval` from globalThis and
     /// replaces `Function` with a locked-down stub that throws TypeError.
     /// Function declarations and arrow functions are unaffected (parsed statically by V8).
-    fn bind_security_hardening(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_security_hardening(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         let global = context.global(scope);
         let mut ctx_scope = v8::ContextScope::new(scope, context);
 
@@ -82,36 +83,55 @@ impl RuntimeAPIs {
         // Replace globalThis.Function with a stub that always throws TypeError.
         // This blocks dynamic code generation attacks while leaving function
         // declarations/expressions unaffected (they're parsed statically by V8).
-        if let Some(blocked_fn) = v8::Function::new(&mut ctx_scope, crate::runtime::console_api::function_constructor_blocked) {
+        if let Some(blocked_fn) = v8::Function::new(
+            &mut ctx_scope,
+            crate::runtime::console_api::function_constructor_blocked,
+        ) {
             let fn_key = match v8::String::new(&mut ctx_scope, "Function") {
                 Some(k) => k,
                 None => return, // V8 OOM during hardening — skip, not fatal
             };
             // writable:false via constructor; configurable and enumerable set separately
-            let mut desc = v8::PropertyDescriptor::new_from_value_writable(blocked_fn.into(), false);
+            let mut desc =
+                v8::PropertyDescriptor::new_from_value_writable(blocked_fn.into(), false);
             desc.set_configurable(false);
             desc.set_enumerable(false);
             global.define_property(&mut ctx_scope, fn_key.into(), &desc);
         }
     }
 
-    fn bind_streams(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_streams(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::stream::bind_streams(scope, context);
     }
 
-    fn bind_websocket_pair(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_websocket_pair(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::websocket::bind_websocket_pair(scope, context);
     }
 
-    fn bind_request(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_request(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::request::bind_request_api(scope, context);
     }
 
-    fn bind_nano_fs(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_nano_fs(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::vfs_bindings::bind_nano_fs(scope, context);
     }
 
-    fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_fs_polyfill(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
     }
 
@@ -123,23 +143,38 @@ impl RuntimeAPIs {
         crate::runtime::fetch::bind_fetch(scope, context);
     }
 
-    fn bind_console(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_console(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::console_api::bind_console(scope, context);
     }
 
-    fn bind_text_encoder(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_text_encoder(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::text_codec_api::bind_text_encoder(scope, context);
     }
 
-    fn bind_text_decoder(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_text_decoder(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::text_codec_api::bind_text_decoder(scope, context);
     }
 
-    fn bind_crypto(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_crypto(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         let global = context.global(scope);
         let mut ctx_scope = v8::ContextScope::new(scope, context);
         let crypto = v8::Object::new(&mut &mut ctx_scope);
-        if let Some(f) = v8::Function::new(&mut ctx_scope, crate::runtime::web_apis::crypto_get_random_values) {
+        if let Some(f) = v8::Function::new(
+            &mut ctx_scope,
+            crate::runtime::web_apis::crypto_get_random_values,
+        ) {
             let k = v8::String::new(&mut ctx_scope, "getRandomValues").unwrap();
             crypto.set(&mut ctx_scope, k.into(), f.into());
         }
@@ -182,7 +217,10 @@ impl RuntimeAPIs {
         global.set(&mut ctx_scope, key.into(), crypto.into());
     }
 
-    fn bind_performance(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_performance(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         let global = context.global(scope);
         crate::runtime::web_apis::PERFORMANCE_BASELINE.with(|cell| {
             if cell.get().is_none() {
@@ -191,7 +229,9 @@ impl RuntimeAPIs {
         });
         let mut ctx_scope = v8::ContextScope::new(scope, context);
         let performance = v8::Object::new(&mut &mut ctx_scope);
-        if let Some(now_fn) = v8::Function::new(&mut ctx_scope, crate::runtime::web_apis::performance_now) {
+        if let Some(now_fn) =
+            v8::Function::new(&mut ctx_scope, crate::runtime::web_apis::performance_now)
+        {
             let key = v8::String::new(&mut ctx_scope, "now").unwrap();
             performance.set(&mut ctx_scope, key.into(), now_fn.into());
         }
@@ -199,19 +239,30 @@ impl RuntimeAPIs {
         global.set(&mut ctx_scope, key.into(), performance.into());
     }
 
-    fn bind_structured_clone(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_structured_clone(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         let global = context.global(scope);
         let mut ctx_scope = v8::ContextScope::new(scope, context);
-        if let Some(clone_fn) = v8::Function::new(&mut ctx_scope, crate::runtime::web_apis::structured_clone) {
+        if let Some(clone_fn) =
+            v8::Function::new(&mut ctx_scope, crate::runtime::web_apis::structured_clone)
+        {
             let key = v8::String::new(&mut ctx_scope, "structuredClone").unwrap();
             global.set(&mut ctx_scope, key.into(), clone_fn.into());
         }
     }
 
-    fn bind_dom_exception(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_dom_exception(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         let global = context.global(scope);
         let mut ctx_scope = v8::ContextScope::new(scope, context);
-        let template = v8::FunctionTemplate::new(&mut ctx_scope, crate::runtime::web_apis::dom_exception_constructor);
+        let template = v8::FunctionTemplate::new(
+            &mut ctx_scope,
+            crate::runtime::web_apis::dom_exception_constructor,
+        );
         let ctor = template.get_function(&mut &mut ctx_scope).unwrap();
         let key = v8::String::new(&mut ctx_scope, "DOMException").unwrap();
         global.set(&mut ctx_scope, key.into(), ctor.into());
@@ -220,26 +271,42 @@ impl RuntimeAPIs {
     fn bind_blob(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
         let global = context.global(scope);
         let mut ctx_scope = v8::ContextScope::new(scope, context);
-        let template = v8::FunctionTemplate::new(&mut ctx_scope, crate::runtime::web_apis::blob_constructor);
+        let template =
+            v8::FunctionTemplate::new(&mut ctx_scope, crate::runtime::web_apis::blob_constructor);
         let ctor = template.get_function(&mut &mut ctx_scope).unwrap();
         let key = v8::String::new(&mut ctx_scope, "Blob").unwrap();
         global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
-    fn bind_form_data(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_form_data(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         let global = context.global(scope);
         let mut ctx_scope = v8::ContextScope::new(scope, context);
-        let template = v8::FunctionTemplate::new(&mut ctx_scope, crate::runtime::web_apis::form_data_constructor);
+        let template = v8::FunctionTemplate::new(
+            &mut ctx_scope,
+            crate::runtime::web_apis::form_data_constructor,
+        );
         let ctor = template.get_function(&mut &mut ctx_scope).unwrap();
         let key = v8::String::new(&mut ctx_scope, "FormData").unwrap();
         global.set(&mut ctx_scope, key.into(), ctor.into());
     }
 
-    fn bind_response(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
-        use crate::runtime::fetch::{response_text_callback, response_json_callback, response_arraybuffer_callback, response_json_static_callback};
+    fn bind_response(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
+        use crate::runtime::fetch::{
+            response_arraybuffer_callback, response_json_callback, response_json_static_callback,
+            response_text_callback,
+        };
         let global = context.global(scope);
         let mut ctx_scope = v8::ContextScope::new(scope, context);
-        let template = v8::FunctionTemplate::new(&mut ctx_scope, crate::runtime::web_apis::response_constructor);
+        let template = v8::FunctionTemplate::new(
+            &mut ctx_scope,
+            crate::runtime::web_apis::response_constructor,
+        );
         let ctor = template.get_function(&mut ctx_scope).unwrap();
         if let Some(ctor_obj) = ctor.to_object(&mut ctx_scope) {
             let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
@@ -253,7 +320,9 @@ impl RuntimeAPIs {
                         let k = v8::String::new(&mut ctx_scope, "json").unwrap();
                         proto_obj.set(&mut ctx_scope, k.into(), f.into());
                     }
-                    if let Some(f) = v8::Function::new(&mut ctx_scope, response_arraybuffer_callback) {
+                    if let Some(f) =
+                        v8::Function::new(&mut ctx_scope, response_arraybuffer_callback)
+                    {
                         let k = v8::String::new(&mut ctx_scope, "arrayBuffer").unwrap();
                         proto_obj.set(&mut ctx_scope, k.into(), f.into());
                     }
@@ -272,11 +341,17 @@ impl RuntimeAPIs {
         crate::runtime::url_api::bind_url(scope, context);
     }
 
-    fn bind_headers(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_headers(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::url_api::bind_headers(scope, context);
     }
 
-    fn bind_timers(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_timers(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         super::timers::bind_timers(scope, context);
     }
 
@@ -285,7 +360,10 @@ impl RuntimeAPIs {
         tracing::debug!("Bound WebAssembly API");
     }
 
-    fn bind_buffer(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+    fn bind_buffer(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
         crate::runtime::buffer_api::bind_buffer(scope, context);
     }
 }
@@ -293,8 +371,8 @@ impl RuntimeAPIs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v8::{initialize_platform, NanoIsolate};
     use crate::runtime::timers::pending_timeout_count;
+    use crate::v8::{initialize_platform, NanoIsolate};
 
     fn init_platform() {
         initialize_platform().expect("Failed to initialize V8 platform");
@@ -326,7 +404,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -358,7 +439,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         // Emoji should be 4 bytes in UTF-8
         assert_eq!(result_str, "4");
@@ -391,7 +475,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert!(
             result_str.starts_with("PASS"),
@@ -425,7 +512,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "true");
     }
@@ -450,7 +540,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "OK");
     }
@@ -480,11 +573,15 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert!(
             result_str.contains("\u{FFFD}"),
-            "Invalid UTF-8 should produce replacement character, got: {:?}", result_str
+            "Invalid UTF-8 should produce replacement character, got: {:?}",
+            result_str
         );
     }
 
@@ -513,7 +610,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -546,7 +646,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -580,7 +683,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -612,7 +718,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(
             result_str, "true",
@@ -644,7 +753,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "true", "Blob should have correct size");
     }
@@ -673,7 +785,9 @@ mod tests {
             "one timeout must be pending before fire"
         );
 
-        unsafe { (*iso_ptr).terminate_execution(); }
+        unsafe {
+            (*iso_ptr).terminate_execution();
+        }
 
         let tc_storage = v8::TryCatch::new(&mut *ctx_scope);
         let tc_pin = std::pin::pin!(tc_storage);
@@ -681,7 +795,9 @@ mod tests {
 
         fire_pending_timeouts(&mut *tc);
 
-        unsafe { (*iso_ptr).cancel_terminate_execution(); }
+        unsafe {
+            (*iso_ptr).cancel_terminate_execution();
+        }
 
         assert_eq!(
             pending_timeout_count(),
@@ -715,7 +831,10 @@ mod tests {
             v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
         let result = script.run(ctx_scope).expect("Script execution failed");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
 
         assert_eq!(result_str, "true", "FormData should be a function");
     }

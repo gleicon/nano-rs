@@ -329,10 +329,10 @@ pub async fn create_app(
     {
         let router = http_router.read().await;
         if router.get_user_route(&request.hostname).is_some() {
-            return Err(AppError::conflict(format!(
-                "App '{}' already exists",
-                request.hostname
-            )).into_response());
+            return Err(
+                AppError::conflict(format!("App '{}' already exists", request.hostname))
+                    .into_response(),
+            );
         }
     }
 

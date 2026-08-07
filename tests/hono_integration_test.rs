@@ -7,8 +7,8 @@
 //! on the same thread to avoid "Cannot create a handle without a HandleScope" errors.
 //! We use std::sync::Once for thread-safe initialization within spawn_blocking.
 
-use nano::runtime::{HandlerContext, execute_handler};
-use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
+use nano::runtime::{execute_handler, HandlerContext};
 use nano::v8::{initialize_platform, NanoIsolate};
 use std::sync::Once;
 
@@ -47,16 +47,11 @@ async fn test_hono_middleware_chain_order() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init and all V8 operations must be in the same thread
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://test.example.com/").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -66,13 +61,22 @@ async fn test_hono_middleware_chain_order() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
-    
+
     // Both middlewares should have run
-    assert!(response.headers().get("Access-Control-Allow-Origin").is_some());
+    assert!(response
+        .headers()
+        .get("Access-Control-Allow-Origin")
+        .is_some());
     assert!(response.headers().get("X-Powered-By").is_some());
 }
 
@@ -84,19 +88,14 @@ async fn test_hono_post_request() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init and all V8 operations must be in the same thread
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://test.example.com/").unwrap();
         let mut headers = NanoHeaders::new();
         headers.set("Content-Type", "application/json");
-        
-        let request = NanoRequest::new(
-            "POST".to_string(),
-            url,
-            headers,
-            None,
-        );
+
+        let request = NanoRequest::new("POST".to_string(), url, headers, None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -106,11 +105,17 @@ async fn test_hono_post_request() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
-    
+
     // Should still return 200 (simple router doesn't check method in this test)
     assert_eq!(response.status(), 200);
 }
@@ -124,37 +129,42 @@ async fn test_hono_cors_headers_on_all_routes() {
     for path in &["/", "/about", "/nonexistent"] {
         let path_str = path.to_string();
         let entrypoint = js_path_str.clone();
-        
+
         let response = tokio::task::spawn_blocking(move || {
             // V8 platform init (Once ensures this only runs once across all threads)
             init_platform();
-            
+
             let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-            
+
             let url = NanoUrl::parse(&format!("http://test.example.com{}", path_str)).unwrap();
-            let request = NanoRequest::new(
-                "GET".to_string(),
-                url,
-                NanoHeaders::new(),
-                None,
-            );
+            let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
             let context = HandlerContext {
                 entrypoint,
                 request,
-            memory_limit_mb: 0,
-            hostname: String::new(),
-        };
+                memory_limit_mb: 0,
+                hostname: String::new(),
+            };
 
             execute_handler(&mut isolate, context)
-        }).await.unwrap();
-        
-        assert!(response.is_ok(), "Handler execution failed for {}: {:?}", path, response.err());
+        })
+        .await
+        .unwrap();
+
+        assert!(
+            response.is_ok(),
+            "Handler execution failed for {}: {:?}",
+            path,
+            response.err()
+        );
         let response = response.unwrap();
-        
+
         // CORS middleware applies to all responses
         assert!(
-            response.headers().get("Access-Control-Allow-Origin").is_some(),
+            response
+                .headers()
+                .get("Access-Control-Allow-Origin")
+                .is_some(),
             "CORS header missing on {}",
             path
         );

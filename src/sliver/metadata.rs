@@ -23,7 +23,7 @@ pub struct SliverMetadata {
     /// if not specified.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    
+
     /// Hostname of the app this sliver represents
     ///
     /// This corresponds to the virtual host configured in NANO
@@ -81,7 +81,7 @@ impl SliverMetadata {
             custom: HashMap::new(),
         }
     }
-    
+
     /// Create metadata with a name
     pub fn with_name(
         name: impl Into<String>,
@@ -123,11 +123,11 @@ impl SliverMetadata {
     /// Generate a human-readable summary
     pub fn summary(&self) -> String {
         let mut lines = vec![];
-        
+
         if let Some(name) = &self.name {
             lines.push(format!("Name: {}", name));
         }
-        
+
         lines.push(format!("Hostname: {}", self.hostname));
         lines.push(format!("Created: {}", self.created_at.to_rfc3339()));
         lines.push(format!("Format Version: {}", self.format_version));
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(meta.nano_version, "1.1.0");
         assert!(meta.description.is_none());
     }
-    
+
     #[test]
     fn test_metadata_with_name() {
         let meta = SliverMetadata::with_name("api-prod", "api.example.com", "1.1.0");
@@ -181,7 +181,10 @@ mod tests {
             .with_custom("deployment", "production")
             .with_custom("version", "v2.3.1");
 
-        assert_eq!(meta.custom.get("deployment"), Some(&"production".to_string()));
+        assert_eq!(
+            meta.custom.get("deployment"),
+            Some(&"production".to_string())
+        );
         assert_eq!(meta.custom.get("version"), Some(&"v2.3.1".to_string()));
     }
 
@@ -219,7 +222,7 @@ mod tests {
         // Test that optional fields are skipped when empty
         let meta = SliverMetadata::new("app.example.com", "1.1.0");
         let json = serde_json::to_string(&meta).unwrap();
-        
+
         // Should not contain description or custom fields when empty
         assert!(!json.contains("description"));
         assert!(!json.contains("custom"));

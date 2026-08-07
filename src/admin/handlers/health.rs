@@ -3,10 +3,7 @@
 //! Provides liveness and readiness probe endpoints for the Admin API.
 //! These endpoints are publicly accessible (no authentication required).
 
-use axum::{
-    http::StatusCode,
-    response::Json,
-};
+use axum::{http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 
 /// Health check response

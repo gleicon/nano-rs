@@ -25,22 +25,15 @@ fn add_wasm_bytes() -> Vec<u8> {
         0x01, // num results
         0x7f, // i32
         // Function section (section id 3)
-        0x03,
-        0x02,
-        0x01,
-        0x00, // function 0 uses type 0
+        0x03, 0x02, 0x01, 0x00, // function 0 uses type 0
         // Export section (section id 7)
-        0x07,
-        0x08,
-        0x01, // num exports
+        0x07, 0x08, 0x01, // num exports
         0x03, // name length
         0x61, 0x64, 0x64, // "add"
         0x00, // export kind: function
         0x00, // function index
         // Code section (section id 10)
-        0x0a,
-        0x09,
-        0x01, // num functions
+        0x0a, 0x09, 0x01, // num functions
         0x07, // function body size
         0x00, // no locals
         0x20, 0x00, // local.get 0
@@ -54,16 +47,16 @@ fn add_wasm_bytes() -> Vec<u8> {
 fn test_wasm_magic_number_validation() {
     // Test magic number validation manually
     let valid = minimal_wasm_bytes();
-    
+
     // Check magic number: \0asm
     assert_eq!(&valid[0..4], &[0x00, 0x61, 0x73, 0x6d]);
     // Check version: 1
     assert_eq!(valid[4], 0x01);
-    
+
     // Test invalid magic
     let invalid_magic = vec![0x77, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     assert_ne!(&invalid_magic[0..4], &[0x00, 0x61, 0x73, 0x6d]);
-    
+
     // Test too small
     let too_small = vec![0x00, 0x61, 0x73];
     assert!(too_small.len() < 8);
@@ -80,11 +73,11 @@ fn test_wasm_file_extensions() {
         ("module", false),
         ("module.Wasm", true),
     ];
-    
+
     for (path, expected) in test_cases {
-        let is_wasm = path.ends_with(".wasm") || 
-                      path.ends_with(".WASM") ||
-                      path.to_lowercase().ends_with(".wasm");
+        let is_wasm = path.ends_with(".wasm")
+            || path.ends_with(".WASM")
+            || path.to_lowercase().ends_with(".wasm");
         assert_eq!(is_wasm, expected, "Path: {}", path);
     }
 }
@@ -92,16 +85,24 @@ fn test_wasm_file_extensions() {
 #[test]
 fn test_add_wasm_structure() {
     let wasm = add_wasm_bytes();
-    
+
     // Verify magic
     assert_eq!(&wasm[0..4], &[0x00, 0x61, 0x73, 0x6d]);
-    
+
     // Verify version
     assert_eq!(wasm[4], 0x01);
-    
+
     // Verify total length is reasonable
-    assert!(wasm.len() > 30, "WASM module should be >30 bytes, got {}", wasm.len());
-    assert!(wasm.len() < 100, "WASM module should be <100 bytes, got {}", wasm.len());
+    assert!(
+        wasm.len() > 30,
+        "WASM module should be >30 bytes, got {}",
+        wasm.len()
+    );
+    assert!(
+        wasm.len() < 100,
+        "WASM module should be <100 bytes, got {}",
+        wasm.len()
+    );
 }
 
 /// Test WASM validation logic
@@ -111,28 +112,33 @@ fn test_wasm_validation_rules() {
     let valid = minimal_wasm_bytes();
     assert!(valid.len() >= 8);
     assert_eq!(&valid[0..4], b"\0asm");
-    
+
     // Version check
     let version = u32::from_le_bytes([valid[4], valid[5], valid[6], valid[7]]);
     assert!(version == 1 || version == 2);
-    
+
     // Test cases that should fail validation
     let too_small = vec![0x00, 0x61, 0x73]; // Only 3 bytes
     assert!(too_small.len() < 8);
-    
+
     let wrong_magic = vec![0x77, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     assert_ne!(&wrong_magic[0..4], b"\0asm");
-    
+
     let wrong_version = vec![0x00, 0x61, 0x73, 0x6d, 0xFF, 0x00, 0x00, 0x00];
-    let version = u32::from_le_bytes([wrong_version[4], wrong_version[5], wrong_version[6], wrong_version[7]]);
+    let version = u32::from_le_bytes([
+        wrong_version[4],
+        wrong_version[5],
+        wrong_version[6],
+        wrong_version[7],
+    ]);
     assert!(version != 1 && version != 2);
 }
 
 /// Integration test for WebAssembly execution
-/// 
+///
 /// This test documents the expected behavior. Full testing requires
 /// running NANO server with the handler.js example.
-/// 
+///
 /// Expected JavaScript behavior:
 /// ```javascript
 /// const wasmBytes = await Nano.fs.readFile('./add.wasm');
@@ -152,9 +158,9 @@ async fn test_wasm_execution_documentation() {
         "Call exported function",
         "Return result",
     ];
-    
+
     assert_eq!(expected_steps.len(), 6);
-    
+
     // Verify our test WASM has the expected structure
     let wasm = add_wasm_bytes();
     assert!(!wasm.is_empty());
@@ -171,11 +177,11 @@ async fn test_webassembly_validate_js_api() {
     // This test documents the expected JS API behavior
     let valid_bytes = minimal_wasm_bytes();
     let invalid_bytes = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-    
+
     // In actual JS:
     // WebAssembly.validate(new Uint8Array(valid_bytes)) === true
     // WebAssembly.validate(new Uint8Array(invalid_bytes)) === false
-    
+
     assert!(!valid_bytes.is_empty());
     assert!(!invalid_bytes.is_empty());
     assert_ne!(valid_bytes[0..4], invalid_bytes[0..4]);
@@ -223,7 +229,7 @@ fn test_wasm_manual_integration_steps() {
         "Test with curl requests",
         "Verify responses match expected",
     ];
-    
+
     assert_eq!(steps.len(), 5);
 }
 
@@ -245,6 +251,6 @@ fn test_wasm_sliver_cache_behavior() {
         "On restore: verify hash matches",
         "If mismatch: recompile from source",
     ];
-    
+
     assert_eq!(cache_behavior.len(), 6);
 }

@@ -23,8 +23,8 @@
 //! `FunctionCallbackArguments` in rusty_v8 v147. Will activate when V8 API
 //! limitation is resolved (future upgrade).
 
-use v8;
 use crate::wasm::WasmLoader;
+use v8;
 
 /// JS polyfill injected once per isolate at bind time.
 ///
@@ -55,7 +55,8 @@ pub const WASM_EXPORT_COUNT_MAX: u32 = crate::limits::wasm::EXPORT_COUNT_MAX;
 /// `Nano.__wasm_import_rejected()` / `Nano.__wasm_export_rejected()` stubs registered
 /// at bind time — see `WebAssemblyAPI::bind`.
 pub fn wasm_cache_polyfill(import_max: u32, export_max: u32) -> String {
-    format!(r#"
+    format!(
+        r#"
 (function() {{
     var _wc = new Map();
     var _oc = WebAssembly.compile;
@@ -116,7 +117,8 @@ pub fn wasm_cache_polyfill(import_max: u32, export_max: u32) -> String {
         }});
     }};
 }})();
-"#)
+"#
+    )
 }
 
 /// WebAssembly JavaScript API binder
@@ -167,12 +169,16 @@ impl WebAssemblyAPI {
             let nano_key = v8::String::new(&mut ctx_scope, "Nano").unwrap();
             if let Some(nano_val) = global.get(&mut ctx_scope, nano_key.into()) {
                 if let Some(nano_obj) = nano_val.to_object(&mut ctx_scope) {
-                    let import_fn = v8::Function::new(&mut ctx_scope, wasm_import_rejected_callback).unwrap();
-                    let import_key = v8::String::new(&mut ctx_scope, "__wasm_import_rejected").unwrap();
+                    let import_fn =
+                        v8::Function::new(&mut ctx_scope, wasm_import_rejected_callback).unwrap();
+                    let import_key =
+                        v8::String::new(&mut ctx_scope, "__wasm_import_rejected").unwrap();
                     nano_obj.set(&mut ctx_scope, import_key.into(), import_fn.into());
 
-                    let export_fn = v8::Function::new(&mut ctx_scope, wasm_export_rejected_callback).unwrap();
-                    let export_key = v8::String::new(&mut ctx_scope, "__wasm_export_rejected").unwrap();
+                    let export_fn =
+                        v8::Function::new(&mut ctx_scope, wasm_export_rejected_callback).unwrap();
+                    let export_key =
+                        v8::String::new(&mut ctx_scope, "__wasm_export_rejected").unwrap();
                     nano_obj.set(&mut ctx_scope, export_key.into(), export_fn.into());
                 }
             }
@@ -245,7 +251,11 @@ fn wasm_validate_callback(
         vec
     } else {
         // Invalid argument type
-        let msg = v8::String::new(scope, "WebAssembly.validate: argument must be an ArrayBuffer or TypedArray").unwrap();
+        let msg = v8::String::new(
+            scope,
+            "WebAssembly.validate: argument must be an ArrayBuffer or TypedArray",
+        )
+        .unwrap();
         let error = v8::Exception::type_error(scope, msg);
         scope.throw_exception(error);
         return;

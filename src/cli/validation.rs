@@ -9,7 +9,8 @@ use crate::cli::error::{CliError, CliResult};
 const MAX_SLIVER_NAME_LEN: usize = 64;
 
 /// Valid hostname characters (simplified check)
-const VALID_HOSTNAME_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.";
+const VALID_HOSTNAME_CHARS: &str =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.";
 
 /// Validate a hostname
 pub fn validate_hostname(input: &str) -> CliResult<()> {
@@ -70,7 +71,7 @@ pub fn validate_hostname(input: &str) -> CliResult<()> {
     // Check for at least one dot (fully qualified domain)
     // Note: Allow simple names for local testing, but warn
     // This is a relaxed validation suitable for the tool
-    
+
     Ok(())
 }
 
@@ -131,16 +132,19 @@ pub fn validate_tag(tag: &str) -> CliResult<()> {
     // Tags can be more permissive than names
     let invalid: Vec<char> = tag
         .chars()
-        .filter(|c| {
-            !c.is_ascii_alphanumeric() && !"._-".contains(*c)
-        })
+        .filter(|c| !c.is_ascii_alphanumeric() && !"._-".contains(*c))
         .collect();
 
     if !invalid.is_empty() {
         return Err(CliError::OperationFailed {
             operation: "Tag validation".to_string(),
-            reason: format!("Invalid characters in tag: {}", invalid.iter().collect::<String>()),
-            suggestion: Some("Use only letters, numbers, dots, underscores, and hyphens".to_string()),
+            reason: format!(
+                "Invalid characters in tag: {}",
+                invalid.iter().collect::<String>()
+            ),
+            suggestion: Some(
+                "Use only letters, numbers, dots, underscores, and hyphens".to_string(),
+            ),
         });
     }
 
@@ -183,7 +187,7 @@ mod tests {
         assert!(validate_sliver_name("_invalid").is_err());
         assert!(validate_sliver_name("invalid!").is_err());
         assert!(validate_sliver_name("invalid space").is_err());
-        
+
         // Too long
         let long_name = "a".repeat(65);
         assert!(validate_sliver_name(&long_name).is_err());
@@ -195,7 +199,7 @@ mod tests {
         assert!(validate_tag("1.0.0").is_ok());
         assert!(validate_tag("beta-1").is_ok());
         assert!(validate_tag("rc.1").is_ok());
-        
+
         assert!(validate_tag("v1.0!").is_err());
         assert!(validate_tag(&"a".repeat(33)).is_err());
     }

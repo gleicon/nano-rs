@@ -3,8 +3,8 @@
 //! Tests HMAC key generation, sign/verify roundtrip,
 //! signature tampering detection, and JWK import/export.
 
-use nano::v8::{initialize_platform, NanoIsolate};
 use nano::runtime::apis::RuntimeAPIs;
+use nano::v8::{initialize_platform, NanoIsolate};
 
 fn init_platform() {
     initialize_platform().expect("Failed to initialize V8 platform");
@@ -25,12 +25,12 @@ where
 #[test]
 fn test_hmac_sign_verify_roundtrip() {
     init_platform();
-    
+
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     let result = with_nano_context(&mut isolate, |scope, context| {
         RuntimeAPIs::bind_all(scope, context);
-        
+
         let code = r#"
             try {
                 // Generate HMAC key
@@ -55,28 +55,28 @@ fn test_hmac_sign_verify_roundtrip() {
                 "Error: " + e.message
             }
         "#;
-        
+
         let code_string = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_string, None)
-            .expect("Script compilation failed");
-        
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert_eq!(result, "true", "HMAC sign/verify roundtrip should work");
 }
 
 #[test]
 fn test_hmac_signature_tampering_detected() {
     init_platform();
-    
+
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     let result = with_nano_context(&mut isolate, |scope, context| {
         RuntimeAPIs::bind_all(scope, context);
-        
+
         let code = r#"
             try {
                 const key = crypto.subtle.generateKey(
@@ -100,28 +100,31 @@ fn test_hmac_signature_tampering_detected() {
                 "Error: " + e.message
             }
         "#;
-        
+
         let code_string = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_string, None)
-            .expect("Script compilation failed");
-        
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
-    assert_eq!(result, "true", "HMAC signature tampering should be detected");
+
+    assert_eq!(
+        result, "true",
+        "HMAC signature tampering should be detected"
+    );
 }
 
 #[test]
 fn test_hmac_key_export_jwk() {
     init_platform();
-    
+
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     let result = with_nano_context(&mut isolate, |scope, context| {
         RuntimeAPIs::bind_all(scope, context);
-        
+
         let code = r#"
             try {
                 const key = crypto.subtle.generateKey(
@@ -144,28 +147,28 @@ fn test_hmac_key_export_jwk() {
                 "Error: " + e.message
             }
         "#;
-        
+
         let code_string = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_string, None)
-            .expect("Script compilation failed");
-        
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert_eq!(result, "true", "HMAC key JWK export should work");
 }
 
 #[test]
 fn test_hmac_key_import_jwk() {
     init_platform();
-    
+
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
-    
+
     let result = with_nano_context(&mut isolate, |scope, context| {
         RuntimeAPIs::bind_all(scope, context);
-        
+
         let code = r#"
             try {
                 // Import JWK key
@@ -193,15 +196,15 @@ fn test_hmac_key_import_jwk() {
                 "Error: " + e.message
             }
         "#;
-        
+
         let code_string = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code_string, None)
-            .expect("Script compilation failed");
-        
+        let script =
+            v8::Script::compile(scope, code_string, None).expect("Script compilation failed");
+
         let result = script.run(scope).expect("Script execution failed");
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert_eq!(result, "true", "HMAC key JWK import should work");
 }

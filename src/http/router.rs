@@ -38,11 +38,11 @@ use axum::{
 };
 use tokio::sync::Mutex;
 
-use crate::http::{NanoRequest, NanoResponse, content_type_from_ext};
-use crate::worker::{HandlerTask, QueueError, WorkQueue};
+use crate::app::registry::AppRegistry;
+use crate::http::{content_type_from_ext, NanoRequest, NanoResponse};
 use crate::logging::create_request_span;
 use crate::metrics::METRICS;
-use crate::app::registry::AppRegistry;
+use crate::worker::{HandlerTask, QueueError, WorkQueue};
 use uuid::Uuid;
 
 /// Entrypoint type for automatic file type detection
@@ -92,19 +92,19 @@ pub enum EntrypointType {
 /// ```
 pub fn detect_entrypoint_type(path: &str) -> EntrypointType {
     let path_obj = Path::new(path);
-    
+
     // Check if it's a directory first
     if path_obj.is_dir() {
         return EntrypointType::StaticDir(path.to_string());
     }
-    
+
     // Get file extension
     let ext = path_obj
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
-    
+
     match ext.as_str() {
         // JavaScript files - execute as Worker
         "js" | "mjs" | "ts" => EntrypointType::JavaScript(path.to_string()),
@@ -177,7 +177,6 @@ pub struct RouteTarget {
     pub handler_type: HandlerType,
 }
 
-
 impl RouteTarget {
     /// Handle a static request directly, bypassing the worker pool.
     ///
@@ -201,24 +200,29 @@ impl RouteTarget {
                         .with_body(response.clone())
                 }
             }
-            HandlerType::VfsStaticFiles { files, default_file } => {
+            HandlerType::VfsStaticFiles {
+                files,
+                default_file,
+            } => {
                 // Serve static files from VFS
                 let path = _request.url().pathname();
-                
+
                 // Special handling for root path
                 let is_root = path == "/" || path.is_empty();
-                
+
                 // Get the default file name
                 let default = default_file.as_deref().unwrap_or("index.html");
-                
+
                 // Determine lookup path
                 let lookup_path = if is_root {
                     default.to_string()
                 } else {
                     // Remove leading slash
-                    path.strip_prefix('/').map(|s| s.to_string()).unwrap_or_else(|| path.to_string())
+                    path.strip_prefix('/')
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| path.to_string())
                 };
-                
+
                 // Debug: log available files and lookup attempt
                 tracing::debug!(
                     "VFS lookup: path='{}' is_root={} -> lookup='{}' | files count={}",
@@ -227,15 +231,19 @@ impl RouteTarget {
                     lookup_path,
                     files.len()
                 );
-                
+
                 // STRATEGY 1: Try exact match first
                 if let Some((content, content_type)) = files.get(&lookup_path) {
-                    tracing::debug!("VFS hit (exact): '{}' ({} bytes)", lookup_path, content.len());
+                    tracing::debug!(
+                        "VFS hit (exact): '{}' ({} bytes)",
+                        lookup_path,
+                        content.len()
+                    );
                     return NanoResponse::ok()
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
-                
+
                 // STRATEGY 2: For root path, try JS entry points first (frameworks), then HTML
                 if is_root {
                     // JavaScript frameworks typically use index.js as entry point
@@ -256,7 +264,7 @@ impl RouteTarget {
                         }
                     }
                 }
-                
+
                 // STRATEGY 3: Try with /index.html suffix (for directory paths)
                 let index_path = format!("{}/index.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&index_path) {
@@ -265,7 +273,7 @@ impl RouteTarget {
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
-                
+
                 // STRATEGY 4: Try with .html extension
                 let html_path = format!("{}.html", lookup_path);
                 if let Some((content, content_type)) = files.get(&html_path) {
@@ -274,7 +282,7 @@ impl RouteTarget {
                         .with_header("Content-Type", content_type)
                         .with_body_bytes(content.clone());
                 }
-                
+
                 // File not found - return clean 404
                 tracing::debug!(
                     "VFS miss: path='{}' lookup='{}' not found in {} files",
@@ -282,13 +290,17 @@ impl RouteTarget {
                     lookup_path,
                     files.len()
                 );
-                
+
                 NanoResponse::not_found()
             }
             HandlerType::StaticFile { path, content_type } => {
                 // Serve a single static file from the filesystem
-                tracing::debug!("Serving static file: {} (content-type: {})", path, content_type);
-                
+                tracing::debug!(
+                    "Serving static file: {} (content-type: {})",
+                    path,
+                    content_type
+                );
+
                 match tokio::fs::read_to_string(path).await {
                     Ok(content) => NanoResponse::ok()
                         .with_header("Content-Type", content_type)
@@ -302,7 +314,7 @@ impl RouteTarget {
             HandlerType::StaticDir { root, default_file } => {
                 // Serve files from a directory
                 let path = _request.url().pathname();
-                
+
                 // Determine file path
                 let file_path = if path == "/" || path.is_empty() {
                     format!("{}/{}", root, default_file)
@@ -316,16 +328,16 @@ impl RouteTarget {
                     }
                     format!("{}/{}", root, clean_path)
                 };
-                
+
                 tracing::debug!("Serving from directory: {} -> {}", path, file_path);
-                
+
                 // Determine content type from extension
                 let ext = Path::new(&file_path)
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("");
                 let content_type = content_type_from_ext(ext);
-                
+
                 // Read and serve the file
                 match tokio::fs::read(&file_path).await {
                     Ok(bytes) => NanoResponse::ok()
@@ -473,24 +485,24 @@ impl VirtualHostRouter {
 
     /// Return the entrypoint path for a user-registered WinterTC route, if any.
     pub fn get_user_route(&self, hostname: &str) -> Option<String> {
-        self.routes.get(&hostname.to_lowercase()).and_then(|t| {
-            match &t.handler_type {
+        self.routes
+            .get(&hostname.to_lowercase())
+            .and_then(|t| match &t.handler_type {
                 HandlerType::WinterTCHandler(path) => Some(path.clone()),
                 HandlerType::WinterTCSliverHandler { entrypoint, .. } => Some(entrypoint.clone()),
                 _ => None,
-            }
-        })
+            })
     }
 
     /// Iterate over all user-registered WinterTC routes as (hostname, entrypoint) pairs.
     pub fn user_routes(&self) -> impl Iterator<Item = (&String, &String)> {
-        self.routes.iter().filter_map(|(host, target)| {
-            match &target.handler_type {
+        self.routes
+            .iter()
+            .filter_map(|(host, target)| match &target.handler_type {
                 HandlerType::WinterTCHandler(path) => Some((host, path)),
                 HandlerType::WinterTCSliverHandler { entrypoint, .. } => Some((host, entrypoint)),
                 _ => None,
-            }
-        })
+            })
     }
 }
 
@@ -542,11 +554,20 @@ impl AppState {
 
     /// Create a new AppState from a shared router Arc (used when admin API shares the router).
     /// Uses disk VFS with "/" as base so admin-registered absolute entrypoint paths are readable.
-    pub fn new_shared(router: Arc<tokio::sync::RwLock<VirtualHostRouter>>, workers_per_pool: u32) -> Self {
-        let vfs_disk = Some(crate::config::VfsDiskConfig { base_path: "/".to_string() });
+    pub fn new_shared(
+        router: Arc<tokio::sync::RwLock<VirtualHostRouter>>,
+        workers_per_pool: u32,
+    ) -> Self {
+        let vfs_disk = Some(crate::config::VfsDiskConfig {
+            base_path: "/".to_string(),
+        });
         Self {
             router,
-            work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(workers_per_pool, vfs_disk, None))),
+            work_queue: Arc::new(Mutex::new(WorkQueue::with_vfs_config(
+                workers_per_pool,
+                vfs_disk,
+                None,
+            ))),
             app_registry: None,
         }
     }
@@ -577,22 +598,19 @@ impl AppState {
     fn get_cpu_time_limit_ms(&self, hostname: &str) -> u32 {
         match &self.app_registry {
             None => 0,
-            Some(registry) => {
-                match registry.get(hostname) {
-                    None => 0,
-                    Some(app_config) => {
-                        if app_config.limits.cpu_time_enabled {
-                            app_config.limits.cpu_time_ms
-                        } else {
-                            0
-                        }
+            Some(registry) => match registry.get(hostname) {
+                None => 0,
+                Some(app_config) => {
+                    if app_config.limits.cpu_time_enabled {
+                        app_config.limits.cpu_time_ms
+                    } else {
+                        0
                     }
                 }
-            }
+            },
         }
     }
 }
-
 
 /// Dispatch request to worker pool via WorkQueue
 ///
@@ -640,7 +658,9 @@ pub async fn dispatch_to_worker_pool(
         .map(|s| s.eq_ignore_ascii_case("websocket"))
         .unwrap_or(false)
     {
-        return handle_ws_upgrade(state, request, host).await.into_response();
+        return handle_ws_upgrade(state, request, host)
+            .await
+            .into_response();
     }
 
     let method = request.method().clone();
@@ -656,22 +676,27 @@ pub async fn dispatch_to_worker_pool(
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"error":"BadRequest","message":"Failed to read body","code":400}"#))
+                .body(Body::from(
+                    r#"{"error":"BadRequest","message":"Failed to read body","code":400}"#,
+                ))
                 .unwrap();
         }
     };
 
-    let nano_request = match NanoRequest::from_axum_parts(&method, &uri, &host, &headers, Some(body_bytes)) {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("Failed to parse URL: {}", e);
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"error":"BadRequest","message":"Invalid URL","code":400}"#))
-                .unwrap();
-        }
-    };
+    let nano_request =
+        match NanoRequest::from_axum_parts(&method, &uri, &host, &headers, Some(body_bytes)) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Failed to parse URL: {}", e);
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"error":"BadRequest","message":"Invalid URL","code":400}"#,
+                    ))
+                    .unwrap();
+            }
+        };
 
     // Look up route target — clone to release the read lock before async dispatch.
     let target = state.router.read().await.resolve(&host).clone();
@@ -679,8 +704,10 @@ pub async fn dispatch_to_worker_pool(
     // Extract entrypoint from target or handle directly
     let entrypoint = match &target.handler_type {
         HandlerType::WinterTCHandler(path) => path.clone(),
-        HandlerType::WinterTCSliverHandler { entrypoint: path, .. } => path.clone(),
-        HandlerType::StaticResponse(_) 
+        HandlerType::WinterTCSliverHandler {
+            entrypoint: path, ..
+        } => path.clone(),
+        HandlerType::StaticResponse(_)
         | HandlerType::VfsStaticFiles { .. }
         | HandlerType::StaticFile { .. }
         | HandlerType::StaticDir { .. } => {
@@ -710,9 +737,7 @@ pub async fn dispatch_to_worker_pool(
     };
 
     // Get request path for access log
-    let path = uri.path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
+    let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
     // Dispatch to WorkQueue (async Mutex lock)
     let mut queue = state.work_queue.lock().await;
@@ -741,7 +766,12 @@ pub async fn dispatch_to_worker_pool(
                     let status = nano_response.status();
                     let worker_id = nano_response.worker_id();
                     let isolate_id = nano_response.isolate_id().map(|s| s.to_string());
-                    (nano_response.to_axum_response(), status, worker_id, isolate_id)
+                    (
+                        nano_response.to_axum_response(),
+                        status,
+                        worker_id,
+                        isolate_id,
+                    )
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Handler error: {}", e);
@@ -849,7 +879,7 @@ pub async fn dispatch_to_worker_pool(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http::{NanoUrl, NanoHeaders};
+    use crate::http::{NanoHeaders, NanoUrl};
 
     #[tokio::test]
     async fn test_handle_ws_upgrade_forbidden_for_static_handler() {

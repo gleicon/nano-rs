@@ -25,15 +25,15 @@ use crate::worker::memory_monitor::MemoryPressureLevel;
 ///
 /// These buckets cover from 1ms up to 1s+ for per-request CPU time tracking
 pub const CPU_TIME_BUCKETS: &[f64] = &[
-    0.001,  // 1ms
-    0.005,  // 5ms
-    0.010,  // 10ms
-    0.025,  // 25ms
-    0.050,  // 50ms (Cloudflare limit)
-    0.100,  // 100ms
-    0.250,  // 250ms
-    0.500,  // 500ms
-    1.0,    // 1s
+    0.001, // 1ms
+    0.005, // 5ms
+    0.010, // 10ms
+    0.025, // 25ms
+    0.050, // 50ms (Cloudflare limit)
+    0.100, // 100ms
+    0.250, // 250ms
+    0.500, // 500ms
+    1.0,   // 1s
     f64::INFINITY,
 ];
 
@@ -41,13 +41,13 @@ pub const CPU_TIME_BUCKETS: &[f64] = &[
 ///
 /// Buckets for tracking per-request memory consumption
 pub const MEMORY_BUCKETS: &[f64] = &[
-    1024.0,       // 1 KB
-    10240.0,      // 10 KB
-    102400.0,     // 100 KB
-    1048576.0,    // 1 MB
-    10485760.0,   // 10 MB
-    52428800.0,   // 50 MB
-    104857600.0,  // 100 MB
+    1024.0,      // 1 KB
+    10240.0,     // 10 KB
+    102400.0,    // 100 KB
+    1048576.0,   // 1 MB
+    10485760.0,  // 10 MB
+    52428800.0,  // 50 MB
+    104857600.0, // 100 MB
     f64::INFINITY,
 ];
 
@@ -85,7 +85,7 @@ impl RequestResult {
 pub struct TenantMetrics {
     /// Hostname this metrics collection is for
     pub hostname: String,
-    
+
     // Counters (only increase)
     /// Total requests processed
     pub requests_total: Counter,
@@ -101,7 +101,7 @@ pub struct TenantMetrics {
     pub context_resets_total: Counter,
     /// Memory pressure events by level
     pub pressure_events: HashMap<MemoryPressureLevel, Counter>,
-    
+
     // Gauges (current value)
     /// Current memory usage in bytes
     pub memory_used_bytes: Gauge,
@@ -113,7 +113,7 @@ pub struct TenantMetrics {
     pub isolates_active: Gauge,
     /// Peak memory observed
     pub memory_peak_bytes: AtomicU64,
-    
+
     // Histograms (distribution)
     /// Request duration distribution
     pub request_duration_seconds: Histogram,
@@ -127,13 +127,13 @@ impl TenantMetrics {
     /// Create new tenant metrics for the given hostname
     pub fn new(hostname: impl Into<String>) -> Self {
         let hostname = hostname.into();
-        
+
         // Initialize pressure event counters
         let mut pressure_events = HashMap::new();
         pressure_events.insert(MemoryPressureLevel::Warning, Counter::new());
         pressure_events.insert(MemoryPressureLevel::Critical, Counter::new());
         pressure_events.insert(MemoryPressureLevel::Emergency, Counter::new());
-        
+
         Self {
             hostname,
             requests_total: Counter::new(),
@@ -153,7 +153,7 @@ impl TenantMetrics {
             memory_per_request_bytes: Histogram::new(MEMORY_BUCKETS),
         }
     }
-    
+
     /// Record a completed request
     ///
     /// # Arguments
@@ -176,16 +176,17 @@ impl TenantMetrics {
             RequestResult::Error => self.requests_error.inc(),
             RequestResult::Timeout => self.requests_timeout.inc(),
         }
-        
+
         // Update CPU counter (convert microseconds to seconds for Prometheus)
         let cpu_seconds = cpu_time_us as f64 / 1_000_000.0;
         self.cpu_seconds_total.inc_by(cpu_seconds as u64);
-        
+
         // Update histograms
-        self.request_duration_seconds.observe(duration_ms as f64 / 1000.0);
+        self.request_duration_seconds
+            .observe(duration_ms as f64 / 1000.0);
         self.cpu_time_per_request_seconds.observe(cpu_seconds);
         self.memory_per_request_bytes.observe(memory_bytes as f64);
-        
+
         // Track peak memory
         let current_peak = self.memory_peak_bytes.load(Ordering::Relaxed);
         if memory_bytes as u64 > current_peak {
@@ -197,12 +198,12 @@ impl TenantMetrics {
             );
         }
     }
-    
+
     /// Update current memory usage
     pub fn update_memory(&self, heap_bytes: usize, external_bytes: usize) {
         self.memory_used_bytes.set(heap_bytes as u64);
         self.memory_external_bytes.set(external_bytes as u64);
-        
+
         // Update peak if needed
         let total = heap_bytes + external_bytes;
         let current_peak = self.memory_peak_bytes.load(Ordering::Relaxed);
@@ -215,29 +216,29 @@ impl TenantMetrics {
             );
         }
     }
-    
+
     /// Record a context reset
     pub fn record_context_reset(&self) {
         self.context_resets_total.inc();
     }
-    
+
     /// Record a memory pressure event
     pub fn record_pressure_event(&self, level: MemoryPressureLevel) {
         if let Some(counter) = self.pressure_events.get(&level) {
             counter.inc();
         }
     }
-    
+
     /// Increment active requests count
     pub fn inc_active_requests(&self) {
         self.requests_active.inc();
     }
-    
+
     /// Decrement active requests count
     pub fn dec_active_requests(&self) {
         self.requests_active.dec();
     }
-    
+
     /// Calculate requests per second (requires external timing)
     pub fn calculate_rps(&self, elapsed_seconds: f64) -> f64 {
         if elapsed_seconds > 0.0 {
@@ -246,12 +247,12 @@ impl TenantMetrics {
             0.0
         }
     }
-    
+
     /// Get the current memory peak in bytes
     pub fn memory_peak_bytes(&self) -> u64 {
         self.memory_peak_bytes.load(Ordering::Relaxed)
     }
-    
+
     /// Get histogram percentile (approximate)
     ///
     /// Returns the value at the given percentile (0.0-1.0) from the
@@ -261,18 +262,21 @@ impl TenantMetrics {
         if count == 0 {
             return 0.0;
         }
-        
+
         let target = (count as f64 * 0.99) as u64;
         let mut cumulative = 0u64;
-        
+
         for (i, &bucket_count) in buckets.iter().enumerate() {
             cumulative += bucket_count;
             if cumulative >= target {
                 // Return the bucket upper bound
-                return REQUEST_DURATION_BUCKETS.get(i).copied().unwrap_or(f64::INFINITY);
+                return REQUEST_DURATION_BUCKETS
+                    .get(i)
+                    .copied()
+                    .unwrap_or(f64::INFINITY);
             }
         }
-        
+
         f64::INFINITY
     }
 }
@@ -301,7 +305,7 @@ impl GlobalMetrics {
         pressure_events.insert(MemoryPressureLevel::Warning, Counter::new());
         pressure_events.insert(MemoryPressureLevel::Critical, Counter::new());
         pressure_events.insert(MemoryPressureLevel::Emergency, Counter::new());
-        
+
         Self {
             total_requests: Counter::new(),
             total_cpu_seconds: Counter::new(),
@@ -310,13 +314,13 @@ impl GlobalMetrics {
             pressure_events,
         }
     }
-    
+
     /// Record a request in global metrics
     pub fn record_request(&self, cpu_seconds: f64) {
         self.total_requests.inc();
         self.total_cpu_seconds.inc_by(cpu_seconds as u64);
     }
-    
+
     /// Record a pressure event
     pub fn record_pressure_event(&self, level: MemoryPressureLevel) {
         if let Some(counter) = self.pressure_events.get(&level) {
@@ -351,7 +355,7 @@ impl TenantMetricsCollector {
             global: Arc::new(RwLock::new(GlobalMetrics::new())),
         }
     }
-    
+
     /// Record a request completion
     ///
     /// Automatically creates a metrics entry for the hostname if needed.
@@ -373,29 +377,29 @@ impl TenantMetricsCollector {
     ) {
         let metrics = self.get_or_create(hostname);
         let m = metrics.write().unwrap();
-        
+
         m.record_request(result, cpu_time_us, memory_bytes, duration_ms);
-        
+
         // Also update global metrics
         if let Ok(global) = self.global.write() {
             global.record_request(cpu_time_us as f64 / 1_000_000.0);
         }
     }
-    
+
     /// Update memory usage for a tenant
     pub fn update_memory(&self, hostname: &str, heap_bytes: usize, external_bytes: usize) {
         let metrics = self.get_or_create(hostname);
         let m = metrics.read().unwrap();
         m.update_memory(heap_bytes, external_bytes);
     }
-    
+
     /// Record a context reset for a tenant
     pub fn record_context_reset(&self, hostname: &str) {
         let metrics = self.get_or_create(hostname);
         let m = metrics.read().unwrap();
         m.record_context_reset();
     }
-    
+
     /// Record a memory pressure event
     pub fn record_pressure_event(&self, hostname: &str, level: MemoryPressureLevel) {
         // Record in tenant metrics
@@ -404,13 +408,13 @@ impl TenantMetricsCollector {
             let m = metrics.read().unwrap();
             m.record_pressure_event(level);
         }
-        
+
         // Also record in global metrics
         if let Ok(global) = self.global.write() {
             global.record_pressure_event(level);
         }
     }
-    
+
     /// Get or create metrics for a hostname
     fn get_or_create(&self, hostname: &str) -> Arc<RwLock<TenantMetrics>> {
         self.tenants
@@ -418,22 +422,25 @@ impl TenantMetricsCollector {
             .or_insert_with(|| Arc::new(RwLock::new(TenantMetrics::new(hostname))))
             .clone()
     }
-    
+
     /// Get metrics for a specific tenant
     pub fn get_tenant(&self, hostname: &str) -> Option<Arc<RwLock<TenantMetrics>>> {
         self.tenants.get(hostname).map(|entry| entry.clone())
     }
-    
+
     /// Get the number of tracked tenants
     pub fn tenant_count(&self) -> usize {
         self.tenants.len()
     }
-    
+
     /// Get all tenant hostnames
     pub fn tenant_hostnames(&self) -> Vec<String> {
-        self.tenants.iter().map(|entry| entry.key().clone()).collect()
+        self.tenants
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
     }
-    
+
     /// Get top N tenants by request count
     pub fn top_tenants_by_requests(&self, n: usize) -> Vec<(String, u64)> {
         let mut tenants: Vec<(String, u64)> = self
@@ -445,12 +452,12 @@ impl TenantMetricsCollector {
                 (hostname, count)
             })
             .collect();
-        
+
         tenants.sort_by(|a, b| b.1.cmp(&a.1));
         tenants.truncate(n);
         tenants
     }
-    
+
     /// Get top N tenants by CPU usage
     pub fn top_tenants_by_cpu(&self, n: usize) -> Vec<(String, u64)> {
         let mut tenants: Vec<(String, u64)> = self
@@ -462,44 +469,48 @@ impl TenantMetricsCollector {
                 (hostname, cpu)
             })
             .collect();
-        
+
         tenants.sort_by(|a, b| b.1.cmp(&a.1));
         tenants.truncate(n);
         tenants
     }
-    
+
     /// Export all tenant metrics as Prometheus format
     pub fn to_prometheus(&self) -> String {
         let mut output = String::with_capacity(8192);
-        
+
         // Write HELP and TYPE lines
         output.push_str("# HELP nano_tenant_requests_total Total requests per tenant\n");
         output.push_str("# TYPE nano_tenant_requests_total counter\n");
-        
+
         // Write request counters
         for entry in self.tenants.iter() {
             let m = entry.value().read().unwrap();
             let hostname = entry.key();
-            
+
             output.push_str(&format!(
                 "nano_tenant_requests_total{{hostname=\"{}\"}} {}\n",
-                hostname, m.requests_total.get()
+                hostname,
+                m.requests_total.get()
             ));
             output.push_str(&format!(
                 "nano_tenant_requests_success{{hostname=\"{}\"}} {}\n",
-                hostname, m.requests_success.get()
+                hostname,
+                m.requests_success.get()
             ));
             output.push_str(&format!(
                 "nano_tenant_requests_error{{hostname=\"{}\"}} {}\n",
-                hostname, m.requests_error.get()
+                hostname,
+                m.requests_error.get()
             ));
             output.push_str(&format!(
                 "nano_tenant_requests_timeout{{hostname=\"{}\"}} {}\n",
-                hostname, m.requests_timeout.get()
+                hostname,
+                m.requests_timeout.get()
             ));
         }
         output.push('\n');
-        
+
         // CPU metrics
         output.push_str("# HELP nano_tenant_cpu_seconds_total Total CPU seconds per tenant\n");
         output.push_str("# TYPE nano_tenant_cpu_seconds_total counter\n");
@@ -508,11 +519,12 @@ impl TenantMetricsCollector {
             let hostname = entry.key();
             output.push_str(&format!(
                 "nano_tenant_cpu_seconds_total{{hostname=\"{}\"}} {}\n",
-                hostname, m.cpu_seconds_total.get()
+                hostname,
+                m.cpu_seconds_total.get()
             ));
         }
         output.push('\n');
-        
+
         // Memory metrics
         output.push_str("# HELP nano_tenant_memory_used_bytes Current memory usage per tenant\n");
         output.push_str("# TYPE nano_tenant_memory_used_bytes gauge\n");
@@ -521,15 +533,17 @@ impl TenantMetricsCollector {
             let hostname = entry.key();
             output.push_str(&format!(
                 "nano_tenant_memory_used_bytes{{hostname=\"{}\"}} {}\n",
-                hostname, m.memory_used_bytes.get()
+                hostname,
+                m.memory_used_bytes.get()
             ));
             output.push_str(&format!(
                 "nano_tenant_memory_external_bytes{{hostname=\"{}\"}} {}\n",
-                hostname, m.memory_external_bytes.get()
+                hostname,
+                m.memory_external_bytes.get()
             ));
         }
         output.push('\n');
-        
+
         // Active requests
         output.push_str("# HELP nano_tenant_requests_active Active requests per tenant\n");
         output.push_str("# TYPE nano_tenant_requests_active gauge\n");
@@ -538,26 +552,29 @@ impl TenantMetricsCollector {
             let hostname = entry.key();
             output.push_str(&format!(
                 "nano_tenant_requests_active{{hostname=\"{}\"}} {}\n",
-                hostname, m.requests_active.get()
+                hostname,
+                m.requests_active.get()
             ));
         }
         output.push('\n');
-        
+
         // Context resets
-        output.push_str("# HELP nano_tenant_context_resets_total Total context resets per tenant\n");
+        output
+            .push_str("# HELP nano_tenant_context_resets_total Total context resets per tenant\n");
         output.push_str("# TYPE nano_tenant_context_resets_total counter\n");
         for entry in self.tenants.iter() {
             let m = entry.value().read().unwrap();
             let hostname = entry.key();
             output.push_str(&format!(
                 "nano_tenant_context_resets_total{{hostname=\"{}\"}} {}\n",
-                hostname, m.context_resets_total.get()
+                hostname,
+                m.context_resets_total.get()
             ));
         }
-        
+
         output
     }
-    
+
     /// Create a snapshot of all tenant metrics
     pub fn snapshot(&self) -> MetricsSnapshot {
         let tenants: Vec<TenantMetricsSnapshot> = self
@@ -568,12 +585,11 @@ impl TenantMetricsCollector {
                 // Duration histogram data - buckets reserved for future percentile calculations
                 let (_duration_buckets, _duration_sum, _duration_count) =
                     m.request_duration_seconds.get();
-                let (_cpu_buckets, cpu_sum, cpu_count) =
-                    m.cpu_time_per_request_seconds.get();
+                let (_cpu_buckets, cpu_sum, cpu_count) = m.cpu_time_per_request_seconds.get();
                 // Memory histogram data - reserved for future memory analytics
                 let (_memory_buckets, _memory_sum, _memory_count) =
                     m.memory_per_request_bytes.get();
-                
+
                 TenantMetricsSnapshot {
                     hostname: entry.key().clone(),
                     requests_total: m.requests_total.get(),
@@ -582,10 +598,10 @@ impl TenantMetricsCollector {
                     requests_timeout: m.requests_timeout.get(),
                     requests_active: m.requests_active.get(),
                     cpu_seconds_total: m.cpu_seconds_total.get(),
-                    cpu_avg_ms: if cpu_count > 0 { 
-                        (cpu_sum * 1000.0) / cpu_count as f64 
-                    } else { 
-                        0.0 
+                    cpu_avg_ms: if cpu_count > 0 {
+                        (cpu_sum * 1000.0) / cpu_count as f64
+                    } else {
+                        0.0
                     },
                     memory_used_bytes: m.memory_used_bytes.get(),
                     memory_external_bytes: m.memory_external_bytes.get(),
@@ -598,18 +614,16 @@ impl TenantMetricsCollector {
                 }
             })
             .collect();
-        
+
         let total_requests = tenants.iter().map(|t| t.requests_total).sum();
         let total_cpu_seconds: u64 = tenants.iter().map(|t| t.cpu_seconds_total).sum();
-        
+
         MetricsSnapshot {
             tenants,
             total_requests,
             total_cpu_seconds,
         }
     }
-    
-
 }
 
 impl Default for TenantMetricsCollector {
@@ -665,5 +679,3 @@ pub struct MetricsSnapshot {
     /// Total CPU seconds across all tenants
     pub total_cpu_seconds: u64,
 }
-
-

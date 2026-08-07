@@ -13,9 +13,9 @@
 
 use axum::{
     extract::{Request, State},
+    http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
-    http::StatusCode,
     Json,
 };
 use serde::Serialize;
@@ -72,7 +72,10 @@ impl AdminAuth {
         if a.len() != b.len() {
             return false;
         }
-        a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+        a.iter()
+            .zip(b.iter())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
     }
 
     /// Check if an API key is configured
@@ -190,9 +193,7 @@ pub async fn api_key_middleware_forbidden(
         .and_then(|v| v.to_str().ok());
 
     match key {
-        Some(k) if auth.validate(k) => {
-            next.run(req).await
-        }
+        Some(k) if auth.validate(k) => next.run(req).await,
         _ => {
             let error = AuthError {
                 error: "Forbidden".to_string(),
@@ -207,7 +208,7 @@ pub async fn api_key_middleware_forbidden(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use axum::http::StatusCode;
 
     #[test]

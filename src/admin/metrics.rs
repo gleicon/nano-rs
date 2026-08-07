@@ -59,9 +59,7 @@ use crate::metrics::{MetricsRegistry, PrometheusExporter, METRICS};
 /// # TYPE nano_requests_total counter
 /// nano_requests_total{hostname="api.example.com",status="200"} 1423
 /// ```
-pub async fn metrics_handler(
-    State(_state): State<Arc<AppStateWithShutdown>>,
-) -> impl IntoResponse {
+pub async fn metrics_handler(State(_state): State<Arc<AppStateWithShutdown>>) -> impl IntoResponse {
     tracing::debug!("Metrics endpoint requested");
 
     // Update uptime before export
@@ -83,9 +81,7 @@ pub async fn metrics_handler(
 ///
 /// Used for testing or when a specific registry instance is needed
 /// rather than the global singleton.
-pub async fn metrics_handler_with_registry(
-    registry: &MetricsRegistry,
-) -> impl IntoResponse {
+pub async fn metrics_handler_with_registry(registry: &MetricsRegistry) -> impl IntoResponse {
     let exporter = PrometheusExporter::new();
     let output = exporter.export(registry);
 
@@ -107,8 +103,8 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_handler_returns_200() {
         // Create minimal state for testing
-        use crate::http::router::{VirtualHostRouter, RouteTarget, HandlerType};
         use crate::app::RequestDrain;
+        use crate::http::router::{HandlerType, RouteTarget, VirtualHostRouter};
 
         let default_target = RouteTarget {
             hostname: "default".to_string(),

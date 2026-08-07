@@ -159,9 +159,7 @@ impl GracefulShutdown {
         let drained = self.state.drain().await_complete(timeout).await;
 
         if drained {
-            tracing::info!(
-                "Graceful shutdown completed successfully, all requests drained"
-            );
+            tracing::info!("Graceful shutdown completed successfully, all requests drained");
         } else {
             let remaining = self.state.active_requests();
             tracing::warn!(
@@ -227,8 +225,8 @@ pub fn shutdown_channel() -> broadcast::Sender<()> {
         #[cfg(unix)]
         let terminate = async {
             use tokio::signal::unix::{signal, SignalKind};
-            let mut sigterm = signal(SignalKind::terminate())
-                .expect("SIGTERM handler failed to initialize");
+            let mut sigterm =
+                signal(SignalKind::terminate()).expect("SIGTERM handler failed to initialize");
             sigterm.recv().await;
             tracing::info!("Received SIGTERM");
         };
@@ -301,8 +299,7 @@ pub fn setup_shutdown(
         #[cfg(unix)]
         let terminate = async {
             use tokio::signal::unix::{signal, SignalKind};
-            let mut sigterm = signal(SignalKind::terminate())
-                .expect("SIGTERM handler failed");
+            let mut sigterm = signal(SignalKind::terminate()).expect("SIGTERM handler failed");
             sigterm.recv().await;
             tracing::info!("Received SIGTERM");
         };

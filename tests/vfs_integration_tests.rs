@@ -29,13 +29,12 @@ fn create_backend_with_limits(limits: ResourceLimits) -> VfsBackendEnum {
 #[tokio::test]
 async fn test_basic_read_write() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Write
-    vfs.write("/config.json", b"{\"key\": \"value\"}").await.unwrap();
+    vfs.write("/config.json", b"{\"key\": \"value\"}")
+        .await
+        .unwrap();
 
     // Read
     let content = vfs.read("/config.json").await.unwrap();
@@ -49,10 +48,7 @@ async fn test_basic_read_write() {
 #[tokio::test]
 async fn test_basic_delete() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Create and delete
     vfs.write("/temp.txt", b"temporary").await.unwrap();
@@ -69,10 +65,7 @@ async fn test_basic_delete() {
 #[tokio::test]
 async fn test_file_metadata() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Write file
     vfs.write("/data.txt", b"metadata test").await.unwrap();
@@ -81,7 +74,7 @@ async fn test_file_metadata() {
     let meta = vfs.metadata("/data.txt").await.unwrap();
     assert_eq!(meta.size, 13);
     assert_eq!(meta.content, b"metadata test");
-    
+
     // Verify timestamps exist
     let now = std::time::SystemTime::now();
     assert!(meta.created_at <= now);
@@ -148,10 +141,7 @@ async fn test_same_namespace_shares_files() {
 #[tokio::test]
 async fn test_path_traversal_blocked() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Create file
     vfs.write("/data/file.txt", b"content").await.unwrap();
@@ -173,10 +163,7 @@ async fn test_path_traversal_blocked() {
 #[tokio::test]
 async fn test_null_byte_injection_blocked() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Null byte in path should be rejected
     let result = vfs.read("file\0.txt").await;
@@ -222,17 +209,16 @@ async fn test_quota_file_size() {
         ..Default::default()
     };
     let backend = create_backend_with_limits(limits);
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Small file OK
     vfs.write("/small.txt", &[0u8; 50]).await.unwrap();
 
     // Large file rejected
     let result = vfs.write("/large.txt", &[0u8; 101]).await;
-    assert!(matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_size"));
+    assert!(
+        matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_size")
+    );
 }
 
 #[tokio::test]
@@ -243,10 +229,7 @@ async fn test_quota_total_storage() {
         ..Default::default()
     };
     let backend = create_backend_with_limits(limits);
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // First file OK (100 bytes)
     vfs.write("/file1.txt", &[0u8; 100]).await.unwrap();
@@ -256,7 +239,9 @@ async fn test_quota_total_storage() {
 
     // Third file rejected (would exceed 200)
     let result = vfs.write("/file3.txt", &[0u8; 10]).await;
-    assert!(matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "total_storage"));
+    assert!(
+        matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "total_storage")
+    );
 }
 
 #[tokio::test]
@@ -267,19 +252,20 @@ async fn test_quota_file_count() {
         total_storage_bytes_max: 10000,
     };
     let backend = create_backend_with_limits(limits);
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Create 3 files
     for i in 0..3 {
-        vfs.write(&format!("/file{}.txt", i), b"content").await.unwrap();
+        vfs.write(&format!("/file{}.txt", i), b"content")
+            .await
+            .unwrap();
     }
 
     // 4th file rejected
     let result = vfs.write("/file3.txt", b"content").await;
-    assert!(matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_count"));
+    assert!(
+        matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_count")
+    );
 }
 
 #[tokio::test]
@@ -290,10 +276,7 @@ async fn test_quota_update_respected() {
         ..Default::default()
     };
     let backend = create_backend_with_limits(limits);
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Create file with 50 bytes
     vfs.write("/file.txt", &[0u8; 50]).await.unwrap();
@@ -394,10 +377,7 @@ async fn test_concurrent_read_write() {
 #[tokio::test]
 async fn test_empty_file() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Create empty file
     vfs.write("/empty.txt", b"").await.unwrap();
@@ -414,16 +394,15 @@ async fn test_empty_file() {
 #[tokio::test]
 async fn test_unicode_paths() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Various unicode paths
     vfs.write("/文件.txt", b"chinese").await.unwrap();
     vfs.write("/📁emoji.txt", b"emoji").await.unwrap();
     vfs.write("/naïve café.txt", b"accents").await.unwrap();
-    vfs.write("/日本語/ファイル.txt", b"japanese").await.unwrap();
+    vfs.write("/日本語/ファイル.txt", b"japanese")
+        .await
+        .unwrap();
 
     // Read back
     assert_eq!(vfs.read("/文件.txt").await.unwrap(), b"chinese");
@@ -435,13 +414,12 @@ async fn test_unicode_paths() {
 #[tokio::test]
 async fn test_deeply_nested_paths() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // Create deeply nested structure
-    vfs.write("/a/b/c/d/e/f/deep.txt", b"deep content").await.unwrap();
+    vfs.write("/a/b/c/d/e/f/deep.txt", b"deep content")
+        .await
+        .unwrap();
 
     // Read back
     let content = vfs.read("/a/b/c/d/e/f/deep.txt").await.unwrap();
@@ -459,10 +437,7 @@ async fn test_large_file_content() {
         files_count_max: 100,
     };
     let backend = create_backend_with_limits(limits);
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // 1MB file
     let large_content = vec![0u8; 1024 * 1024];
@@ -480,10 +455,7 @@ async fn test_large_file_content() {
 #[tokio::test]
 async fn test_error_codes_match_nodejs() {
     let backend = create_backend();
-    let vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("test.example.com"),
-        backend,
-    );
+    let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
     // ENOENT - file not found
     let err = vfs.read("/missing.txt").await.unwrap_err();
@@ -496,16 +468,16 @@ async fn test_error_codes_match_nodejs() {
     // EQUOTA - quota exceeded
     let limits = ResourceLimits::test_limits();
     let quota_backend = VfsBackendEnum::Memory(Arc::new(MemoryBackend::with_limits(limits)));
-    let quota_vfs = IsolateVfs::new(
-        VfsNamespace::from_hostname("quota.test.com"),
-        quota_backend,
-    );
-    
+    let quota_vfs = IsolateVfs::new(VfsNamespace::from_hostname("quota.test.com"), quota_backend);
+
     // Fill up quota
     for i in 0..5 {
-        quota_vfs.write(&format!("/file{}.txt", i), &[0u8; 90]).await.unwrap();
+        quota_vfs
+            .write(&format!("/file{}.txt", i), &[0u8; 90])
+            .await
+            .unwrap();
     }
-    
+
     // Next file should fail with EQUOTA
     let err = quota_vfs.write("/overflow.txt", b"x").await.unwrap_err();
     assert_eq!(err.code(), "EQUOTA");
@@ -547,8 +519,12 @@ async fn test_vfs_through_nano_isolate() {
     let mut isolate = NanoIsolate::new_with_vfs(vfs).expect("Failed to create isolate");
 
     // Use VFS through isolate
-    isolate.vfs_mut().write("/test.txt", b"via isolate").await.unwrap();
+    isolate
+        .vfs_mut()
+        .write("/test.txt", b"via isolate")
+        .await
+        .unwrap();
     let content = isolate.vfs().read("/test.txt").await.unwrap();
-    
+
     assert_eq!(content, b"via isolate");
 }

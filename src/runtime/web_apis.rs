@@ -235,7 +235,9 @@ pub(crate) fn response_constructor(
                 }
             }
             let headers_key = v8::String::new(scope, "headers").unwrap();
-            headers_obj = opts.get(scope, headers_key.into()).and_then(|h| h.to_object(scope));
+            headers_obj = opts
+                .get(scope, headers_key.into())
+                .and_then(|h| h.to_object(scope));
         }
     }
 

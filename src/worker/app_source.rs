@@ -32,16 +32,28 @@ impl AppSource {
         matches!(self, Self::Entrypoint { .. } | Self::Sliver { .. })
     }
 
-    pub fn is_entrypoint(&self) -> bool { matches!(self, Self::Entrypoint { .. }) }
-    pub fn is_sliver(&self) -> bool { matches!(self, Self::Sliver { .. }) }
-    pub fn is_static(&self) -> bool { matches!(self, Self::Static { .. }) }
+    pub fn is_entrypoint(&self) -> bool {
+        matches!(self, Self::Entrypoint { .. })
+    }
+    pub fn is_sliver(&self) -> bool {
+        matches!(self, Self::Sliver { .. })
+    }
+    pub fn is_static(&self) -> bool {
+        matches!(self, Self::Static { .. })
+    }
 
     pub fn entrypoint_path(&self) -> Option<&str> {
-        match self { Self::Entrypoint { path } => Some(path), _ => None }
+        match self {
+            Self::Entrypoint { path } => Some(path),
+            _ => None,
+        }
     }
 
     pub fn sliver_data(&self) -> Option<&UnpackedSliver> {
-        match self { Self::Sliver { data } => Some(data), _ => None }
+        match self {
+            Self::Sliver { data } => Some(data),
+            _ => None,
+        }
     }
 }
 

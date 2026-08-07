@@ -125,7 +125,6 @@ impl NanoUrl {
     pub fn search_params(&self) -> &NanoUrlSearchParams {
         &self.search_params
     }
-
 }
 
 /// WinterTC-compliant URLSearchParams type

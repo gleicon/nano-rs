@@ -24,19 +24,19 @@ pub fn execute_js(isolate: &mut v8::Isolate, code: &str) -> Option<String> {
     v8::scope!(handle_scope, isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
-    
+
     // Execute the code
     let code_str = v8::String::new(ctx_scope, code)?;
     let script = v8::Script::compile(ctx_scope, code_str, None)?;
     let result = script.run(ctx_scope)?;
-    
+
     // Convert to string
     let result_str = result.to_string(ctx_scope)?;
     Some(result_str.to_rust_string_lossy(ctx_scope))
 }
 
 /// A helper macro to execute code within V8 scopes
-/// 
+///
 /// Usage:
 /// ```rust
 /// v8_test!(&mut isolate, |scope, context| {
@@ -55,7 +55,7 @@ macro_rules! v8_test {
 }
 
 /// Run a function within a V8 context
-/// 
+///
 /// This is a more explicit version of the macro for complex test cases.
 pub fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
 where

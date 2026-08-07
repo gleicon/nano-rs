@@ -107,7 +107,11 @@ impl AppLimits {
     /// Uses cpu_time_ms for CPU limit and timeout_secs for wall clock limit.
     pub fn to_timeout_config(&self) -> TimeoutConfig {
         TimeoutConfig {
-            cpu_time_limit_ms: if self.cpu_time_enabled { self.cpu_time_ms } else { 1000 }, // Use 1s if disabled
+            cpu_time_limit_ms: if self.cpu_time_enabled {
+                self.cpu_time_ms
+            } else {
+                1000
+            }, // Use 1s if disabled
             wall_clock_limit_ms: self.timeout_secs * 1000,
             termination_grace_us: 100,
         }

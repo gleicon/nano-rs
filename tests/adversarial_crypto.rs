@@ -8,12 +8,11 @@
 //! - Predictable random rejection
 //! - Key extraction enforcement
 
-
 #[path = "common.rs"]
 mod common;
 
-use nano::v8::initialize_platform;
 use nano::runtime::apis::RuntimeAPIs;
+use nano::v8::initialize_platform;
 
 /// Helper to execute code with V8 v147 scope pattern
 fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
@@ -36,7 +35,7 @@ fn init_platform() {
 #[test]
 fn test_weak_rsa_key_rejected() {
     init_platform();
-    
+
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
@@ -45,7 +44,9 @@ fn test_weak_rsa_key_rejected() {
     RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test RSA key generation
-    let code = v8::String::new(ctx_scope, "
+    let code = v8::String::new(
+        ctx_scope,
+        "
         (async function() {
             try {
                 // Try to generate 1024-bit RSA key (weak)
@@ -66,22 +67,27 @@ fn test_weak_rsa_key_rejected() {
                 return 'rejected';
             }
         })()
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(ctx_scope, code, None).unwrap();
     let result = script.run(ctx_scope).unwrap();
-    
+
     // Check if promise resolved
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         // Wait for promise or check state
         // For async tests, we'd need to run the microtask queue
         ctx_scope.perform_microtask_checkpoint();
-        
+
         match promise.state() {
             v8::PromiseState::Fulfilled => {
                 let value = promise.result(ctx_scope);
-                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+                let result_str = value
+                    .to_string(ctx_scope)
+                    .unwrap()
+                    .to_rust_string_lossy(ctx_scope);
                 println!("RSA weak key result: {}", result_str);
             }
             v8::PromiseState::Rejected => {
@@ -92,7 +98,7 @@ fn test_weak_rsa_key_rejected() {
             }
         }
     }
-    
+
     // Note: Full async testing requires microtask queue processing
     println!("Weak RSA key test - requires full async support");
 }
@@ -103,7 +109,7 @@ fn test_weak_rsa_key_rejected() {
 #[test]
 fn test_weak_ec_curve_rejected() {
     init_platform();
-    
+
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
@@ -112,7 +118,9 @@ fn test_weak_ec_curve_rejected() {
     RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test EC key generation
-    let code = v8::String::new(ctx_scope, "
+    let code = v8::String::new(
+        ctx_scope,
+        "
         (async function() {
             try {
                 // Try P-256 (strong, should work)
@@ -137,25 +145,30 @@ fn test_weak_ec_curve_rejected() {
                 return 'error: ' + e.message;
             }
         })()
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(ctx_scope, code, None).unwrap();
     let result = script.run(ctx_scope).unwrap();
-    
+
     ctx_scope.perform_microtask_checkpoint();
-    
+
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         match promise.state() {
             v8::PromiseState::Fulfilled => {
                 let value = promise.result(ctx_scope);
-                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+                let result_str = value
+                    .to_string(ctx_scope)
+                    .unwrap()
+                    .to_rust_string_lossy(ctx_scope);
                 println!("EC curve result: {}", result_str);
             }
             _ => {}
         }
     }
-    
+
     println!("Weak EC curve test - requires full async crypto support");
 }
 
@@ -165,7 +178,7 @@ fn test_weak_ec_curve_rejected() {
 #[test]
 fn test_weak_aes_key_rejected() {
     init_platform();
-    
+
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
@@ -174,7 +187,9 @@ fn test_weak_aes_key_rejected() {
     RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test AES key generation
-    let code = v8::String::new(ctx_scope, "
+    let code = v8::String::new(
+        ctx_scope,
+        "
         (async function() {
             try {
                 // Generate AES-256 key (strong)
@@ -193,25 +208,30 @@ fn test_weak_aes_key_rejected() {
                 return 'error: ' + e.message;
             }
         })()
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(ctx_scope, code, None).unwrap();
     let result = script.run(ctx_scope).unwrap();
-    
+
     ctx_scope.perform_microtask_checkpoint();
-    
+
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         match promise.state() {
             v8::PromiseState::Fulfilled => {
                 let value = promise.result(ctx_scope);
-                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+                let result_str = value
+                    .to_string(ctx_scope)
+                    .unwrap()
+                    .to_rust_string_lossy(ctx_scope);
                 println!("AES key result: {}", result_str);
             }
             _ => {}
         }
     }
-    
+
     println!("AES key test - requires full async crypto support");
 }
 
@@ -222,23 +242,31 @@ fn test_weak_aes_key_rejected() {
 fn test_constant_time_comparison() {
     // This test documents that NANO uses the ring crate
     // which implements constant-time comparison functions
-    
+
     println!("Constant-time operations:");
     println!("  - ring::constant_time::verify_slices_are_equal");
     println!("  - Used for HMAC verification");
     println!("  - Used for signature verification");
     println!("  - Prevents timing attacks on authentication");
-    
+
     // Note: Actual constant-time verification is in the crypto implementation
     // This is a documentation test
-    
+
     // Verify constant-time comparison using XOR-fold (ring's verify_slices_are_equal is deprecated)
     let a = [0u8; 32];
     let b = [0u8; 32];
     let c = [1u8; 32];
 
-    let eq = a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0;
-    let ne = a.iter().zip(c.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0;
+    let eq = a
+        .iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0;
+    let ne = a
+        .iter()
+        .zip(c.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0;
     assert!(eq);
     assert!(!ne);
 
@@ -251,7 +279,7 @@ fn test_constant_time_comparison() {
 #[test]
 fn test_predictable_random_rejected() {
     init_platform();
-    
+
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
@@ -260,7 +288,9 @@ fn test_predictable_random_rejected() {
     RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Generate random values and verify they're not predictable
-    let code = v8::String::new(ctx_scope, "
+    let code = v8::String::new(
+        ctx_scope,
+        "
         const results = [];
         
         // Generate 5 sets of random values
@@ -276,13 +306,21 @@ fn test_predictable_random_rejected() {
         );
         
         allDifferent ? 'random-ok' : 'predictable'
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(ctx_scope, code, None).unwrap();
     let result = script.run(ctx_scope).unwrap();
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
-    
-    assert_eq!(result_str, "random-ok", "getRandomValues should produce unpredictable values");
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
+
+    assert_eq!(
+        result_str, "random-ok",
+        "getRandomValues should produce unpredictable values"
+    );
 }
 
 /// Test non-extractable key enforcement
@@ -291,7 +329,7 @@ fn test_predictable_random_rejected() {
 #[test]
 fn test_key_extraction_blocked() {
     init_platform();
-    
+
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
@@ -300,7 +338,9 @@ fn test_key_extraction_blocked() {
     RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test key extraction
-    let code = v8::String::new(ctx_scope, "
+    let code = v8::String::new(
+        ctx_scope,
+        "
         (async function() {
             try {
                 // Generate non-extractable key
@@ -321,21 +361,26 @@ fn test_key_extraction_blocked() {
                 return 'error: ' + e.message;
             }
         })()
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(ctx_scope, code, None).unwrap();
     let result = script.run(ctx_scope).unwrap();
-    
+
     ctx_scope.perform_microtask_checkpoint();
-    
+
     if result.is_promise() {
         let promise = result.cast::<v8::Promise>();
         match promise.state() {
             v8::PromiseState::Fulfilled => {
                 let value = promise.result(ctx_scope);
-                let result_str = value.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+                let result_str = value
+                    .to_string(ctx_scope)
+                    .unwrap()
+                    .to_rust_string_lossy(ctx_scope);
                 println!("Key extraction result: {}", result_str);
-                
+
                 // Should be blocked if extractable flag is enforced
                 assert!(
                     result_str == "extraction-blocked" || result_str.contains("error"),
@@ -356,7 +401,7 @@ fn test_key_extraction_blocked() {
 #[test]
 fn test_digest_timing_consistency() {
     init_platform();
-    
+
     let mut nano_isolate = common::create_test_isolate();
     v8::scope!(scope, nano_isolate.isolate());
     let context = v8::Context::new(scope, Default::default());
@@ -365,16 +410,23 @@ fn test_digest_timing_consistency() {
     RuntimeAPIs::bind_all(ctx_scope, context);
 
     // Test digest availability
-    let code = v8::String::new(ctx_scope, "
+    let code = v8::String::new(
+        ctx_scope,
+        "
         typeof crypto.subtle.digest === 'function' ? 'available' : 'not-available'
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(ctx_scope, code, None).unwrap();
     let result = script.run(ctx_scope).unwrap();
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
-    
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
+
     assert_eq!(result_str, "available", "digest should be available");
-    
+
     // Note: Full timing consistency testing requires statistical analysis
     println!("Digest timing consistency: Implemented in ring crate");
 }
@@ -386,17 +438,17 @@ fn test_digest_timing_consistency() {
 fn test_weak_pbkdf2_rejected() {
     // This test documents the expected behavior
     // PBKDF2 with low iterations should be rejected
-    
+
     init_platform();
-    
+
     println!("PBKDF2 security:");
     println!("  - Minimum iterations: 100,000 (OWASP recommendation)");
     println!("  - Lower iterations should be rejected");
     println!("  - Implemented in crypto backend");
-    
+
     // WebCrypto doesn't expose PBKDF2 directly in subtle
     // This would be handled by higher-level crypto APIs
-    
+
     assert!(true, "PBKDF2 security documented");
 }
 
@@ -407,13 +459,13 @@ fn test_weak_pbkdf2_rejected() {
 fn test_aes_gcm_nonce_reuse() {
     // This test documents that AES-GCM should prevent nonce reuse
     // or use random nonces that make collisions statistically impossible
-    
+
     init_platform();
-    
+
     println!("AES-GCM nonce handling:");
     println!("  - 96-bit nonce (12 bytes)");
     println!("  - Random generation recommended");
     println!("  - Reuse with same key breaks confidentiality");
-    
+
     assert!(true, "AES-GCM nonce handling documented");
 }

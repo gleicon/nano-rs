@@ -2,25 +2,28 @@
 //!
 //! WebCrypto ECDSA using the `p256` and `p384` crates.
 
+use crate::runtime::crypto::crypto_key::CryptoKeyHandle;
+use crate::runtime::crypto::{CryptoError, CryptoKey, HashAlgorithm, KeyUsage};
 use p256::{
-    ecdsa::{SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey, Signature as P256Signature},
-    SecretKey as P256SecretKey,
-    PublicKey as P256PublicKey,
+    ecdsa::{
+        Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
+    },
     pkcs8::{DecodePublicKey, EncodePublicKey},
+    PublicKey as P256PublicKey, SecretKey as P256SecretKey,
 };
 use p384::{
-    ecdsa::{SigningKey as P384SigningKey, VerifyingKey as P384VerifyingKey, Signature as P384Signature},
-    SecretKey as P384SecretKey,
-    PublicKey as P384PublicKey,
+    ecdsa::{
+        Signature as P384Signature, SigningKey as P384SigningKey, VerifyingKey as P384VerifyingKey,
+    },
+    PublicKey as P384PublicKey, SecretKey as P384SecretKey,
 };
 use signature::{Signer, Verifier};
-use crate::runtime::crypto::{CryptoKey, CryptoError, KeyUsage, HashAlgorithm};
-use crate::runtime::crypto::crypto_key::CryptoKeyHandle;
 
 /// Base64url decode without padding
 fn base64_decode_url_safe(input: &str) -> Result<Vec<u8>, CryptoError> {
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    URL_SAFE_NO_PAD.decode(input)
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    URL_SAFE_NO_PAD
+        .decode(input)
         .map_err(|e| CryptoError::DataError(format!("Base64 decode error: {}", e)))
 }
 
@@ -47,7 +50,8 @@ pub fn generate_key(
             let _signing_key = P256SigningKey::from(&secret_key);
 
             // Serialize private key to PKCS#8
-            let private_key_bytes = secret_key.to_sec1_der()
+            let private_key_bytes = secret_key
+                .to_sec1_der()
                 .map_err(|_| CryptoError::OperationFailed)?;
 
             // Create CryptoKey
@@ -75,7 +79,8 @@ pub fn generate_key(
             let _signing_key = P384SigningKey::from(&secret_key);
 
             // Serialize private key to PKCS#8
-            let private_key_bytes = secret_key.to_sec1_der()
+            let private_key_bytes = secret_key
+                .to_sec1_der()
                 .map_err(|_| CryptoError::OperationFailed)?;
 
             let alg = if algorithm == "ECDH" {
@@ -97,7 +102,8 @@ pub fn generate_key(
             ))
         }
         _ => Err(CryptoError::InvalidAlgorithm(format!(
-            "Unsupported named curve: {}", named_curve
+            "Unsupported named curve: {}",
+            named_curve
         ))),
     }
 }
@@ -120,8 +126,9 @@ pub fn import_key(
             match named_curve {
                 "P-256" => {
                     // Validate by trying to parse as SEC1
-                    let _secret_key = P256SecretKey::from_sec1_der(key_data)
-                        .map_err(|e| CryptoError::DataError(format!("Failed to parse SEC1 key: {}", e)))?;
+                    let _secret_key = P256SecretKey::from_sec1_der(key_data).map_err(|e| {
+                        CryptoError::DataError(format!("Failed to parse SEC1 key: {}", e))
+                    })?;
 
                     let alg = if algorithm == "ECDH" {
                         crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
@@ -143,8 +150,9 @@ pub fn import_key(
                 }
                 "P-384" => {
                     // Validate by trying to parse as SEC1
-                    let _secret_key = P384SecretKey::from_sec1_der(key_data)
-                        .map_err(|e| CryptoError::DataError(format!("Failed to parse SEC1 key: {}", e)))?;
+                    let _secret_key = P384SecretKey::from_sec1_der(key_data).map_err(|e| {
+                        CryptoError::DataError(format!("Failed to parse SEC1 key: {}", e))
+                    })?;
 
                     let alg = if algorithm == "ECDH" {
                         crate::runtime::crypto::AlgorithmIdentifier::Ecdh {
@@ -165,7 +173,8 @@ pub fn import_key(
                     ))
                 }
                 _ => Err(CryptoError::InvalidAlgorithm(format!(
-                    "Unsupported named curve: {}", named_curve
+                    "Unsupported named curve: {}",
+                    named_curve
                 ))),
             }
         }
@@ -173,11 +182,13 @@ pub fn import_key(
             // Import public key from SPKI DER format
             match named_curve {
                 "P-256" => {
-                    let public_key = P256PublicKey::from_public_key_der(key_data)
-                        .map_err(|e| CryptoError::DataError(format!("Failed to parse SPKI key: {}", e)))?;
+                    let public_key = P256PublicKey::from_public_key_der(key_data).map_err(|e| {
+                        CryptoError::DataError(format!("Failed to parse SPKI key: {}", e))
+                    })?;
 
                     // Re-serialize to SPKI for storage
-                    let spki_bytes = public_key.to_public_key_der()
+                    let spki_bytes = public_key
+                        .to_public_key_der()
                         .map_err(|_| CryptoError::OperationFailed)?
                         .as_bytes()
                         .to_vec();
@@ -201,11 +212,13 @@ pub fn import_key(
                     ))
                 }
                 "P-384" => {
-                    let public_key = P384PublicKey::from_public_key_der(key_data)
-                        .map_err(|e| CryptoError::DataError(format!("Failed to parse SPKI key: {}", e)))?;
+                    let public_key = P384PublicKey::from_public_key_der(key_data).map_err(|e| {
+                        CryptoError::DataError(format!("Failed to parse SPKI key: {}", e))
+                    })?;
 
                     // Re-serialize to SPKI for storage
-                    let spki_bytes = public_key.to_public_key_der()
+                    let spki_bytes = public_key
+                        .to_public_key_der()
                         .map_err(|_| CryptoError::OperationFailed)?
                         .as_bytes()
                         .to_vec();
@@ -229,7 +242,8 @@ pub fn import_key(
                     ))
                 }
                 _ => Err(CryptoError::InvalidAlgorithm(format!(
-                    "Unsupported named curve: {}", named_curve
+                    "Unsupported named curve: {}",
+                    named_curve
                 ))),
             }
         }
@@ -238,20 +252,24 @@ pub fn import_key(
             let jwk: serde_json::Value = serde_json::from_slice(key_data)
                 .map_err(|e| CryptoError::DataError(format!("Invalid JWK: {}", e)))?;
 
-            let crv = jwk.get("crv")
+            let crv = jwk
+                .get("crv")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CryptoError::DataError("Missing 'crv' in JWK".to_string()))?;
 
             if crv != named_curve {
                 return Err(CryptoError::DataError(format!(
-                    "JWK curve '{}' does not match expected '{}'", crv, named_curve
+                    "JWK curve '{}' does not match expected '{}'",
+                    crv, named_curve
                 )));
             }
 
-            let x = jwk.get("x")
+            let x = jwk
+                .get("x")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CryptoError::DataError("Missing 'x' in JWK".to_string()))?;
-            let y = jwk.get("y")
+            let y = jwk
+                .get("y")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CryptoError::DataError("Missing 'y' in JWK".to_string()))?;
 
@@ -262,7 +280,7 @@ pub fn import_key(
                 "P-256" => {
                     if x_bytes.len() != 32 || y_bytes.len() != 32 {
                         return Err(CryptoError::DataError(
-                            "Invalid P-256 JWK coordinate length".to_string()
+                            "Invalid P-256 JWK coordinate length".to_string(),
                         ));
                     }
 
@@ -271,10 +289,12 @@ pub fn import_key(
                     sec1_point.extend_from_slice(&x_bytes);
                     sec1_point.extend_from_slice(&y_bytes);
 
-                    let public_key = P256PublicKey::from_sec1_bytes(&sec1_point)
-                        .map_err(|e| CryptoError::DataError(format!("Invalid JWK public key: {}", e)))?;
+                    let public_key = P256PublicKey::from_sec1_bytes(&sec1_point).map_err(|e| {
+                        CryptoError::DataError(format!("Invalid JWK public key: {}", e))
+                    })?;
 
-                    let spki_bytes = public_key.to_public_key_der()
+                    let spki_bytes = public_key
+                        .to_public_key_der()
                         .map_err(|_| CryptoError::OperationFailed)?
                         .as_bytes()
                         .to_vec();
@@ -284,12 +304,14 @@ pub fn import_key(
                         let d_bytes = base64_decode_url_safe(d)?;
                         if d_bytes.len() != 32 {
                             return Err(CryptoError::DataError(
-                                "Invalid P-256 JWK private key length".to_string()
+                                "Invalid P-256 JWK private key length".to_string(),
                             ));
                         }
-                        let secret_key = P256SecretKey::from_slice(&d_bytes)
-                            .map_err(|e| CryptoError::DataError(format!("Invalid JWK private key: {}", e)))?;
-                        let private_key_bytes = secret_key.to_sec1_der()
+                        let secret_key = P256SecretKey::from_slice(&d_bytes).map_err(|e| {
+                            CryptoError::DataError(format!("Invalid JWK private key: {}", e))
+                        })?;
+                        let private_key_bytes = secret_key
+                            .to_sec1_der()
                             .map_err(|_| CryptoError::OperationFailed)?
                             .to_vec();
 
@@ -333,7 +355,7 @@ pub fn import_key(
                 "P-384" => {
                     if x_bytes.len() != 48 || y_bytes.len() != 48 {
                         return Err(CryptoError::DataError(
-                            "Invalid P-384 JWK coordinate length".to_string()
+                            "Invalid P-384 JWK coordinate length".to_string(),
                         ));
                     }
 
@@ -342,10 +364,12 @@ pub fn import_key(
                     sec1_point.extend_from_slice(&x_bytes);
                     sec1_point.extend_from_slice(&y_bytes);
 
-                    let public_key = P384PublicKey::from_sec1_bytes(&sec1_point)
-                        .map_err(|e| CryptoError::DataError(format!("Invalid JWK public key: {}", e)))?;
+                    let public_key = P384PublicKey::from_sec1_bytes(&sec1_point).map_err(|e| {
+                        CryptoError::DataError(format!("Invalid JWK public key: {}", e))
+                    })?;
 
-                    let spki_bytes = public_key.to_public_key_der()
+                    let spki_bytes = public_key
+                        .to_public_key_der()
                         .map_err(|_| CryptoError::OperationFailed)?
                         .as_bytes()
                         .to_vec();
@@ -355,12 +379,14 @@ pub fn import_key(
                         let d_bytes = base64_decode_url_safe(d)?;
                         if d_bytes.len() != 48 {
                             return Err(CryptoError::DataError(
-                                "Invalid P-384 JWK private key length".to_string()
+                                "Invalid P-384 JWK private key length".to_string(),
                             ));
                         }
-                        let secret_key = P384SecretKey::from_slice(&d_bytes)
-                            .map_err(|e| CryptoError::DataError(format!("Invalid JWK private key: {}", e)))?;
-                        let private_key_bytes = secret_key.to_sec1_der()
+                        let secret_key = P384SecretKey::from_slice(&d_bytes).map_err(|e| {
+                            CryptoError::DataError(format!("Invalid JWK private key: {}", e))
+                        })?;
+                        let private_key_bytes = secret_key
+                            .to_sec1_der()
                             .map_err(|_| CryptoError::OperationFailed)?
                             .to_vec();
 
@@ -402,7 +428,8 @@ pub fn import_key(
                     }
                 }
                 _ => Err(CryptoError::InvalidAlgorithm(format!(
-                    "Unsupported named curve: {}", named_curve
+                    "Unsupported named curve: {}",
+                    named_curve
                 ))),
             }
         }
@@ -413,11 +440,7 @@ pub fn import_key(
 /// Sign data using ECDSA
 ///
 /// WebCrypto: sign with algorithm "ECDSA"
-pub fn sign(
-    key: &CryptoKey,
-    data: &[u8],
-    params: &EcdsaParams,
-) -> Result<Vec<u8>, CryptoError> {
+pub fn sign(key: &CryptoKey, data: &[u8], params: &EcdsaParams) -> Result<Vec<u8>, CryptoError> {
     let private_key_bytes = match key.handle.as_ref() {
         crate::runtime::crypto::crypto_key::CryptoKeyHandle::EcdsaPrivateKey(bytes) => bytes,
         _ => return Err(CryptoError::InvalidKey),
@@ -528,8 +551,14 @@ pub fn derive_bits(
     // Extract named curve from algorithm
     let named_curve = match &private_key.algorithm {
         crate::runtime::crypto::AlgorithmIdentifier::Ecdh { named_curve } => named_curve.clone(),
-        crate::runtime::crypto::AlgorithmIdentifier::Ecdsa { named_curve, .. } => named_curve.clone(),
-        _ => return Err(CryptoError::InvalidAlgorithm("ECDH key required".to_string())),
+        crate::runtime::crypto::AlgorithmIdentifier::Ecdsa { named_curve, .. } => {
+            named_curve.clone()
+        }
+        _ => {
+            return Err(CryptoError::InvalidAlgorithm(
+                "ECDH key required".to_string(),
+            ))
+        }
     };
 
     // Perform ECDH based on curve
@@ -539,10 +568,8 @@ pub fn derive_bits(
                 .map_err(|_| CryptoError::DataError("Invalid P-256 private key".to_string()))?;
             let public_key = P256PublicKey::from_public_key_der(pub_bytes)
                 .map_err(|_| CryptoError::DataError("Invalid P-256 public key".to_string()))?;
-            let shared = p256::ecdh::diffie_hellman(
-                secret_key.to_nonzero_scalar(),
-                public_key.as_affine()
-            );
+            let shared =
+                p256::ecdh::diffie_hellman(secret_key.to_nonzero_scalar(), public_key.as_affine());
             (&*shared.raw_secret_bytes()).to_vec()
         }
         "P-384" => {
@@ -550,13 +577,16 @@ pub fn derive_bits(
                 .map_err(|_| CryptoError::DataError("Invalid P-384 private key".to_string()))?;
             let public_key = P384PublicKey::from_public_key_der(pub_bytes)
                 .map_err(|_| CryptoError::DataError("Invalid P-384 public key".to_string()))?;
-            let shared = p384::ecdh::diffie_hellman(
-                secret_key.to_nonzero_scalar(),
-                public_key.as_affine()
-            );
+            let shared =
+                p384::ecdh::diffie_hellman(secret_key.to_nonzero_scalar(), public_key.as_affine());
             (&*shared.raw_secret_bytes()).to_vec()
         }
-        _ => return Err(CryptoError::InvalidAlgorithm(format!("Unsupported curve for ECDH: {}", named_curve))),
+        _ => {
+            return Err(CryptoError::InvalidAlgorithm(format!(
+                "Unsupported curve for ECDH: {}",
+                named_curve
+            )))
+        }
     };
 
     // Truncate to requested length if specified

@@ -7,13 +7,13 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crate::{
-    assert_positive, assert_negative, assert_precondition, assert_postcondition,
-    assert_invariant, assert_range, assert_resource_limit,
-};
+use crate::http::NanoResponse;
 use crate::limits::*;
 use crate::worker::HandlerTask;
-use crate::http::NanoResponse;
+use crate::{
+    assert_invariant, assert_negative, assert_positive, assert_postcondition, assert_precondition,
+    assert_range, assert_resource_limit,
+};
 
 /// Maximum number of requests in a single batch.
 pub const BATCH_SIZE_MAX: usize = 64;
@@ -191,16 +191,10 @@ impl ControlPlane {
     /// - Request format valid
     pub fn submit_request(&self, task: HandlerTask) -> Result<SubmissionId, ControlError> {
         // PRECONDITION: Control plane must be initialized
-        assert_precondition!(
-            self.is_initialized,
-            "control plane must be initialized"
-        );
+        assert_precondition!(self.is_initialized, "control plane must be initialized");
 
         // POSITIVE: Entrypoint must not be empty
-        assert_positive!(
-            !task.entrypoint.is_empty(),
-            "entrypoint must not be empty"
-        );
+        assert_positive!(!task.entrypoint.is_empty(), "entrypoint must not be empty");
 
         // NEGATIVE: Entrypoint path must not exceed maximum length
         assert_negative!(
@@ -212,10 +206,7 @@ impl ControlPlane {
         assert_range!(task.entrypoint.len(), 1, MAX_ENTRYPOINT_PATH_LEN);
 
         // POSITIVE: Hostname (tenant) must be present
-        assert_positive!(
-            !task.hostname.is_empty(),
-            "hostname must not be empty"
-        );
+        assert_positive!(!task.hostname.is_empty(), "hostname must not be empty");
 
         // NEGATIVE: Hostname must not contain null bytes
         assert_negative!(
@@ -225,10 +216,7 @@ impl ControlPlane {
 
         // PRECONDITION: Request method must be valid
         let method = task.request.method();
-        assert_precondition!(
-            !method.is_empty(),
-            "request method must not be empty"
-        );
+        assert_precondition!(!method.is_empty(), "request method must not be empty");
 
         // POSITIVE: Request body size must be within limits
         let body_size = task.request.body().map(|b| b.len()).unwrap_or(0);
@@ -253,10 +241,7 @@ impl ControlPlane {
         );
 
         // PRECONDITION: Request ID must be present
-        assert_precondition!(
-            !task.request_id.is_empty(),
-            "request ID must not be empty"
-        );
+        assert_precondition!(!task.request_id.is_empty(), "request ID must not be empty");
 
         // POSITIVE: Request ID must be reasonable length
         assert_positive!(
@@ -329,11 +314,7 @@ impl ControlPlane {
             );
 
             // RANGE: Batch size must be within limits
-            assert_range!(
-                batch.requests.len(),
-                1,
-                BATCH_SIZE_MAX
-            );
+            assert_range!(batch.requests.len(), 1, BATCH_SIZE_MAX);
 
             // POSITIVE: Tenant ID must be present
             assert_positive!(
@@ -393,10 +374,7 @@ impl ControlPlane {
         );
 
         // POSTCONDITION: Validated request must have valid timeout
-        assert_postcondition!(
-            timeout_ms > 0,
-            "validated request must have valid timeout"
-        );
+        assert_postcondition!(timeout_ms > 0, "validated request must have valid timeout");
 
         Ok(())
     }
@@ -438,10 +416,7 @@ impl ControlPlane {
         }
 
         // POSTCONDITION: Validated request must have valid timeout
-        assert_postcondition!(
-            timeout_ms > 0,
-            "validated request must have valid timeout"
-        );
+        assert_postcondition!(timeout_ms > 0, "validated request must have valid timeout");
 
         let now = Instant::now();
 
@@ -486,10 +461,7 @@ impl ControlPlane {
 
     /// Flush all pending batches immediately.
     pub fn flush_all(&self) -> Vec<RequestBatch> {
-        assert_precondition!(
-            self.is_initialized,
-            "control plane must be initialized"
-        );
+        assert_precondition!(self.is_initialized, "control plane must be initialized");
 
         let mut batch_queue = self.batch_queue.lock().unwrap();
         let batches = batch_queue.drain_all_batches();
@@ -551,10 +523,13 @@ impl BatchQueue {
         // POSITIVE: Tenant ID must be present
         assert_positive!(!tenant_id.is_empty(), "tenant ID must not be empty");
 
-        let batch = self.pending.entry(tenant_id.clone()).or_insert(PendingBatch {
-            requests: Vec::with_capacity(self.max_batch_size),
-            created_at: Instant::now(),
-        });
+        let batch = self
+            .pending
+            .entry(tenant_id.clone())
+            .or_insert(PendingBatch {
+                requests: Vec::with_capacity(self.max_batch_size),
+                created_at: Instant::now(),
+            });
 
         // INVARIANT: Batch must not exceed max size before push
         assert_invariant!(
@@ -576,7 +551,10 @@ impl BatchQueue {
 
     fn flush_batch(&mut self, tenant_id: &str) -> u64 {
         if let Some(batch) = self.pending.remove(tenant_id) {
-            assert_positive!(!batch.requests.is_empty(), "flushed batch must not be empty");
+            assert_positive!(
+                !batch.requests.is_empty(),
+                "flushed batch must not be empty"
+            );
             batch.requests.len() as u64
         } else {
             0

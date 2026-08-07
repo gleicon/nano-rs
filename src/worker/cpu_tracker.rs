@@ -136,11 +136,11 @@ impl CpuTimeSnapshot {
 /// Returns thread CPU time in microseconds, or None if not available.
 #[cfg(target_os = "linux")]
 fn get_thread_cpu_time_us() -> Option<u64> {
-    use libc::{clock_gettime, CLOCK_THREAD_CPUTIME_ID, timespec};
-    
+    use libc::{clock_gettime, timespec, CLOCK_THREAD_CPUTIME_ID};
+
     let mut ts: timespec = unsafe { std::mem::zeroed() };
     let result = unsafe { clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut ts) };
-    
+
     if result == 0 {
         // Convert seconds + nanoseconds to microseconds
         let micros = (ts.tv_sec as u64) * 1_000_000 + (ts.tv_nsec as u64) / 1000;
@@ -157,16 +157,18 @@ fn get_thread_cpu_time_us() -> Option<u64> {
     // and note that this gives process-wide CPU time, not thread-specific
     // For true thread-specific CPU time on macOS, we'd need mach APIs with
     // proper bindings - this is a best-effort implementation
-    use libc::{getrusage, RUSAGE_SELF, rusage};
-    
+    use libc::{getrusage, rusage, RUSAGE_SELF};
+
     unsafe {
         let mut usage: rusage = std::mem::zeroed();
         let result = getrusage(RUSAGE_SELF, &mut usage);
-        
+
         if result == 0 {
             // ru_utime and ru_stime are timeval with seconds and microseconds
-            let user_us = (usage.ru_utime.tv_sec as u64) * 1_000_000 + (usage.ru_utime.tv_usec as u64);
-            let sys_us = (usage.ru_stime.tv_sec as u64) * 1_000_000 + (usage.ru_stime.tv_usec as u64);
+            let user_us =
+                (usage.ru_utime.tv_sec as u64) * 1_000_000 + (usage.ru_utime.tv_usec as u64);
+            let sys_us =
+                (usage.ru_stime.tv_sec as u64) * 1_000_000 + (usage.ru_stime.tv_usec as u64);
             Some(user_us + sys_us)
         } else {
             None
@@ -274,7 +276,8 @@ impl CpuTracker {
 
     /// Set a new limit in milliseconds
     pub fn set_limit_ms(&self, limit_ms: u32) {
-        self.limit_us.store((limit_ms as u64) * 1000, Ordering::SeqCst);
+        self.limit_us
+            .store((limit_ms as u64) * 1000, Ordering::SeqCst);
     }
 
     /// Set a new limit in microseconds
@@ -304,9 +307,7 @@ impl CpuTracker {
 
         // Try to get thread CPU time
         match get_thread_cpu_time_us() {
-            Some(cpu_micros) => {
-                Some(CpuTimeSnapshot::new(cpu_micros, wall_micros))
-            }
+            Some(cpu_micros) => Some(CpuTimeSnapshot::new(cpu_micros, wall_micros)),
             None => {
                 // Fallback: use wall clock as approximation
                 // This is less accurate but provides some tracking
@@ -338,9 +339,11 @@ impl CpuTracker {
             return Ok(CpuTimeSnapshot::new(now, now));
         }
 
-        let now = self.snapshot().ok_or_else(|| CpuTimeError::TrackingFailed {
-            message: "Failed to capture CPU time snapshot".to_string(),
-        })?;
+        let now = self
+            .snapshot()
+            .ok_or_else(|| CpuTimeError::TrackingFailed {
+                message: "Failed to capture CPU time snapshot".to_string(),
+            })?;
 
         let elapsed_us = start.elapsed_cpu_us(&now);
         let limit_us = self.limit_us();
@@ -480,7 +483,7 @@ mod tests {
     #[test]
     fn test_reset() {
         let tracker = CpuTracker::new(1); // 1ms limit for testing
-        
+
         // Manually trigger exceeded flag
         tracker.limit_exceeded.store(true, Ordering::SeqCst);
         assert!(tracker.is_limit_exceeded());
@@ -527,16 +530,16 @@ mod tests {
     #[test]
     fn test_peek_cpu() {
         let tracker = CpuTracker::new(1000); // 1 second limit
-        
+
         // Start tracking
         let start = tracker.start().expect("Should start tracking");
-        
+
         // Small delay to ensure some time passes
         std::thread::sleep(std::time::Duration::from_millis(1));
-        
+
         // Peek at CPU time
         let (now, elapsed) = tracker.peek_cpu(&start);
-        
+
         // Should have some elapsed time (but we can't guarantee exactly how much)
         // Just verify it returns reasonable values
         assert!(elapsed < 1_000_000); // Should be less than 1 second
@@ -546,9 +549,9 @@ mod tests {
     #[test]
     fn test_check_cpu_within_limit() {
         let tracker = CpuTracker::new(1000); // 1 second limit
-        
+
         let start = tracker.start().expect("Should start tracking");
-        
+
         // Check immediately (should be well within 1 second)
         let result = tracker.check_cpu(&start);
         assert!(result.is_ok(), "Should be within limit immediately");
@@ -568,7 +571,7 @@ mod tests {
     fn test_elapsed_cpu_us_saturating() {
         let snap1 = CpuTimeSnapshot::new(1000, 0);
         let snap2 = CpuTimeSnapshot::new(500, 0); // Earlier time
-        
+
         // Should saturate to 0, not underflow
         assert_eq!(snap1.elapsed_cpu_us(&snap2), 0);
     }

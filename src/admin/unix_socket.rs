@@ -37,13 +37,12 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::net::UnixListener;
 
-use crate::admin::server::{AdminState, AdminStateAxum, create_admin_router};
 use crate::admin::auth::AdminAuth;
 use crate::admin::handlers::{
-    activate_app, create_app, delete_app, disable_app, drain_app, enable_app,
-    get_app, list_apps, list_isolates, reload_app,
-    scale_app, update_app,
+    activate_app, create_app, delete_app, disable_app, drain_app, enable_app, get_app, list_apps,
+    list_isolates, reload_app, scale_app, update_app,
 };
+use crate::admin::server::{create_admin_router, AdminState, AdminStateAxum};
 
 /// Unix socket configuration
 #[derive(Debug, Clone)]
@@ -109,7 +108,10 @@ pub async fn create_unix_socket(path: &Path) -> Result<UnixListener, std::io::Er
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         if !parent.exists() {
-            tracing::info!("Creating Unix socket parent directory: {}", parent.display());
+            tracing::info!(
+                "Creating Unix socket parent directory: {}",
+                parent.display()
+            );
             tokio::fs::create_dir_all(parent).await?;
         }
     }
@@ -199,11 +201,18 @@ pub async fn start_unix_socket_server(
     auth: Arc<AdminAuth>,
 ) -> Result<UnixSocketServer, String> {
     // Create and bind the Unix socket
-    let listener = create_unix_socket(&config.path)
-        .await
-        .map_err(|e| format!("Failed to bind Unix socket to {}: {}", config.path.display(), e))?;
+    let listener = create_unix_socket(&config.path).await.map_err(|e| {
+        format!(
+            "Failed to bind Unix socket to {}: {}",
+            config.path.display(),
+            e
+        )
+    })?;
 
-    tracing::info!("Unix socket admin server listening at {}", config.path.display());
+    tracing::info!(
+        "Unix socket admin server listening at {}",
+        config.path.display()
+    );
 
     // Create router that skips auth for Unix socket requests
     let router = create_unix_socket_router(auth, admin_state);
@@ -228,7 +237,11 @@ pub async fn start_unix_socket_server(
         // Clean up socket file on shutdown
         if path.exists() {
             if let Err(e) = tokio::fs::remove_file(&path).await {
-                tracing::warn!("Failed to remove Unix socket file {}: {}", path.display(), e);
+                tracing::warn!(
+                    "Failed to remove Unix socket file {}: {}",
+                    path.display(),
+                    e
+                );
             } else {
                 tracing::info!("Unix socket file removed: {}", path.display());
             }
@@ -282,10 +295,7 @@ pub fn create_unix_socket_router_no_auth(state: AdminState) -> axum::Router {
     use axum::routing::{get, post};
     use tower_http::trace::TraceLayer;
 
-    use crate::admin::handlers::{
-        health_handler, ready_handler,
-    };
-    
+    use crate::admin::handlers::{health_handler, ready_handler};
 
     let state_axum = Arc::new(AdminStateAxum::new(state));
 
@@ -296,17 +306,32 @@ pub fn create_unix_socket_router_no_auth(state: AdminState) -> axum::Router {
         .route("/admin/ready", get(ready_handler))
         // Protected routes on TCP become public on Unix socket
         .route("/admin/isolates", get(list_isolates_handler_unix))
-        .route("/admin/apps", get(list_apps_handler_unix).post(create_app_handler_unix))
+        .route(
+            "/admin/apps",
+            get(list_apps_handler_unix).post(create_app_handler_unix),
+        )
         .route(
             "/admin/apps/{hostname}",
             get(get_app_handler_unix)
-            .patch(update_app_handler_unix)
-            .delete(delete_app_handler_unix),
+                .patch(update_app_handler_unix)
+                .delete(delete_app_handler_unix),
         )
-        .route("/admin/apps/{hostname}/activate", post(activate_app_handler_unix))
-        .route("/admin/apps/{hostname}/disable", post(disable_app_handler_unix))
-        .route("/admin/apps/{hostname}/enable", post(enable_app_handler_unix))
-        .route("/admin/apps/{hostname}/reload", post(reload_app_handler_unix))
+        .route(
+            "/admin/apps/{hostname}/activate",
+            post(activate_app_handler_unix),
+        )
+        .route(
+            "/admin/apps/{hostname}/disable",
+            post(disable_app_handler_unix),
+        )
+        .route(
+            "/admin/apps/{hostname}/enable",
+            post(enable_app_handler_unix),
+        )
+        .route(
+            "/admin/apps/{hostname}/reload",
+            post(reload_app_handler_unix),
+        )
         .route("/admin/apps/{hostname}/scale", post(scale_app_handler_unix))
         .route("/admin/apps/{hostname}/drain", post(drain_app_handler_unix))
         .route("/admin/metrics", get(admin_metrics_handler_unix))
@@ -341,7 +366,11 @@ async fn get_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    get_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
+    get_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+    )
+    .await
 }
 
 async fn update_app_handler_unix(
@@ -349,42 +378,67 @@ async fn update_app_handler_unix(
     axum::extract::Path(hostname): axum::extract::Path<String>,
     body: axum::extract::Json<crate::admin::handlers::UpdateAppRequest>,
 ) -> impl axum::response::IntoResponse {
-    update_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone()), body).await
+    update_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+        body,
+    )
+    .await
 }
 
 async fn delete_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    delete_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
+    delete_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+    )
+    .await
 }
 
 async fn activate_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    activate_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
+    activate_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+    )
+    .await
 }
 
 async fn disable_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    disable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
+    disable_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+    )
+    .await
 }
 
 async fn enable_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    enable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
+    enable_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+    )
+    .await
 }
 
 async fn reload_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    reload_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
+    reload_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+    )
+    .await
 }
 
 async fn scale_app_handler_unix(
@@ -392,32 +446,44 @@ async fn scale_app_handler_unix(
     axum::extract::Path(hostname): axum::extract::Path<String>,
     body: axum::extract::Json<crate::admin::handlers::ScaleRequest>,
 ) -> impl axum::response::IntoResponse {
-    scale_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone()), body).await
+    scale_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+        body,
+    )
+    .await
 }
 
 async fn drain_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    drain_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
+    drain_app(
+        axum::extract::Path(hostname),
+        axum::extract::State(state.inner.http_router.clone()),
+    )
+    .await
 }
 
 async fn admin_metrics_handler_unix() -> impl axum::response::IntoResponse {
     use crate::metrics::{PrometheusExporter, METRICS};
     use axum::http::header;
     use axum::response::Response;
-    
+
     // Update uptime before export
     METRICS.update_uptime();
-    
+
     // Export metrics in Prometheus format
     let exporter = PrometheusExporter::new();
     let output = exporter.export(&METRICS);
-    
+
     // Build response with correct content type
     Response::builder()
         .status(axum::http::StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
+        .header(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )
         .body(output)
         .unwrap()
 }
@@ -430,7 +496,10 @@ mod tests {
     #[test]
     fn test_unix_socket_config_default() {
         let config = UnixSocketConfig::default();
-        assert_eq!(config.path, std::path::PathBuf::from("/var/run/nano/control.sock"));
+        assert_eq!(
+            config.path,
+            std::path::PathBuf::from("/var/run/nano/control.sock")
+        );
         assert_eq!(config.permissions, 0o660);
     }
 
@@ -490,7 +559,11 @@ mod tests {
     #[tokio::test]
     async fn test_create_unix_socket_creates_parent_dir() {
         let temp_dir = TempDir::new().unwrap();
-        let nested_path = temp_dir.path().join("nested").join("deep").join("test.sock");
+        let nested_path = temp_dir
+            .path()
+            .join("nested")
+            .join("deep")
+            .join("test.sock");
 
         // Directory doesn't exist yet
         assert!(!nested_path.parent().unwrap().exists());

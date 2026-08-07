@@ -10,7 +10,11 @@ pub(crate) fn subtle_generate_key(
 ) {
     // Check argument count
     if args.length() < 3 {
-        let msg = v8::String::new(scope, "generateKey requires 3 arguments: algorithm, extractable, keyUsages").unwrap();
+        let msg = v8::String::new(
+            scope,
+            "generateKey requires 3 arguments: algorithm, extractable, keyUsages",
+        )
+        .unwrap();
         let error = v8::Exception::type_error(scope, msg);
         retval.set(error);
         return;
@@ -50,7 +54,9 @@ pub(crate) fn subtle_generate_key(
                         if let Some(usage_val) = usages_arr.get(scope, idx.into()) {
                             if let Some(usage_str) = usage_val.to_string(scope) {
                                 let usage = usage_str.to_rust_string_lossy(scope);
-                                if let Some(key_usage) = crate::runtime::crypto::KeyUsage::from_str(&usage) {
+                                if let Some(key_usage) =
+                                    crate::runtime::crypto::KeyUsage::from_str(&usage)
+                                {
                                     usages.push(key_usage);
                                 }
                             }
@@ -106,7 +112,10 @@ pub(crate) fn subtle_generate_key(
             // Extract optional length (default based on hash)
             let length_key = v8::String::new(scope, "length").unwrap();
             let length_val = algorithm_obj.get(scope, length_key.into());
-            let length: Option<u32> = if length_val.map(|v| v.is_undefined() || v.is_null()).unwrap_or(true) {
+            let length: Option<u32> = if length_val
+                .map(|v| v.is_undefined() || v.is_null())
+                .unwrap_or(true)
+            {
                 None
             } else {
                 length_val
@@ -118,7 +127,11 @@ pub(crate) fn subtle_generate_key(
             crate::runtime::crypto::hmac::generate_key(hash, length, extractable, usages)
         }
         _ => {
-            let msg = v8::String::new(scope, &format!("Algorithm '{}' not supported", algorithm_name)).unwrap();
+            let msg = v8::String::new(
+                scope,
+                &format!("Algorithm '{}' not supported", algorithm_name),
+            )
+            .unwrap();
             let error = v8::Exception::error(scope, msg);
             retval.set(error);
             return;
@@ -201,14 +214,19 @@ pub(crate) fn subtle_import_key(
     mut retval: v8::ReturnValue,
 ) {
     if args.length() < 5 {
-        let msg = v8::String::new(scope, "importKey requires 5 arguments: format, keyData, algorithm, extractable, keyUsages").unwrap();
+        let msg = v8::String::new(
+            scope,
+            "importKey requires 5 arguments: format, keyData, algorithm, extractable, keyUsages",
+        )
+        .unwrap();
         let error = v8::Exception::type_error(scope, msg);
         retval.set(error);
         return;
     }
 
     // Extract format
-    let format = args.get(0)
+    let format = args
+        .get(0)
         .to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
@@ -250,7 +268,9 @@ pub(crate) fn subtle_import_key(
                         if let Some(usage_val) = usages_arr.get(scope, idx.into()) {
                             if let Some(usage_str) = usage_val.to_string(scope) {
                                 let usage = usage_str.to_rust_string_lossy(scope);
-                                if let Some(key_usage) = crate::runtime::crypto::KeyUsage::from_str(&usage) {
+                                if let Some(key_usage) =
+                                    crate::runtime::crypto::KeyUsage::from_str(&usage)
+                                {
                                     usages.push(key_usage);
                                 }
                             }
@@ -290,17 +310,13 @@ pub(crate) fn subtle_import_key(
                 "AES-GCM" => {
                     crate::runtime::crypto::aes_gcm::import_key_jwk(&jwk, extractable, usages)
                 }
-                "HMAC" => {
-                    crate::runtime::crypto::hmac::import_key_jwk(&jwk, extractable, usages)
-                }
-                _ => {
-                    Err(crate::runtime::crypto::CryptoError::InvalidAlgorithm(algorithm_name))
-                }
+                "HMAC" => crate::runtime::crypto::hmac::import_key_jwk(&jwk, extractable, usages),
+                _ => Err(crate::runtime::crypto::CryptoError::InvalidAlgorithm(
+                    algorithm_name,
+                )),
             }
         }
-        _ => {
-            Err(crate::runtime::crypto::CryptoError::NotSupported)
-        }
+        _ => Err(crate::runtime::crypto::CryptoError::NotSupported),
     };
 
     match crypto_key {
@@ -386,7 +402,8 @@ pub(crate) fn subtle_export_key(
     }
 
     // Extract format
-    let format = args.get(0)
+    let format = args
+        .get(0)
         .to_string(scope)
         .map(|s| s.to_rust_string_lossy(scope))
         .unwrap_or_default();
@@ -431,9 +448,7 @@ pub(crate) fn subtle_export_key(
                 crate::runtime::crypto::AlgorithmIdentifier::Hmac { .. } => {
                     crate::runtime::crypto::hmac::export_key_jwk(&crypto_key)
                 }
-                _ => {
-                    Err(crate::runtime::crypto::CryptoError::InvalidKey)
-                }
+                _ => Err(crate::runtime::crypto::CryptoError::InvalidKey),
             };
 
             match result {
@@ -469,7 +484,8 @@ pub(crate) fn subtle_encrypt(
     mut retval: v8::ReturnValue,
 ) {
     if args.length() < 3 {
-        let msg = v8::String::new(scope, "encrypt requires 3 arguments: algorithm, key, data").unwrap();
+        let msg =
+            v8::String::new(scope, "encrypt requires 3 arguments: algorithm, key, data").unwrap();
         let error = v8::Exception::type_error(scope, msg);
         retval.set(error);
         return;
@@ -544,7 +560,10 @@ pub(crate) fn subtle_encrypt(
             // Extract tag length (default 128)
             let tag_length_key = v8::String::new(scope, "tagLength").unwrap();
             let tag_length_val = algorithm_obj.get(scope, tag_length_key.into());
-            let tag_length: u16 = if tag_length_val.map(|v| v.is_undefined() || v.is_null()).unwrap_or(true) {
+            let tag_length: u16 = if tag_length_val
+                .map(|v| v.is_undefined() || v.is_null())
+                .unwrap_or(true)
+            {
                 128
             } else {
                 tag_length_val
@@ -564,9 +583,7 @@ pub(crate) fn subtle_encrypt(
             tracing::debug!("Encrypt result: {:?}", enc_result.is_ok());
             enc_result
         }
-        _ => {
-            Err(crate::runtime::crypto::CryptoError::NotSupported)
-        }
+        _ => Err(crate::runtime::crypto::CryptoError::NotSupported),
     };
 
     match result {
@@ -596,7 +613,8 @@ pub(crate) fn subtle_decrypt(
     mut retval: v8::ReturnValue,
 ) {
     if args.length() < 3 {
-        let msg = v8::String::new(scope, "decrypt requires 3 arguments: algorithm, key, data").unwrap();
+        let msg =
+            v8::String::new(scope, "decrypt requires 3 arguments: algorithm, key, data").unwrap();
         let error = v8::Exception::type_error(scope, msg);
         retval.set(error);
         return;
@@ -671,7 +689,10 @@ pub(crate) fn subtle_decrypt(
             // Extract tag length (default 128)
             let tag_length_key = v8::String::new(scope, "tagLength").unwrap();
             let tag_length_val = algorithm_obj.get(scope, tag_length_key.into());
-            let tag_length: u16 = if tag_length_val.map(|v| v.is_undefined() || v.is_null()).unwrap_or(true) {
+            let tag_length: u16 = if tag_length_val
+                .map(|v| v.is_undefined() || v.is_null())
+                .unwrap_or(true)
+            {
                 128
             } else {
                 tag_length_val
@@ -689,9 +710,7 @@ pub(crate) fn subtle_decrypt(
 
             crate::runtime::crypto::aes_gcm::decrypt(&crypto_key, &params, &data)
         }
-        _ => {
-            Err(crate::runtime::crypto::CryptoError::NotSupported)
-        }
+        _ => Err(crate::runtime::crypto::CryptoError::NotSupported),
     };
 
     match result {
@@ -779,7 +798,8 @@ pub(crate) fn subtle_sign(
     mut retval: v8::ReturnValue,
 ) {
     if args.length() < 3 {
-        let msg = v8::String::new(scope, "sign requires 3 arguments: algorithm, key, data").unwrap();
+        let msg =
+            v8::String::new(scope, "sign requires 3 arguments: algorithm, key, data").unwrap();
         let error = v8::Exception::type_error(scope, msg);
         retval.set(error);
         return;
@@ -822,9 +842,7 @@ pub(crate) fn subtle_sign(
         crate::runtime::crypto::AlgorithmIdentifier::Hmac { .. } => {
             crate::runtime::crypto::hmac::sign(&crypto_key, &data)
         }
-        _ => {
-            Err(crate::runtime::crypto::CryptoError::InvalidKey)
-        }
+        _ => Err(crate::runtime::crypto::CryptoError::InvalidKey),
     };
 
     match result {
@@ -854,7 +872,11 @@ pub(crate) fn subtle_verify(
     mut retval: v8::ReturnValue,
 ) {
     if args.length() < 4 {
-        let msg = v8::String::new(scope, "verify requires 4 arguments: algorithm, key, signature, data").unwrap();
+        let msg = v8::String::new(
+            scope,
+            "verify requires 4 arguments: algorithm, key, signature, data",
+        )
+        .unwrap();
         let error = v8::Exception::type_error(scope, msg);
         retval.set(error);
         return;
@@ -885,7 +907,11 @@ pub(crate) fn subtle_verify(
     let signature = match extract_array_buffer_view(scope, args.get(2)) {
         Some(bytes) => bytes,
         None => {
-            let msg = v8::String::new(scope, "Third argument (signature) must be an ArrayBufferView").unwrap();
+            let msg = v8::String::new(
+                scope,
+                "Third argument (signature) must be an ArrayBufferView",
+            )
+            .unwrap();
             let error = v8::Exception::type_error(scope, msg);
             retval.set(error);
             return;
@@ -896,7 +922,8 @@ pub(crate) fn subtle_verify(
     let data = match extract_array_buffer_view(scope, args.get(3)) {
         Some(bytes) => bytes,
         None => {
-            let msg = v8::String::new(scope, "Fourth argument (data) must be an ArrayBufferView").unwrap();
+            let msg = v8::String::new(scope, "Fourth argument (data) must be an ArrayBufferView")
+                .unwrap();
             let error = v8::Exception::type_error(scope, msg);
             retval.set(error);
             return;
@@ -904,14 +931,16 @@ pub(crate) fn subtle_verify(
     };
 
     // Perform verification based on key algorithm
-    tracing::debug!("subtle_verify: key algorithm={:?}, usages={:?}", crypto_key.algorithm, crypto_key.usages);
+    tracing::debug!(
+        "subtle_verify: key algorithm={:?}, usages={:?}",
+        crypto_key.algorithm,
+        crypto_key.usages
+    );
     let result = match &crypto_key.algorithm {
         crate::runtime::crypto::AlgorithmIdentifier::Hmac { .. } => {
             crate::runtime::crypto::hmac::verify(&crypto_key, &data, &signature)
         }
-        _ => {
-            Err(crate::runtime::crypto::CryptoError::InvalidKey)
-        }
+        _ => Err(crate::runtime::crypto::CryptoError::InvalidKey),
     };
 
     match result {
@@ -940,7 +969,8 @@ pub(crate) fn subtle_digest(
     let algorithm = match args.get(0).to_string(scope) {
         Some(s) => s.to_rust_string_lossy(scope),
         None => {
-            let msg = v8::String::new(scope, "First argument (algorithm) must be a string").unwrap();
+            let msg =
+                v8::String::new(scope, "First argument (algorithm) must be a string").unwrap();
             let error = v8::Exception::type_error(scope, msg);
             retval.set(error);
             return;
@@ -951,7 +981,8 @@ pub(crate) fn subtle_digest(
     let data = match extract_array_buffer_view(scope, args.get(1)) {
         Some(bytes) => bytes,
         None => {
-            let msg = v8::String::new(scope, "Second argument (data) must be an ArrayBufferView").unwrap();
+            let msg = v8::String::new(scope, "Second argument (data) must be an ArrayBufferView")
+                .unwrap();
             let error = v8::Exception::type_error(scope, msg);
             retval.set(error);
             return;
@@ -980,7 +1011,9 @@ pub(crate) fn subtle_digest(
                     if let Some(resolve_fn) = promise_obj.get(scope, resolve_key.into()) {
                         if resolve_fn.is_function() {
                             let resolve = resolve_fn.cast::<v8::Function>();
-                            if let Some(resolved_promise) = resolve.call(scope, promise_ctor, &[ab.into()]) {
+                            if let Some(resolved_promise) =
+                                resolve.call(scope, promise_ctor, &[ab.into()])
+                            {
                                 retval.set(resolved_promise);
                                 return;
                             }

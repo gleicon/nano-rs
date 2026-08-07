@@ -145,13 +145,7 @@ impl PrometheusExporter {
     }
 
     /// Export a simple Counter as Prometheus format
-    fn export_counter(
-        &self,
-        output: &mut String,
-        name: &str,
-        help: &str,
-        value: u64,
-    ) {
+    fn export_counter(&self, output: &mut String, name: &str, help: &str, value: u64) {
         writeln!(output, "# HELP {} {}", name, help).unwrap();
         writeln!(output, "# TYPE {} counter", name).unwrap();
         writeln!(output, "{} {}", name, value).unwrap();

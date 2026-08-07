@@ -89,7 +89,7 @@ mod tests {
         let _visitor = JsonVisitor(&mut fields);
 
         // Simulate recording a string field
-        
+
         // We can't easily create a real Field, so we test through the public API
 
         // Test extraction helpers with manually inserted data

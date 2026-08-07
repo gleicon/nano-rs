@@ -35,15 +35,15 @@ fn test_cpu_timeout_terminates_infinite_loop() {
         // This will spawn a timer thread that calls terminate_execution()
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
             unsafe { &mut *iso_ptr },
-            50 // 50ms timeout
+            50, // 50ms timeout
         );
 
         // Script that runs an infinite loop
         let code = "while(true) {}";
 
         let code_str = v8::String::new(&mut ctx_scope, code).expect("Failed to create code string");
-        let script = v8::Script::compile(&mut ctx_scope, code_str, None)
-            .expect("Failed to compile script");
+        let script =
+            v8::Script::compile(&mut ctx_scope, code_str, None).expect("Failed to compile script");
 
         // Execute - this should be terminated by the CPU timeout
         let result = script.run(&mut ctx_scope);
@@ -60,7 +60,11 @@ fn test_cpu_timeout_terminates_infinite_loop() {
 
         // Result may be None (terminated) or Some (succeeded before timeout)
         // In this case with infinite loop, it should be None (terminated)
-        tracing::info!("Execution result: {:?}, elapsed: {:?}", result.is_some(), elapsed);
+        tracing::info!(
+            "Execution result: {:?}, elapsed: {:?}",
+            result.is_some(),
+            elapsed
+        );
 
         // With a tight infinite loop and 50ms timeout, we expect termination
         // (result should be None due to terminate_execution)
@@ -91,15 +95,15 @@ fn test_cpu_timeout_allows_normal_execution() {
         // Create a CpuTimeoutGuard with a long 1000ms timeout
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
             unsafe { &mut *iso_ptr },
-            1000 // 1 second timeout - plenty for a simple script
+            1000, // 1 second timeout - plenty for a simple script
         );
 
         // Simple script that completes quickly
         let code = "2 + 2";
 
         let code_str = v8::String::new(&mut ctx_scope, code).expect("Failed to create code string");
-        let script = v8::Script::compile(&mut ctx_scope, code_str, None)
-            .expect("Failed to compile script");
+        let script =
+            v8::Script::compile(&mut ctx_scope, code_str, None).expect("Failed to compile script");
 
         // Execute - this should complete normally
         let result = script.run(&mut ctx_scope);
@@ -138,13 +142,13 @@ fn test_isolate_usable_after_cpu_timeout() {
 
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
             unsafe { &mut *iso_ptr },
-            50 // 50ms timeout
+            50, // 50ms timeout
         );
 
         let code = "while(true) {}";
         let code_str = v8::String::new(&mut ctx_scope, code).expect("Failed to create code string");
-        let script = v8::Script::compile(&mut ctx_scope, code_str, None)
-            .expect("Failed to compile script");
+        let script =
+            v8::Script::compile(&mut ctx_scope, code_str, None).expect("Failed to compile script");
 
         let result = script.run(&mut ctx_scope);
         assert!(result.is_none(), "Infinite loop should be terminated");
@@ -161,13 +165,13 @@ fn test_isolate_usable_after_cpu_timeout() {
 
         let _guard = nano::data_plane::CpuTimeoutGuard::new(
             unsafe { &mut *iso_ptr },
-            1000 // 1 second timeout
+            1000, // 1 second timeout
         );
 
         let code = "'hello'";
         let code_str = v8::String::new(&mut ctx_scope, code).expect("Failed to create code string");
-        let script = v8::Script::compile(&mut ctx_scope, code_str, None)
-            .expect("Failed to compile script");
+        let script =
+            v8::Script::compile(&mut ctx_scope, code_str, None).expect("Failed to compile script");
 
         let result = script.run(&mut ctx_scope);
         assert!(

@@ -43,15 +43,15 @@
 //! V8 update: Invalidate all caches → Back to Request 1 pattern
 //! ```
 
+use anyhow::{Context, Result};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
-use anyhow::{Context, Result};
 use tracing::{debug, info, warn};
 
-use crate::sliver::{pack_sliver, unpack_sliver, SliverMetadata, UnpackedSliver};
 use crate::sliver::vfs_capture::VfsCapture;
+use crate::sliver::{pack_sliver, unpack_sliver, SliverMetadata, UnpackedSliver};
 use crate::vfs::{VfsFile, VfsPath};
 
 /// Source of JavaScript handler execution
@@ -78,7 +78,7 @@ impl JsHandlerSource {
     pub fn is_sliver(&self) -> bool {
         matches!(self, Self::Sliver { .. })
     }
-    
+
     /// Get the entrypoint path
     pub fn entrypoint(&self) -> &str {
         match self {
@@ -99,40 +99,44 @@ impl SliverCache {
     /// Create a new sliver cache manager
     pub fn new() -> Result<Self> {
         let cache_dir = Self::default_cache_dir()?;
-        
+
         // Ensure cache directory exists
-        std::fs::create_dir_all(&cache_dir)
-            .with_context(|| format!("Failed to create sliver cache directory: {}", cache_dir.display()))?;
-        
-        Ok(Self {
-            cache_dir,
-        })
+        std::fs::create_dir_all(&cache_dir).with_context(|| {
+            format!(
+                "Failed to create sliver cache directory: {}",
+                cache_dir.display()
+            )
+        })?;
+
+        Ok(Self { cache_dir })
     }
-    
+
     /// Create cache with custom directory
     pub fn with_dir(cache_dir: PathBuf) -> Result<Self> {
-        std::fs::create_dir_all(&cache_dir)
-            .with_context(|| format!("Failed to create sliver cache directory: {}", cache_dir.display()))?;
-        
-        Ok(Self {
-            cache_dir,
-        })
+        std::fs::create_dir_all(&cache_dir).with_context(|| {
+            format!(
+                "Failed to create sliver cache directory: {}",
+                cache_dir.display()
+            )
+        })?;
+
+        Ok(Self { cache_dir })
     }
-    
+
     /// Get the current V8 version (lazy - only called when needed)
     fn v8_version(&self) -> String {
         crate::sliver::validation::get_runtime_v8_version()
     }
-    
+
     /// Get the default cache directory (~/.nano/sliver-cache)
     fn default_cache_dir() -> Result<PathBuf> {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .context("Could not determine home directory")?;
-        
+
         Ok(PathBuf::from(home).join(".nano").join("sliver-cache"))
     }
-    
+
     /// Generate cache key from hostname and entrypoint
     ///
     /// The key includes:
@@ -142,7 +146,7 @@ impl SliverCache {
         let mut hasher = DefaultHasher::new();
         hostname.hash(&mut hasher);
         entrypoint.hash(&mut hasher);
-        
+
         // Include modification time in hash for auto-invalidation
         if let Ok(metadata) = std::fs::metadata(entrypoint) {
             if let Ok(modified) = metadata.modified() {
@@ -151,14 +155,16 @@ impl SliverCache {
                 }
             }
         }
-        
+
         format!("{:x}", hasher.finish())
     }
-    
+
     /// Get the cache path for a sliver
     pub fn cache_path(&self, hostname: &str, entrypoint: &str) -> PathBuf {
         let key = self.cache_key(hostname, entrypoint);
-        self.cache_dir.join(hostname).join(format!("{}.sliver", key))
+        self.cache_dir
+            .join(hostname)
+            .join(format!("{}.sliver", key))
     }
 
     /// Get the generation lock file path for a sliver
@@ -167,7 +173,9 @@ impl SliverCache {
     /// a sliver for this entrypoint.
     pub fn generation_lock_path(&self, hostname: &str, entrypoint: &str) -> PathBuf {
         let key = self.cache_key(hostname, entrypoint);
-        self.cache_dir.join(hostname).join(format!("{}.sliver.lock", key))
+        self.cache_dir
+            .join(hostname)
+            .join(format!("{}.sliver.lock", key))
     }
 
     /// Try to load a cached sliver
@@ -179,32 +187,36 @@ impl SliverCache {
     /// - Source file has been modified
     pub fn try_load(&self, hostname: &str, entrypoint: &str) -> Option<Vec<u8>> {
         let cache_path = self.cache_path(hostname, entrypoint);
-        
+
         if !cache_path.exists() {
             debug!("No cached sliver found for {}:{}", hostname, entrypoint);
             return None;
         }
-        
+
         // Read sliver data
         let data = match std::fs::read(&cache_path) {
             Ok(data) => data,
             Err(e) => {
-                warn!("Failed to read cached sliver {}: {}", cache_path.display(), e);
+                warn!(
+                    "Failed to read cached sliver {}: {}",
+                    cache_path.display(),
+                    e
+                );
                 return None;
             }
         };
-        
+
         // Validate sliver by attempting to unpack and check V8 version
         match unpack_sliver(&data) {
             Ok(unpacked) => {
                 // Compare V8 version from metadata with current runtime
                 let sliver_v8 = &unpacked.metadata.nano_version;
                 let current_v8 = self.v8_version();
-                
+
                 // Check major version compatibility
                 let sliver_major = sliver_v8.split('.').next();
                 let current_major = current_v8.split('.').next();
-                
+
                 if sliver_major != current_major {
                     warn!(
                         "V8 version mismatch: sliver compiled with {}, runtime is {}. Recompiling...",
@@ -212,12 +224,12 @@ impl SliverCache {
                     );
                     return None;
                 }
-                
+
                 debug!(
                     "Loaded valid cached sliver for {}:{} (V8: {})",
                     hostname, entrypoint, sliver_v8
                 );
-                
+
                 Some(data)
             }
             Err(e) => {
@@ -226,49 +238,54 @@ impl SliverCache {
             }
         }
     }
-    
+
     /// Store a sliver in the cache
     pub fn store(&self, hostname: &str, entrypoint: &str, data: &[u8]) -> Result<()> {
         let cache_path = self.cache_path(hostname, entrypoint);
-        
+
         // Ensure parent directory exists
         if let Some(parent) = cache_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create cache directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create cache directory: {}", parent.display())
+            })?;
         }
-        
+
         // Write atomically (write to temp, then rename)
         let temp_path = cache_path.with_extension("tmp");
         std::fs::write(&temp_path, data)
             .with_context(|| format!("Failed to write sliver cache: {}", temp_path.display()))?;
-        
-        std::fs::rename(&temp_path, &cache_path)
-            .with_context(|| format!("Failed to finalize sliver cache: {}", cache_path.display()))?;
-        
+
+        std::fs::rename(&temp_path, &cache_path).with_context(|| {
+            format!("Failed to finalize sliver cache: {}", cache_path.display())
+        })?;
+
         info!(
             "Stored sliver cache for {}:{} ({} bytes)",
-            hostname, entrypoint, data.len()
+            hostname,
+            entrypoint,
+            data.len()
         );
-        
+
         Ok(())
     }
-    
+
     /// Try to acquire a generation lock for sliver creation
     ///
     /// Returns true if lock was acquired, false if another process already holds it.
     pub fn try_acquire_generation_lock(&self, hostname: &str, entrypoint: &str) -> bool {
         let lock_path = self.generation_lock_path(hostname, entrypoint);
-        
+
         // Ensure parent directory exists
         if let Some(parent) = lock_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        
+
         // Try to create lock file exclusively
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&lock_path) {
+            .open(&lock_path)
+        {
             Ok(file) => {
                 // Write PID for debugging
                 use std::io::Write;
@@ -278,31 +295,34 @@ impl SliverCache {
             Err(_) => false,
         }
     }
-    
+
     /// Release a generation lock
     ///
     /// Returns true if lock was released, false if it didn't exist.
     pub fn release_generation_lock(&self, hostname: &str, entrypoint: &str) -> bool {
         let lock_path = self.generation_lock_path(hostname, entrypoint);
-        
+
         match std::fs::remove_file(&lock_path) {
             Ok(_) => {
                 debug!("Released generation lock for {}:{}", hostname, entrypoint);
                 true
             }
             Err(e) => {
-                debug!("Failed to release generation lock for {}:{}: {}", hostname, entrypoint, e);
+                debug!(
+                    "Failed to release generation lock for {}:{}: {}",
+                    hostname, entrypoint, e
+                );
                 false
             }
         }
     }
-    
+
     /// Check if a sliver generation is in progress
     pub fn is_generation_in_progress(&self, hostname: &str, entrypoint: &str) -> bool {
         let lock_path = self.generation_lock_path(hostname, entrypoint);
         lock_path.exists()
     }
-    
+
     /// Create a sliver from optional bytecode and VFS.
     pub fn create_sliver(
         &self,
@@ -320,47 +340,53 @@ impl SliverCache {
             entrypoint,
             SystemTime::now()
         ));
-        
+
         // Convert VFS capture to packable format
         let vfs_entries: Option<Vec<(VfsPath, VfsFile)>> = vfs_capture.map(|capture| {
-            capture.files()
+            capture
+                .files()
                 .iter()
                 .map(|(path, file)| {
-                    (VfsPath::new(path).unwrap_or_else(|_| VfsPath::new("/unknown").unwrap()), file.clone())
+                    (
+                        VfsPath::new(path).unwrap_or_else(|_| VfsPath::new("/unknown").unwrap()),
+                        file.clone(),
+                    )
                 })
                 .collect()
         });
-        
+
         // Pack sliver
         let data = pack_sliver(&metadata, bytecode, vfs_entries.as_deref())
             .context("Failed to pack sliver")?;
-        
+
         Ok(data)
     }
-    
+
     /// Get cache statistics
     pub fn stats(&self) -> Result<SliverCacheStats> {
         let mut total_size = 0u64;
         let mut count = 0usize;
-        
+
         if let Ok(entries) = std::fs::read_dir(&self.cache_dir) {
             for entry in entries.flatten() {
                 if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_file() && entry.file_name().to_string_lossy().ends_with(".sliver") {
+                    if metadata.is_file()
+                        && entry.file_name().to_string_lossy().ends_with(".sliver")
+                    {
                         total_size += metadata.len();
                         count += 1;
                     }
                 }
             }
         }
-        
+
         Ok(SliverCacheStats {
             total_size_bytes: total_size,
             sliver_count: count,
             cache_dir: self.cache_dir.clone(),
         })
     }
-    
+
     /// Clean up old cache entries (older than max_age)
     pub fn cleanup(&self, max_age: Duration) -> Result<usize> {
         let mut cleaned = 0usize;
@@ -375,7 +401,11 @@ impl SliverCache {
                             if let Ok(age) = now.duration_since(modified) {
                                 if age > max_age {
                                     if let Err(e) = std::fs::remove_file(&path) {
-                                        warn!("Failed to remove old cache file {}: {}", path.display(), e);
+                                        warn!(
+                                            "Failed to remove old cache file {}: {}",
+                                            path.display(),
+                                            e
+                                        );
                                     } else {
                                         cleaned += 1;
                                         debug!("Cleaned old sliver cache: {}", path.display());
@@ -398,8 +428,7 @@ impl SliverCache {
     /// Clear entire cache
     pub fn clear(&self) -> Result<()> {
         if self.cache_dir.exists() {
-            std::fs::remove_dir_all(&self.cache_dir)
-                .context("Failed to clear sliver cache")?;
+            std::fs::remove_dir_all(&self.cache_dir).context("Failed to clear sliver cache")?;
             std::fs::create_dir_all(&self.cache_dir)?;
         }
         info!("Cleared sliver cache at {}", self.cache_dir.display());
@@ -424,7 +453,8 @@ impl SliverCache {
             Ok(unpacked) => {
                 info!(
                     "Hot-loaded sliver for {}:{} (bytecode: {}, {} vfs entries)",
-                    hostname, entrypoint,
+                    hostname,
+                    entrypoint,
                     unpacked.bytecode.is_some(),
                     unpacked.vfs_entries.len()
                 );
@@ -481,7 +511,10 @@ pub fn get_optimized_handler_source(
     let cache = match SliverCache::new() {
         Ok(cache) => cache,
         Err(e) => {
-            warn!("Failed to initialize sliver cache: {}. Using source compilation.", e);
+            warn!(
+                "Failed to initialize sliver cache: {}. Using source compilation.",
+                e
+            );
             return JsHandlerSource::Source {
                 entrypoint: entrypoint.to_string(),
             };
@@ -495,7 +528,9 @@ pub fn get_optimized_handler_source(
             Ok(_unpacked) => {
                 debug!(
                     "Using cached sliver for {}:{} ({} bytes)",
-                    hostname, entrypoint, data.len()
+                    hostname,
+                    entrypoint,
+                    data.len()
                 );
 
                 return JsHandlerSource::Sliver {
@@ -530,13 +565,19 @@ pub fn get_optimized_handler_source(
             }
             debug!("Timed out waiting for sliver generation, using source");
         } else {
-            debug!("Sliver generation in progress for {}:{}, using source temporarily", hostname, entrypoint);
+            debug!(
+                "Sliver generation in progress for {}:{}, using source temporarily",
+                hostname, entrypoint
+            );
         }
     }
 
     // No valid cached sliver - use source compilation
     // The caller should generate and store the sliver after compilation
-    debug!("No cached sliver for {}:{}. Using source compilation.", hostname, entrypoint);
+    debug!(
+        "No cached sliver for {}:{}. Using source compilation.",
+        hostname, entrypoint
+    );
 
     JsHandlerSource::Source {
         entrypoint: entrypoint.to_string(),

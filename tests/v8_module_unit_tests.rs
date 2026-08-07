@@ -17,9 +17,15 @@ fn test_detect_module_type() {
     assert_eq!(detect_module_type("import('./dynamic')"), ModuleType::ESM);
     assert_eq!(detect_module_type("import{foo}from'bar'"), ModuleType::ESM);
 
-    assert_eq!(detect_module_type("function fetch() {}"), ModuleType::Script);
+    assert_eq!(
+        detect_module_type("function fetch() {}"),
+        ModuleType::Script
+    );
     assert_eq!(detect_module_type("var x = 1"), ModuleType::Script);
-    assert_eq!(detect_module_type("console.log('hello')"), ModuleType::Script);
+    assert_eq!(
+        detect_module_type("console.log('hello')"),
+        ModuleType::Script
+    );
 }
 
 #[test]

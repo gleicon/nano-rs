@@ -41,10 +41,16 @@ pub fn init_kv_engine(data_dir: impl Into<PathBuf>) {
         match Engine::open(config) {
             Ok(engine) => Mutex::new(engine),
             Err(e) => {
-                tracing::warn!("KV engine open failed at {:?}: {}; falling back to temp dir", path, e);
+                tracing::warn!(
+                    "KV engine open failed at {:?}: {}; falling back to temp dir",
+                    path,
+                    e
+                );
                 let tmp = std::env::temp_dir().join("nano-rs-kv-fallback");
                 std::fs::create_dir_all(&tmp).ok();
-                Mutex::new(Engine::open(EdgestoreConfig::new(tmp)).expect("KV fallback init failed"))
+                Mutex::new(
+                    Engine::open(EdgestoreConfig::new(tmp)).expect("KV fallback init failed"),
+                )
             }
         }
     });

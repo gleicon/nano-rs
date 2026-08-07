@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::config::{NanoConfig, validate_nano_config};
+use crate::config::{validate_nano_config, NanoConfig};
 
 /// Maximum configuration file size (1MB per T-05-03)
 const MAX_CONFIG_SIZE: u64 = 1024 * 1024;
@@ -88,11 +88,10 @@ pub async fn load_config(path: &Path) -> Result<NanoConfig> {
     let substituted = substitute_env_vars(&content)?;
 
     // Parse JSON
-    let config: NanoConfig = serde_json::from_str(&substituted)
-        .map_err(|e| {
-            let msg = format!("Invalid JSON at {}: {}", path.display(), e);
-            anyhow!("{}", format_parse_error(&msg, &substituted, e.line()))
-        })?;
+    let config: NanoConfig = serde_json::from_str(&substituted).map_err(|e| {
+        let msg = format!("Invalid JSON at {}: {}", path.display(), e);
+        anyhow!("{}", format_parse_error(&msg, &substituted, e.line()))
+    })?;
 
     // Validate the configuration
     let base_path = path.parent();
@@ -142,8 +141,8 @@ fn substitute_env_vars(text: &str) -> Result<String> {
             let (var_name, default_value) = parse_var_ref(&mut chars)?;
 
             // Look up environment variable
-            let value = std::env::var(&var_name)
-                .unwrap_or_else(|_| default_value.unwrap_or_default());
+            let value =
+                std::env::var(&var_name).unwrap_or_else(|_| default_value.unwrap_or_default());
 
             result.push_str(&value);
         } else {
@@ -171,11 +170,11 @@ where
         } else if ch == ':' {
             // Found : separator, check for :-default syntax
             chars.next(); // consume ':'
-            
+
             // Check for '-' after ':'
             if chars.peek() == Some(&'-') {
                 chars.next(); // consume '-'
-                
+
                 // Read default value directly (avoid unused variable warning)
                 let mut default = String::new();
                 while let Some(&ch) = chars.peek() {
@@ -198,7 +197,8 @@ where
         } else {
             return Err(anyhow!(
                 "Invalid character '{}' in variable name '${{{}}}'",
-                ch, var_name
+                ch,
+                var_name
             ));
         }
     }
@@ -217,8 +217,17 @@ fn format_parse_error(error_msg: &str, content: &str, error_line: usize) -> Stri
     let mut formatted = format!("{}\n\nContext:\n", error_msg);
 
     for line_num in start..=end {
-        let prefix = if line_num == error_line { ">>> " } else { "    " };
-        formatted.push_str(&format!("{}{}: {}\n", prefix, line_num, lines[line_num - 1]));
+        let prefix = if line_num == error_line {
+            ">>> "
+        } else {
+            "    "
+        };
+        formatted.push_str(&format!(
+            "{}{}: {}\n",
+            prefix,
+            line_num,
+            lines[line_num - 1]
+        ));
     }
 
     formatted
@@ -320,8 +329,11 @@ mod tests {
         let err_str = result.unwrap_err().to_string();
         // Should get either JSON parse error or validation error
         assert!(
-            err_str.contains("Config validation failed") || err_str.contains("missing") || err_str.contains("hostname"),
-            "Expected validation error, got: {}", err_str
+            err_str.contains("Config validation failed")
+                || err_str.contains("missing")
+                || err_str.contains("hostname"),
+            "Expected validation error, got: {}",
+            err_str
         );
     }
 
@@ -392,7 +404,10 @@ mod tests {
     fn test_substitute_env_vars_invalid_char() {
         let result = substitute_env_vars("Invalid ${VAR!NAME}");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid character"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid character"));
     }
 
     #[test]

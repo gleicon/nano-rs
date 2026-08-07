@@ -4,7 +4,10 @@
 //! and the security hardening callback that blocks the Function constructor.
 
 /// Format console arguments into a single string
-pub(crate) fn format_console_args(scope: &mut v8::PinnedRef<v8::HandleScope>, args: v8::FunctionCallbackArguments) -> String {
+pub(crate) fn format_console_args(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+) -> String {
     let mut parts = Vec::new();
     for i in 0..args.length() {
         let arg = args.get(i);
@@ -22,7 +25,8 @@ pub(crate) fn function_constructor_blocked(
     _args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    let msg = v8::String::new(scope, "Function constructor is not allowed in this context").unwrap();
+    let msg =
+        v8::String::new(scope, "Function constructor is not allowed in this context").unwrap();
     let err = v8::Exception::type_error(scope, msg);
     scope.throw_exception(err);
     retval.set_undefined();

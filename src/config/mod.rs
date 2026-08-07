@@ -276,8 +276,7 @@ impl NanoConfig {
 
     /// Validate the configuration (legacy method)
     pub fn validate(&self) -> anyhow::Result<()> {
-        validate_nano_config(self, None)
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        validate_nano_config(self, None).map_err(|e| anyhow::anyhow!("{}", e))
     }
 }
 
@@ -290,7 +289,10 @@ impl NanoConfig {
 /// - Timeout within bounds (1-300 seconds)
 /// - Worker count within bounds (1-32)
 /// - Environment variable keys are valid
-pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) -> Result<(), ValidationErrors> {
+pub fn validate_config(
+    config: &AppConfig,
+    base_path: Option<&std::path::Path>,
+) -> Result<(), ValidationErrors> {
     let mut errors = ValidationErrors::new();
 
     // Validate hostname
@@ -323,10 +325,7 @@ pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) 
                 full_path.display()
             ));
         } else if !full_path.is_file() {
-            errors.add(format!(
-                "entrypoint '{}' is not a file",
-                config.entrypoint
-            ));
+            errors.add(format!("entrypoint '{}' is not a file", config.entrypoint));
         }
     }
 
@@ -364,10 +363,7 @@ pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) 
             errors.add("environment variable key cannot be empty");
         }
         if key.contains("..") || key.contains('/') || key.contains('\\') {
-            errors.add(format!(
-                "suspicious environment variable key: '{}'",
-                key
-            ));
+            errors.add(format!("suspicious environment variable key: '{}'", key));
         }
         if value.len() > 65536 {
             errors.add(format!(
@@ -390,7 +386,8 @@ pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) 
                 if disk_config.base_path.is_empty() {
                     errors.add("vfs_disk.base_path cannot be empty");
                 } else if disk_config.base_path.contains("..") {
-                    errors.add("vfs_disk.base_path contains '..' which is not allowed for security");
+                    errors
+                        .add("vfs_disk.base_path contains '..' which is not allowed for security");
                 }
             }
         }
@@ -429,7 +426,10 @@ pub fn validate_config(config: &AppConfig, base_path: Option<&std::path::Path>) 
 /// - Maximum 1000 apps (DoS prevention)
 /// - No duplicate hostnames (case-insensitive)
 /// - Each app passes individual validation
-pub fn validate_nano_config(config: &NanoConfig, base_path: Option<&std::path::Path>) -> Result<(), ValidationErrors> {
+pub fn validate_nano_config(
+    config: &NanoConfig,
+    base_path: Option<&std::path::Path>,
+) -> Result<(), ValidationErrors> {
     let mut errors = ValidationErrors::new();
 
     // Check app count bounds
@@ -583,7 +583,10 @@ mod tests {
 
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("duplicate hostname"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate hostname"));
     }
 
     #[test]

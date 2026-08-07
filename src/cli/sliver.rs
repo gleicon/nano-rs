@@ -13,10 +13,10 @@ use std::path::PathBuf;
 pub enum SliverCommand {
     /// Create a new sliver from a running app or directory
     Create(SliverCreateArgs),
-    
+
     /// List all slivers
     List(SliverListArgs),
-    
+
     /// Delete a sliver by name
     Delete(SliverDeleteArgs),
 }
@@ -26,19 +26,19 @@ pub enum SliverCommand {
 pub struct SliverCreateArgs {
     /// Hostname of the app to snapshot (optional when using --from-dir)
     pub hostname: Option<String>,
-    
+
     /// Output file path for the sliver
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
-    
+
     /// Name for the sliver (defaults to hostname if not specified)
     #[arg(short, long)]
     pub name: Option<String>,
-    
+
     /// Tag/version for the sliver
     #[arg(short, long)]
     pub tag: Option<String>,
-    
+
     /// Create sliver from directory (no running app required)
     #[arg(long, value_name = "DIR")]
     pub from_dir: Option<PathBuf>,
@@ -61,7 +61,7 @@ pub struct SliverListArgs {
 pub struct SliverDeleteArgs {
     /// Name of the sliver to delete
     pub name: String,
-    
+
     /// Force deletion without confirmation
     #[arg(short, long)]
     pub force: bool,
@@ -80,10 +80,9 @@ mod tests {
             #[command(subcommand)]
             command: SliverCommand,
         }
-        
-        TestCli::try_parse_from(
-            std::iter::once("nano-rs").chain(args.iter().copied())
-        ).map(|cli| cli.command)
+
+        TestCli::try_parse_from(std::iter::once("nano-rs").chain(args.iter().copied()))
+            .map(|cli| cli.command)
     }
 
     #[test]
@@ -91,7 +90,7 @@ mod tests {
         // Test without "sliver" prefix since we're testing SliverCommand directly
         let result = parse_sliver_command(&["create", "api.example.com"]);
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
-        
+
         if let Ok(SliverCommand::Create(args)) = result {
             assert_eq!(args.hostname, Some("api.example.com".to_string()));
             assert!(args.output.is_none());
@@ -103,12 +102,10 @@ mod tests {
 
     #[test]
     fn test_parse_create_with_output() {
-        let result = parse_sliver_command(&[
-            "create", "api.example.com",
-            "--output", "./api-v1.sliver"
-        ]);
+        let result =
+            parse_sliver_command(&["create", "api.example.com", "--output", "./api-v1.sliver"]);
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
-        
+
         if let Ok(SliverCommand::Create(args)) = result {
             assert_eq!(args.hostname, Some("api.example.com".to_string()));
             assert_eq!(args.output, Some(PathBuf::from("./api-v1.sliver")));
@@ -118,12 +115,15 @@ mod tests {
     #[test]
     fn test_parse_create_with_name_and_tag() {
         let result = parse_sliver_command(&[
-            "create", "api.example.com",
-            "--name", "api-prod",
-            "--tag", "v1.0"
+            "create",
+            "api.example.com",
+            "--name",
+            "api-prod",
+            "--tag",
+            "v1.0",
         ]);
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
-        
+
         if let Ok(SliverCommand::Create(args)) = result {
             assert_eq!(args.hostname, Some("api.example.com".to_string()));
             assert_eq!(args.name, Some("api-prod".to_string()));
@@ -135,12 +135,15 @@ mod tests {
     fn test_parse_create_from_dir() {
         let result = parse_sliver_command(&[
             "create",
-            "--from-dir", "./dist",
-            "--name", "myapp",
-            "--tag", "v1.0"
+            "--from-dir",
+            "./dist",
+            "--name",
+            "myapp",
+            "--tag",
+            "v1.0",
         ]);
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
-        
+
         if let Ok(SliverCommand::Create(args)) = result {
             assert_eq!(args.hostname, None);
             assert_eq!(args.from_dir, Some(PathBuf::from("./dist")));
@@ -153,12 +156,15 @@ mod tests {
     fn test_parse_create_from_dir_with_hostname() {
         // Test that --from-dir can be combined with hostname
         let result = parse_sliver_command(&[
-            "create", "app.example.com",
-            "--from-dir", "./dist",
-            "--name", "myapp"
+            "create",
+            "app.example.com",
+            "--from-dir",
+            "./dist",
+            "--name",
+            "myapp",
         ]);
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
-        
+
         if let Ok(SliverCommand::Create(args)) = result {
             assert_eq!(args.hostname, Some("app.example.com".to_string()));
             assert_eq!(args.from_dir, Some(PathBuf::from("./dist")));

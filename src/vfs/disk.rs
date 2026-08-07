@@ -125,7 +125,7 @@ impl DiskBackend {
         // Split namespace from path (format: "namespace::path" or just "path" if no namespace)
         let (namespace, subpath) = match path_str.find("::") {
             Some(idx) => (&path_str[..idx], &path_str[idx + 2..]),
-            None => ("", path_str),  // Empty namespace means no namespace prefix
+            None => ("", path_str), // Empty namespace means no namespace prefix
         };
 
         let mut fs_path = if namespace.is_empty() {
@@ -158,7 +158,11 @@ impl DiskBackend {
     /// Perform atomic write (write to temp, then rename)
     async fn atomic_write(path: &Path, content: &[u8]) -> VfsResult<()> {
         // Create temp file path
-        let temp_path = path.with_extension(format!("tmp.{}.{}", std::process::id(), rand::random::<u32>()));
+        let temp_path = path.with_extension(format!(
+            "tmp.{}.{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
 
         // Write to temp file
         let result = async {
@@ -258,7 +262,12 @@ impl DiskBackend {
     }
 
     /// Check write bounds against configured resource constants
-    fn check_write_bounds(&self, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
+    fn check_write_bounds(
+        &self,
+        content_len: usize,
+        is_new: bool,
+        old_size: usize,
+    ) -> VfsResult<()> {
         let file_size_max = self.limits.file_size_bytes_max;
         let file_count_max = self.limits.files_count_max;
         let total_storage_max = self.limits.total_storage_bytes_max;
@@ -350,7 +359,8 @@ impl VfsBackend for DiskBackend {
             if delta > 0 {
                 self.total_bytes.fetch_add(delta as usize, Ordering::SeqCst);
             } else if delta < 0 {
-                self.total_bytes.fetch_sub((-delta) as usize, Ordering::SeqCst);
+                self.total_bytes
+                    .fetch_sub((-delta) as usize, Ordering::SeqCst);
             }
         }
 
@@ -400,17 +410,15 @@ impl VfsBackend for DiskBackend {
     async fn metadata(&self, path: &VfsPath) -> VfsResult<VfsFile> {
         let fs_path = self.to_filesystem_path(path);
 
-        let meta = fs::metadata(&fs_path)
-            .await
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => VfsError::NotFound {
-                    path: path.to_string(),
-                },
-                std::io::ErrorKind::PermissionDenied => VfsError::PermissionDenied {
-                    path: path.to_string(),
-                },
-                _ => VfsError::IoError(format!("Failed to get metadata: {e}")),
-            })?;
+        let meta = fs::metadata(&fs_path).await.map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => VfsError::NotFound {
+                path: path.to_string(),
+            },
+            std::io::ErrorKind::PermissionDenied => VfsError::PermissionDenied {
+                path: path.to_string(),
+            },
+            _ => VfsError::IoError(format!("Failed to get metadata: {e}")),
+        })?;
 
         if !meta.is_file() {
             return Err(VfsError::NotFound {
@@ -442,17 +450,15 @@ impl VfsBackend for DiskBackend {
     async fn list_dir(&self, path: &VfsPath) -> VfsResult<Vec<VfsPath>> {
         let fs_path = self.to_filesystem_path(path);
 
-        let mut entries = fs::read_dir(&fs_path)
-            .await
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => VfsError::NotFound {
-                    path: path.to_string(),
-                },
-                std::io::ErrorKind::PermissionDenied => VfsError::PermissionDenied {
-                    path: path.to_string(),
-                },
-                _ => VfsError::IoError(format!("Failed to read directory: {e}")),
-            })?;
+        let mut entries = fs::read_dir(&fs_path).await.map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => VfsError::NotFound {
+                path: path.to_string(),
+            },
+            std::io::ErrorKind::PermissionDenied => VfsError::PermissionDenied {
+                path: path.to_string(),
+            },
+            _ => VfsError::IoError(format!("Failed to read directory: {e}")),
+        })?;
 
         let mut paths = Vec::new();
 
@@ -475,12 +481,12 @@ impl VfsBackend for DiskBackend {
                 format!("{}/{}", path.as_str(), name)
             };
 
-            paths.push(VfsPath::new(&child_path).map_err(|e| {
-                VfsError::InvalidPath {
+            paths.push(
+                VfsPath::new(&child_path).map_err(|e| VfsError::InvalidPath {
                     path: child_path.clone(),
                     reason: format!("Invalid path generated: {e}"),
-                }
-            })?);
+                })?,
+            );
         }
 
         Ok(paths)
@@ -575,7 +581,9 @@ mod tests {
     async fn test_disk_backend_quota_file_size() {
         let temp_dir = TempDir::new().unwrap();
         let limits = ResourceLimits::test_limits(); // 100 byte limit
-        let backend = DiskBackend::with_limits(temp_dir.path(), limits).await.unwrap();
+        let backend = DiskBackend::with_limits(temp_dir.path(), limits)
+            .await
+            .unwrap();
 
         let path = VfsPath::new("app1::large.txt").unwrap();
         let content = vec![0u8; 200]; // 200 bytes > 100 limit
@@ -588,7 +596,9 @@ mod tests {
     async fn test_disk_backend_quota_file_count() {
         let temp_dir = TempDir::new().unwrap();
         let limits = ResourceLimits::test_limits(); // 5 file limit
-        let backend = DiskBackend::with_limits(temp_dir.path(), limits).await.unwrap();
+        let backend = DiskBackend::with_limits(temp_dir.path(), limits)
+            .await
+            .unwrap();
 
         // Create 5 files (the limit)
         for i in 0..5 {
@@ -653,9 +663,21 @@ mod tests {
     #[tokio::test]
     async fn test_disk_backend_sanitize_namespace() {
         // Test various namespace sanitizations
-        assert_eq!(DiskBackend::sanitize_namespace("api.example.com"), "api.example.com");
-        assert_eq!(DiskBackend::sanitize_namespace("api::example::com"), "api__example__com");
-        assert_eq!(DiskBackend::sanitize_namespace("path/with/slash"), "path_with_slash");
-        assert_eq!(DiskBackend::sanitize_namespace("path\\with\\backslash"), "path_with_backslash");
+        assert_eq!(
+            DiskBackend::sanitize_namespace("api.example.com"),
+            "api.example.com"
+        );
+        assert_eq!(
+            DiskBackend::sanitize_namespace("api::example::com"),
+            "api__example__com"
+        );
+        assert_eq!(
+            DiskBackend::sanitize_namespace("path/with/slash"),
+            "path_with_slash"
+        );
+        assert_eq!(
+            DiskBackend::sanitize_namespace("path\\with\\backslash"),
+            "path_with_backslash"
+        );
     }
 }

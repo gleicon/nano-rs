@@ -220,16 +220,17 @@ fn compute_checksum(path: &Path) -> anyhow::Result<(String, SystemTime)> {
     use sha2::{Digest, Sha256};
     use std::fs;
 
-    let content = fs::read(path)
-        .map_err(|e| anyhow::anyhow!("Failed to read file for checksum: {}", e))?;
+    let content =
+        fs::read(path).map_err(|e| anyhow::anyhow!("Failed to read file for checksum: {}", e))?;
 
     let mut hasher = Sha256::new();
     hasher.update(&content);
     let checksum = format!("{:x}", hasher.finalize());
 
-    let metadata = fs::metadata(path)
-        .map_err(|e| anyhow::anyhow!("Failed to get file metadata: {}", e))?;
-    let modified = metadata.modified()
+    let metadata =
+        fs::metadata(path).map_err(|e| anyhow::anyhow!("Failed to get file metadata: {}", e))?;
+    let modified = metadata
+        .modified()
         .map_err(|e| anyhow::anyhow!("Failed to get modification time: {}", e))?;
 
     Ok((checksum, modified))

@@ -245,21 +245,22 @@ impl HttpClient {
         }
 
         // Execute the request
-        let response = self.client
-            .execute(req_builder.build()
-                .map_err(|e| HttpClientError::Network(format!("Failed to build request: {}", e)))?)
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    HttpClientError::Timeout(self.timeout)
-                } else {
-                    HttpClientError::Network(format!("Request failed: {}", e))
-                }
-            })?;
+        let response =
+            self.client
+                .execute(req_builder.build().map_err(|e| {
+                    HttpClientError::Network(format!("Failed to build request: {}", e))
+                })?)
+                .await
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        HttpClientError::Timeout(self.timeout)
+                    } else {
+                        HttpClientError::Network(format!("Request failed: {}", e))
+                    }
+                })?;
 
         // Extract response information
-        let status = StatusCode::from_u16(response.status().as_u16())
-            .unwrap_or(StatusCode::OK);
+        let status = StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::OK);
         let final_url = response.url().to_string();
 
         // Extract headers
@@ -275,11 +276,14 @@ impl HttpClient {
             if content_length > self.max_response_size as u64 {
                 return Err(HttpClientError::ResponseTooLarge(self.max_response_size));
             }
-            Some(Bytes::from(response.bytes().await
-                .map_err(|e| HttpClientError::Network(format!("Failed to read body: {}", e)))?))
+            Some(Bytes::from(response.bytes().await.map_err(|e| {
+                HttpClientError::Network(format!("Failed to read body: {}", e))
+            })?))
         } else {
             // No content length, read with size limit
-            let bytes = response.bytes().await
+            let bytes = response
+                .bytes()
+                .await
                 .map_err(|e| HttpClientError::Network(format!("Failed to read body: {}", e)))?;
             if bytes.len() > self.max_response_size {
                 return Err(HttpClientError::ResponseTooLarge(self.max_response_size));
@@ -322,7 +326,10 @@ impl Default for HttpClient {
 /// Check if a header is dangerous and should be filtered
 fn is_dangerous_header(name: &str) -> bool {
     let lower = name.to_lowercase();
-    matches!(lower.as_str(), "host" | "content-length" | "transfer-encoding")
+    matches!(
+        lower.as_str(),
+        "host" | "content-length" | "transfer-encoding"
+    )
 }
 
 /// Check if a host is a private/internal address (SSRF prevention).
@@ -335,7 +342,7 @@ fn is_dangerous_header(name: &str) -> bool {
 fn is_private_ip(host: &str) -> bool {
     // Strip IPv6 bracket notation
     let host_clean = if host.starts_with('[') && host.ends_with(']') {
-        &host[1..host.len()-1]
+        &host[1..host.len() - 1]
     } else {
         host
     };
@@ -348,7 +355,8 @@ fn is_private_ip(host: &str) -> bool {
                     || ipv4.is_loopback()   // 127/8
                     || ipv4.is_link_local() // 169.254/16
                     || ipv4.is_unspecified() // 0.0.0.0
-                    || (octets[0] == 100 && (64..=127).contains(&octets[1])) // CGNAT 100.64/10
+                    || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                // CGNAT 100.64/10
                 {
                     return true;
                 }
@@ -374,7 +382,8 @@ fn is_private_ip(host: &str) -> bool {
                         && is_private_ip(&std::net::Ipv4Addr::new(
                             (segments[6] >> 8) as u8, (segments[6] & 0xff) as u8,
                             (segments[7] >> 8) as u8, (segments[7] & 0xff) as u8,
-                        ).to_string())) // 64:ff9b::/96 NAT64 (RFC 6052)
+                        ).to_string()))
+                // 64:ff9b::/96 NAT64 (RFC 6052)
                 {
                     return true;
                 }
@@ -422,7 +431,8 @@ mod tests {
             Err(e) => panic!("unexpected error: {e}"),
             Ok(response) => assert!(
                 response.status.is_success(),
-                "expected 2xx from example.com, got {}", response.status
+                "expected 2xx from example.com, got {}",
+                response.status
             ),
         }
     }
@@ -439,7 +449,8 @@ mod tests {
             Err(e) => panic!("unexpected error: {e}"),
             Ok(response) => assert!(
                 response.status.is_success(),
-                "expected 2xx from example.com, got {}", response.status
+                "expected 2xx from example.com, got {}",
+                response.status
             ),
         }
     }
@@ -451,7 +462,8 @@ mod tests {
         let result = client.get("https://httpbin.org/get").await;
         assert!(
             matches!(result, Err(HttpClientError::Timeout(_))),
-            "1ms timeout should fire, got: {:?}", result
+            "1ms timeout should fire, got: {:?}",
+            result
         );
     }
 
@@ -548,14 +560,17 @@ mod tests {
 
         // httpbin.org/post echoes back the request body/headers — best POST test target.
         // Skip gracefully on network errors or transient 5xx (CI air-gap / service down).
-        let result = client.post("https://httpbin.org/post", Some(headers), body).await;
+        let result = client
+            .post("https://httpbin.org/post", Some(headers), body)
+            .await;
         match result {
             Err(HttpClientError::Network(_)) | Err(HttpClientError::Timeout(_)) => return,
             Err(e) => panic!("unexpected error: {e}"),
             Ok(response) if response.status.is_server_error() => return,
             Ok(response) => assert!(
                 response.status.is_success(),
-                "expected 2xx from httpbin.org/post, got {}", response.status
+                "expected 2xx from httpbin.org/post, got {}",
+                response.status
             ),
         }
     }
@@ -572,7 +587,9 @@ mod tests {
         ];
 
         // This should not fail, but Host header should be filtered
-        let result = client.request("GET", "https://httpbin.org/get", Some(headers), None).await;
+        let result = client
+            .request("GET", "https://httpbin.org/get", Some(headers), None)
+            .await;
 
         // The request should succeed (Host is just filtered, not rejected)
         // httpbin will echo back the headers it received

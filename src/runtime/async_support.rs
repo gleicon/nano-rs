@@ -30,10 +30,10 @@ const MAX_PROMISE_WAIT_TIME: Duration = Duration::from_secs(30);
 /// // v147 API pattern
 /// let ctx_scope = v8::ContextScope::new(&mut scope, context);
 /// let mut ctx_scope = ctx_scope.init();
-/// 
+///
 /// // Execute JS that returns a Promise
 /// let result = script.run(&mut ctx_scope).unwrap();
-/// 
+///
 /// // If it's a Promise, resolve it
 /// if result.is_promise() {
 ///     let promise = result.cast::<v8::Promise>();
@@ -46,8 +46,7 @@ const MAX_PROMISE_WAIT_TIME: Duration = Duration::from_secs(30);
 pub fn resolve_promise_with_async<'a>(
     scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
     promise: v8::Local<'a, v8::Promise>,
-) -> anyhow::Result<v8::Local<'a, v8::Value>>
-{
+) -> anyhow::Result<v8::Local<'a, v8::Value>> {
     let start_time = Instant::now();
     let mut iteration_count = 0u32;
 
@@ -88,7 +87,8 @@ pub fn resolve_promise_with_async<'a>(
             }
             v8::PromiseState::Rejected => {
                 let error = promise.result(scope);
-                let error_str = error.to_string(scope)
+                let error_str = error
+                    .to_string(scope)
                     .map(|s| s.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "Promise rejected".to_string());
                 return Err(anyhow::anyhow!("Promise rejected: {}", error_str));
@@ -114,8 +114,7 @@ pub fn resolve_promise_with_timeout<'a>(
     scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
     promise: v8::Local<'a, v8::Promise>,
     timeout_ms: u64,
-) -> anyhow::Result<v8::Local<'a, v8::Value>>
-{
+) -> anyhow::Result<v8::Local<'a, v8::Value>> {
     let start_time = Instant::now();
     let timeout = Duration::from_millis(timeout_ms);
     let mut iteration_count = 0u32;
@@ -150,7 +149,8 @@ pub fn resolve_promise_with_timeout<'a>(
             }
             v8::PromiseState::Rejected => {
                 let error = promise.result(scope);
-                let error_str = error.to_string(scope)
+                let error_str = error
+                    .to_string(scope)
                     .map(|s| s.to_rust_string_lossy(scope))
                     .unwrap_or_else(|| "Promise rejected".to_string());
                 return Err(anyhow::anyhow!("Promise rejected: {}", error_str));
@@ -188,8 +188,7 @@ pub fn resolve_promise_with_timeout<'a>(
 pub fn resolve_if_promise<'a>(
     scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
     value: v8::Local<'a, v8::Value>,
-) -> anyhow::Result<v8::Local<'a, v8::Value>>
-{
+) -> anyhow::Result<v8::Local<'a, v8::Value>> {
     if value.is_promise() {
         let promise = value.cast::<v8::Promise>();
         resolve_promise_with_async(scope, promise)

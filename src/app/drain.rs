@@ -55,7 +55,7 @@ impl RequestDrain {
 
         // Acquire permit to wait for drain
         let permit_future = self.drain_semaphore.acquire();
-        
+
         match tokio::time::timeout(timeout, permit_future).await {
             Ok(Ok(_permit)) => {
                 // Successfully drained
@@ -71,14 +71,14 @@ impl RequestDrain {
     /// Wait for drain with polling
     pub async fn await_complete_polling(&self, timeout: Duration, poll_interval: Duration) -> bool {
         let start = tokio::time::Instant::now();
-        
+
         while start.elapsed() < timeout {
             if self.active_count() == 0 {
                 return true;
             }
             sleep(poll_interval).await;
         }
-        
+
         // Final check
         self.active_count() == 0
     }
@@ -116,15 +116,15 @@ mod tests {
     #[tokio::test]
     async fn test_request_drain_basic() {
         let drain = RequestDrain::new();
-        
+
         // Simulate requests
         drain.request_started();
         drain.request_started();
         assert_eq!(drain.active_count(), 2);
-        
+
         drain.request_completed();
         assert_eq!(drain.active_count(), 1);
-        
+
         drain.request_completed();
         assert_eq!(drain.active_count(), 0);
     }
@@ -132,19 +132,19 @@ mod tests {
     #[tokio::test]
     async fn test_drain_handle() {
         let drain = RequestDrain::new();
-        
+
         {
             let _handle = DrainHandle::new(drain.clone());
             assert_eq!(drain.active_count(), 1);
         }
-        
+
         assert_eq!(drain.active_count(), 0);
     }
 
     #[tokio::test]
     async fn test_await_complete_empty() {
         let drain = RequestDrain::new();
-        
+
         // Should return immediately when empty
         let result = drain.await_complete(Duration::from_millis(100)).await;
         assert!(result);
@@ -153,10 +153,10 @@ mod tests {
     #[tokio::test]
     async fn test_await_complete_timeout() {
         let drain = RequestDrain::new();
-        
+
         // Start a request but never complete it
         drain.request_started();
-        
+
         // Should timeout
         let result = drain.await_complete(Duration::from_millis(50)).await;
         assert!(!result);

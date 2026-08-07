@@ -5,9 +5,9 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::v8::platform;
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 
 fn init_platform() {
     platform::initialize_platform().expect("Failed to initialize V8 platform");
@@ -32,7 +32,9 @@ fn bench_rapid_file_operations() {
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
     // Rapid create/delete operations
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(
+        scope,
+        "
         const fs = require('fs');
         const start = performance.now();
         
@@ -50,16 +52,21 @@ fn bench_rapid_file_operations() {
         }
         
         performance.now() - start
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(scope, code, None).unwrap();
     let result = script.run(scope).unwrap();
     let duration_ms = result.to_number(scope).unwrap().value();
-    
+
     println!("100 write/read/delete cycles took: {:.2}ms", duration_ms);
-    
+
     // Should complete in reasonable time (< 5 seconds for 100 operations)
-    assert!(duration_ms < 5000.0, "Operations should complete in under 5 seconds");
+    assert!(
+        duration_ms < 5000.0,
+        "Operations should complete in under 5 seconds"
+    );
 }
 
 /// Test memory usage under high load
@@ -81,7 +88,9 @@ fn test_memory_under_load() {
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
     // Create and read many files
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(
+        scope,
+        "
         const fs = require('fs');
         const data = new Uint8Array(1024); // 1KB of zeros
         
@@ -101,12 +110,14 @@ fn test_memory_under_load() {
         }
         
         'completed'
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(scope, code, None).unwrap();
     let result = script.run(scope).unwrap();
     let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-    
+
     assert_eq!(result_str, "completed", "Memory test should complete");
 }
 
@@ -119,13 +130,13 @@ fn test_traversal_blocked_under_load() {
         VfsNamespace::from_hostname("bench.example.com"),
         Arc::new(MemoryBackend::default()),
     ));
-    
+
     // Create a legitimate file
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         vfs.write("/legit.txt", b"legitimate file").await.unwrap();
     });
-    
+
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
@@ -136,7 +147,9 @@ fn test_traversal_blocked_under_load() {
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
     // Multiple traversal attempts
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(
+        scope,
+        "
         const fs = require('fs');
         const results = [];
         
@@ -154,18 +167,26 @@ fn test_traversal_blocked_under_load() {
         const legit = fs.readFileSync('/legit.txt', 'utf8');
         
         results.filter(r => r === 'EINVAL').length + ':' + legit
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(scope, code, None).unwrap();
     let result = script.run(scope).unwrap();
     let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
-    
+
     let parts: Vec<&str> = result_str.split(':').collect();
     let blocked_count: i32 = parts[0].parse().unwrap();
     let legit_content = parts[1];
-    
-    assert_eq!(blocked_count, 50, "All 50 traversal attempts should be blocked");
-    assert_eq!(legit_content, "legitimate file", "Legitimate file should still be accessible");
+
+    assert_eq!(
+        blocked_count, 50,
+        "All 50 traversal attempts should be blocked"
+    );
+    assert_eq!(
+        legit_content, "legitimate file",
+        "Legitimate file should still be accessible"
+    );
 }
 
 /// Benchmark security check performance
@@ -189,7 +210,9 @@ fn bench_security_validation() {
 
     nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-    let code = v8::String::new(scope, "
+    let code = v8::String::new(
+        scope,
+        "
         const fs = require('fs');
         const start = performance.now();
         
@@ -216,16 +239,24 @@ fn bench_security_validation() {
         }
         
         performance.now() - start
-    ").unwrap();
-    
+    ",
+    )
+    .unwrap();
+
     let script = v8::Script::compile(scope, code, None).unwrap();
     let result = script.run(scope).unwrap();
     let js_duration_ms = result.to_number(scope).unwrap().value();
-    
+
     let total_duration = start.elapsed();
-    
-    println!("1000 path validations took: {:?} (JS time: {:.2}ms)", total_duration, js_duration_ms);
-    
+
+    println!(
+        "1000 path validations took: {:?} (JS time: {:.2}ms)",
+        total_duration, js_duration_ms
+    );
+
     // Should be reasonably fast
-    assert!(total_duration.as_secs() < 5, "Security checks should complete in under 5 seconds");
+    assert!(
+        total_duration.as_secs() < 5,
+        "Security checks should complete in under 5 seconds"
+    );
 }

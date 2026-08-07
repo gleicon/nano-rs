@@ -2,8 +2,8 @@
 //!
 //! Tests multi-process coordination, hot-loading, and cache invalidation.
 
+use nano::sliver::auto_cache::{get_optimized_handler_source, is_sliver_available, SliverCache};
 use std::time::Duration;
-use nano::sliver::auto_cache::{SliverCache, get_optimized_handler_source, is_sliver_available};
 use tempfile::TempDir;
 
 /// Test cache key generation is deterministic
@@ -27,7 +27,10 @@ fn test_cache_key_different_hostnames() {
     let key1 = cache.cache_path("example.com", "/app/index.js");
     let key2 = cache.cache_path("other.com", "/app/index.js");
 
-    assert_ne!(key1, key2, "Different hostnames should have different cache paths");
+    assert_ne!(
+        key1, key2,
+        "Different hostnames should have different cache paths"
+    );
 }
 
 /// Test empty cache statistics
@@ -51,7 +54,7 @@ fn test_generation_lock() {
         .as_nanos();
     let temp_path = std::env::temp_dir().join(format!("nano-lock-test-{}", unique_id));
     std::fs::create_dir_all(&temp_path).unwrap();
-    
+
     let cache = SliverCache::with_dir(temp_path.clone()).unwrap();
 
     // Use unique names
@@ -59,12 +62,18 @@ fn test_generation_lock() {
     let entrypoint = "/app/lock-test.js";
 
     // Initially no lock
-    assert!(!cache.is_generation_in_progress(hostname, entrypoint), "Should have no lock initially");
+    assert!(
+        !cache.is_generation_in_progress(hostname, entrypoint),
+        "Should have no lock initially"
+    );
 
     // Acquire lock
     let acquired = cache.try_acquire_generation_lock(hostname, entrypoint);
     assert!(acquired, "Should acquire lock successfully");
-    assert!(cache.is_generation_in_progress(hostname, entrypoint), "Lock should be in progress");
+    assert!(
+        cache.is_generation_in_progress(hostname, entrypoint),
+        "Lock should be in progress"
+    );
 
     // Second acquire should fail
     let second_acquire = cache.try_acquire_generation_lock(hostname, entrypoint);
@@ -72,7 +81,10 @@ fn test_generation_lock() {
 
     // Release lock
     cache.release_generation_lock(hostname, entrypoint);
-    assert!(!cache.is_generation_in_progress(hostname, entrypoint), "Lock should be released");
+    assert!(
+        !cache.is_generation_in_progress(hostname, entrypoint),
+        "Lock should be released"
+    );
 
     // Can acquire again after release
     let reacquired = cache.try_acquire_generation_lock(hostname, entrypoint);

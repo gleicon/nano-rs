@@ -25,7 +25,7 @@ impl VfsPath {
     /// Create a new VfsPath from a string, normalizing and validating it
     pub fn new(path: impl AsRef<str>) -> Result<Self, VfsError> {
         let path = path.as_ref();
-        
+
         // Check length limit
         if path.len() > MAX_PATH_LENGTH {
             return Err(VfsError::InvalidPath {
@@ -33,7 +33,7 @@ impl VfsPath {
                 reason: format!("Path exceeds maximum length of {} bytes", MAX_PATH_LENGTH),
             });
         }
-        
+
         // Check for null bytes
         if path.contains('\0') {
             return Err(VfsError::InvalidPath {
@@ -41,10 +41,10 @@ impl VfsPath {
                 reason: "Path contains null bytes".to_string(),
             });
         }
-        
+
         // Normalize the path
         let normalized = Self::normalize(path);
-        
+
         // Check for traversal attempts after normalization
         // Only reject ".." as a full path segment, not as part of filenames
         if normalized.split('/').any(|segment| segment == "..") {
@@ -53,7 +53,7 @@ impl VfsPath {
                 reason: "Path contains '..' segment which is not allowed".to_string(),
             });
         }
-        
+
         // Empty path check
         if normalized.is_empty() {
             return Err(VfsError::InvalidPath {
@@ -61,10 +61,10 @@ impl VfsPath {
                 reason: "Path is empty after normalization".to_string(),
             });
         }
-        
+
         Ok(Self(normalized))
     }
-    
+
     /// Normalize a path string:
     /// - Strip leading/trailing slashes
     /// - Collapse multiple slashes to single
@@ -76,12 +76,12 @@ impl VfsPath {
             .collect::<Vec<_>>()
             .join("/")
     }
-    
+
     /// Get the path as a string slice
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    
+
     /// Get the parent directory path, if any
     pub fn parent(&self) -> Option<Self> {
         self.0.rfind('/').map(|idx| {
@@ -89,12 +89,15 @@ impl VfsPath {
             Self(parent.to_string())
         })
     }
-    
+
     /// Get the file name component, if any
     pub fn file_name(&self) -> Option<&str> {
-        self.0.rfind('/').map(|idx| &self.0[idx + 1..]).or(Some(&self.0))
+        self.0
+            .rfind('/')
+            .map(|idx| &self.0[idx + 1..])
+            .or(Some(&self.0))
     }
-    
+
     /// Join with another path component
     pub fn join(&self, other: impl AsRef<str>) -> Result<Self, VfsError> {
         let other = other.as_ref();
@@ -150,7 +153,7 @@ impl VfsFile {
             size,
         }
     }
-    
+
     /// Update content and modified timestamp
     pub fn update_content(&mut self, content: Vec<u8>) {
         self.size = content.len();
@@ -160,7 +163,7 @@ impl VfsFile {
 }
 
 /// Error types for VFS operations
-/// 
+///
 /// Error codes match Node.js fs error conventions:
 /// - ENOENT: File not found
 /// - EACCES: Permission denied
@@ -173,23 +176,27 @@ pub enum VfsError {
     /// File or directory not found (ENOENT)
     #[error("ENOENT: no such file or directory: {path}")]
     NotFound { path: String },
-    
+
     /// Permission denied (EACCES)
     #[error("EACCES: permission denied: {path}")]
     PermissionDenied { path: String },
-    
+
     /// File already exists (EEXIST)
     #[error("EEXIST: file already exists: {path}")]
     AlreadyExists { path: String },
-    
+
     /// Invalid path or argument (EINVAL)
     #[error("EINVAL: {reason}: {path}")]
     InvalidPath { path: String, reason: String },
-    
+
     /// Resource quota exceeded (EQUOTA)
     #[error("EQUOTA: quota exceeded for {resource}: limit={limit}, current={current}")]
-    QuotaExceeded { resource: String, limit: u32, current: u32 },
-    
+    QuotaExceeded {
+        resource: String,
+        limit: u32,
+        current: u32,
+    },
+
     /// Generic I/O error (EIO)
     #[error("EIO: I/O error: {0}")]
     IoError(String),
@@ -251,14 +258,18 @@ impl Default for ResourceLimits {
 
 impl ResourceLimits {
     /// Create limits with custom values
-    pub fn new(file_size_bytes_max: u32, total_storage_bytes_max: u32, files_count_max: u32) -> Self {
+    pub fn new(
+        file_size_bytes_max: u32,
+        total_storage_bytes_max: u32,
+        files_count_max: u32,
+    ) -> Self {
         Self {
             file_size_bytes_max,
             total_storage_bytes_max,
             files_count_max,
         }
     }
-    
+
     /// Create limits for testing (very small limits)
     pub fn test_limits() -> Self {
         Self {
@@ -295,12 +306,12 @@ mod tests {
         assert!(VfsPath::new("blog/[...slug].astro").is_ok());
         assert!(VfsPath::new("routes/[[...optional]].ts").is_ok());
         assert!(VfsPath::new("[...path].js").is_ok());
-        
+
         // Files with .. in name (not as segment) should be allowed
         assert!(VfsPath::new("file..name.txt").is_ok());
         assert!(VfsPath::new("foo..bar.js").is_ok());
         assert!(VfsPath::new("test...file.md").is_ok());
-        
+
         // Single . in filenames should be fine
         assert!(VfsPath::new("file.name.txt").is_ok());
     }
@@ -327,7 +338,7 @@ mod tests {
     fn test_vfs_path_parent() {
         let path = VfsPath::new("foo/bar/baz").unwrap();
         assert_eq!(path.parent().unwrap().as_str(), "foo/bar");
-        
+
         let path = VfsPath::new("foo").unwrap();
         assert!(path.parent().is_none());
     }
@@ -336,18 +347,51 @@ mod tests {
     fn test_vfs_path_file_name() {
         let path = VfsPath::new("foo/bar.txt").unwrap();
         assert_eq!(path.file_name(), Some("bar.txt"));
-        
+
         let path = VfsPath::new("foo").unwrap();
         assert_eq!(path.file_name(), Some("foo"));
     }
 
     #[test]
     fn test_vfs_error_codes() {
-        assert_eq!(VfsError::NotFound { path: "/x".to_string() }.code(), "ENOENT");
-        assert_eq!(VfsError::PermissionDenied { path: "/x".to_string() }.code(), "EACCES");
-        assert_eq!(VfsError::AlreadyExists { path: "/x".to_string() }.code(), "EEXIST");
-        assert_eq!(VfsError::InvalidPath { path: "/x".to_string(), reason: "x".to_string() }.code(), "EINVAL");
-        assert_eq!(VfsError::QuotaExceeded { resource: "x".to_string(), limit: 1, current: 2 }.code(), "EQUOTA");
+        assert_eq!(
+            VfsError::NotFound {
+                path: "/x".to_string()
+            }
+            .code(),
+            "ENOENT"
+        );
+        assert_eq!(
+            VfsError::PermissionDenied {
+                path: "/x".to_string()
+            }
+            .code(),
+            "EACCES"
+        );
+        assert_eq!(
+            VfsError::AlreadyExists {
+                path: "/x".to_string()
+            }
+            .code(),
+            "EEXIST"
+        );
+        assert_eq!(
+            VfsError::InvalidPath {
+                path: "/x".to_string(),
+                reason: "x".to_string()
+            }
+            .code(),
+            "EINVAL"
+        );
+        assert_eq!(
+            VfsError::QuotaExceeded {
+                resource: "x".to_string(),
+                limit: 1,
+                current: 2
+            }
+            .code(),
+            "EQUOTA"
+        );
         assert_eq!(VfsError::IoError("x".to_string()).code(), "EIO");
     }
 

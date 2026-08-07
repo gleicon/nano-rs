@@ -216,7 +216,10 @@ pub enum EvictionAction {
 impl EvictionAction {
     /// Check if this action involves any eviction
     pub fn is_eviction(&self) -> bool {
-        matches!(self, EvictionAction::SoftEvict(_) | EvictionAction::HardEvict(_))
+        matches!(
+            self,
+            EvictionAction::SoftEvict(_) | EvictionAction::HardEvict(_)
+        )
     }
 
     /// Check if this is a hard eviction
@@ -326,7 +329,8 @@ impl EvictionManager {
     /// * `metadata` - Initial isolate metadata
     pub fn register_isolate(&mut self, id: IsolateId, metadata: IsolateMetadata) {
         self.isolates.insert(id.clone(), metadata);
-        self.eviction_states.insert(id, IsolateEvictionState::Active);
+        self.eviction_states
+            .insert(id, IsolateEvictionState::Active);
     }
 
     /// Unregister an isolate (e.g., after disposal)
@@ -516,7 +520,8 @@ impl EvictionManager {
     /// * `new_metadata` - Fresh metadata for the replacement
     pub fn reactivate_isolate(&mut self, id: IsolateId, new_metadata: IsolateMetadata) {
         self.isolates.insert(id.clone(), new_metadata);
-        self.eviction_states.insert(id, IsolateEvictionState::Active);
+        self.eviction_states
+            .insert(id, IsolateEvictionState::Active);
     }
 
     /// Get metadata for an isolate
@@ -714,7 +719,9 @@ mod tests {
         assert!(EvictionPolicy::Lru.description().contains("Recently"));
         assert!(EvictionPolicy::Lfu.description().contains("Frequently"));
         assert!(EvictionPolicy::Random.description().contains("Random"));
-        assert!(EvictionPolicy::LargestFirst.description().contains("Largest"));
+        assert!(EvictionPolicy::LargestFirst
+            .description()
+            .contains("Largest"));
     }
 
     #[test]
@@ -771,7 +778,10 @@ mod tests {
         assert!(!soft.is_hard());
         assert_eq!(soft.eviction_count(), 1);
 
-        let hard = EvictionAction::HardEvict(vec![IsolateId::from_string("iso_hard_1"), IsolateId::from_string("iso_hard_2")]);
+        let hard = EvictionAction::HardEvict(vec![
+            IsolateId::from_string("iso_hard_1"),
+            IsolateId::from_string("iso_hard_2"),
+        ]);
         assert!(hard.is_eviction());
         assert!(hard.is_hard());
         assert_eq!(hard.eviction_count(), 2);

@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackendEnum};
 use nano::runtime::fs_polyfill::set_current_vfs;
 use nano::runtime::vfs_bindings::set_current_vfs as set_nano_vfs;
 use nano::v8::platform;
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsBackendEnum, VfsNamespace};
 
 mod v8_test_utils;
 
@@ -39,11 +39,13 @@ fn test_error_code_enoent() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             try {
                 fs.readFileSync('/nonexistent.txt');
@@ -51,13 +53,15 @@ fn test_error_code_enoent() {
             } catch (err) {
                 err.code
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert_eq!(result, "ENOENT", "Error code should be ENOENT");
 }
 
@@ -73,11 +77,13 @@ fn test_error_message_enoent() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             try {
                 fs.readFileSync('/nonexistent.txt');
@@ -85,15 +91,20 @@ fn test_error_message_enoent() {
             } catch (err) {
                 err.message
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert!(result.contains("ENOENT"), "Message should contain ENOENT");
-    assert!(result.contains("nonexistent.txt"), "Message should contain the filename");
+    assert!(
+        result.contains("nonexistent.txt"),
+        "Message should contain the filename"
+    );
 }
 
 /// Test EINVAL error code for invalid paths (path traversal)
@@ -108,11 +119,13 @@ fn test_error_code_einval() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             try {
                 fs.readFileSync('../etc/passwd');
@@ -120,14 +133,19 @@ fn test_error_code_einval() {
             } catch (err) {
                 err.code
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
-    assert_eq!(result, "EINVAL", "Error code should be EINVAL for path traversal");
+
+    assert_eq!(
+        result, "EINVAL",
+        "Error code should be EINVAL for path traversal"
+    );
 }
 
 /// Test error.code property is accessible
@@ -142,11 +160,13 @@ fn test_error_code_property() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             try {
                 fs.readFileSync('/missing.txt');
@@ -154,13 +174,15 @@ fn test_error_code_property() {
             } catch (err) {
                 typeof err.code
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert_eq!(result, "string", "err.code should be a string");
 }
 
@@ -176,11 +198,13 @@ fn test_error_path_property() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             try {
                 fs.readFileSync('/missing.txt');
@@ -188,14 +212,19 @@ fn test_error_path_property() {
             } catch (err) {
                 err.path
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
-    assert!(result.contains("missing.txt"), "err.path should contain the path");
+
+    assert!(
+        result.contains("missing.txt"),
+        "err.path should contain the path"
+    );
 }
 
 /// Test async error handling with callbacks
@@ -210,11 +239,13 @@ fn test_async_error_callback() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             let error_code = null;
             fs.readFile('/nonexistent.txt', function(err, data) {
@@ -223,14 +254,19 @@ fn test_async_error_callback() {
                 }
             });
             error_code
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
-    assert_eq!(result, "ENOENT", "Async callback should receive ENOENT error");
+
+    assert_eq!(
+        result, "ENOENT",
+        "Async callback should receive ENOENT error"
+    );
 }
 
 /// Test try/catch works with sync methods
@@ -245,11 +281,13 @@ fn test_trycatch_sync() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             let caught = false;
             let error_code = '';
@@ -260,14 +298,19 @@ fn test_trycatch_sync() {
                 error_code = err.code;
             }
             caught + ':' + error_code
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
-    assert_eq!(result, "true:ENOENT", "try/catch should work and catch ENOENT");
+
+    assert_eq!(
+        result, "true:ENOENT",
+        "try/catch should work and catch ENOENT"
+    );
 }
 
 /// Test error instanceof Error
@@ -282,11 +325,13 @@ fn test_error_instanceof_error() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             try {
                 fs.readFileSync('/missing.txt');
@@ -294,12 +339,14 @@ fn test_error_instanceof_error() {
             } catch (err) {
                 err instanceof Error
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         result.is_true()
     });
-    
+
     assert!(result, "Error should be instanceof Error");
 }
 
@@ -315,24 +362,28 @@ fn test_nano_fs_error_codes() {
     set_nano_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::vfs_bindings::bind_nano_fs(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             try {
                 Nano.fs.readFileSync('/nonexistent.txt');
                 'no error'
             } catch (err) {
                 err.code
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert_eq!(result, "ENOENT", "Nano.fs should also throw ENOENT");
 }
 
@@ -348,11 +399,13 @@ fn test_error_has_stack() {
     set_current_vfs(Some(vfs));
 
     let mut isolate = v8::Isolate::new(Default::default());
-    
+
     let result = with_v8_context(&mut isolate, |scope, context| {
         nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
 
-        let code = v8::String::new(scope, "
+        let code = v8::String::new(
+            scope,
+            "
             const fs = require('fs');
             try {
                 fs.readFileSync('/missing.txt');
@@ -360,12 +413,14 @@ fn test_error_has_stack() {
             } catch (err) {
                 typeof err.stack
             }
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let script = v8::Script::compile(scope, code, None).unwrap();
         let result = script.run(scope).unwrap();
         let result_str = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
         result_str
     });
-    
+
     assert_eq!(result, "string", "Error should have stack trace");
 }

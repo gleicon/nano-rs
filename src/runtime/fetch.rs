@@ -155,7 +155,7 @@ fn fetch_callback(
     mut retval: v8::ReturnValue,
 ) {
     tracing::info!("fetch() callback invoked");
-    
+
     // Extract URL from arguments (first arg)
     let url = if args.length() > 0 {
         match args.get(0).to_string(scope) {
@@ -175,7 +175,10 @@ fn fetch_callback(
         reject_with_error(
             scope,
             &mut retval,
-            &format!("URL scheme not allowed: {}", url.split("://").next().unwrap_or("")),
+            &format!(
+                "URL scheme not allowed: {}",
+                url.split("://").next().unwrap_or("")
+            ),
         );
         return;
     }
@@ -241,18 +244,22 @@ fn fetch_callback(
     let rt_handle = match crate::worker::pool::with_worker_runtime(|rt| rt.clone()) {
         Some(handle) => handle,
         None => {
-            reject_with_error(scope, &mut retval, "No Tokio runtime available. fetch() must be called from a worker thread.");
+            reject_with_error(
+                scope,
+                &mut retval,
+                "No Tokio runtime available. fetch() must be called from a worker thread.",
+            );
             return;
         }
     };
-    
+
     // Now make the request with fetch state and runtime
     let state_opt = FETCH_STATE.with(|s| s.borrow().as_ref().map(|_| ()));
     if state_opt.is_none() {
         reject_with_error(scope, &mut retval, "Fetch state not initialized");
         return;
     }
-    
+
     // Pause the CPU timer for the duration of the HTTP request.
     // AsyncWaitGuard resumes the timer on drop — panic-safe.
     let _cpu_wait = crate::data_plane::AsyncWaitGuard::begin();
@@ -322,7 +329,8 @@ fn fetch_callback(
             let obj = v8::Object::new(scope);
 
             // Store response data as external
-            let external = v8::External::new(scope, Box::into_raw(response_data) as *mut std::ffi::c_void);
+            let external =
+                v8::External::new(scope, Box::into_raw(response_data) as *mut std::ffi::c_void);
             let external_key = v8::String::new(scope, "__response_data").unwrap();
             obj.set(scope, external_key.into(), external.into());
 
@@ -370,7 +378,9 @@ fn fetch_callback(
             // Copy data into ArrayBuffer
             if let Some(data_ptr) = ab.data() {
                 // SAFETY: data_ptr from V8 ArrayBuffer backing store; valid, exclusively owned, and body_len bytes long
-                let data = unsafe { std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, body_len) };
+                let data = unsafe {
+                    std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, body_len)
+                };
                 data.copy_from_slice(&body_clone_for_ab);
             }
             let uint8_array = v8::Uint8Array::new(scope, ab, 0, body_len).unwrap();
@@ -435,7 +445,7 @@ pub fn response_text_callback(
         retval.set(result.into());
         return;
     }
-    
+
     // Fall back to body property for manually created Response objects
     let body_key = v8::String::new(scope, "body").unwrap();
     if let Some(body_val) = this.get(scope, body_key.into()) {
@@ -448,7 +458,7 @@ pub fn response_text_callback(
             }
         }
     }
-    
+
     // Return empty string if no body
     retval.set(v8::String::new(scope, "").unwrap().into());
 }
@@ -483,7 +493,7 @@ pub fn response_json_callback(
             return;
         }
     };
-    
+
     // Parse the JSON
     let json_str = v8::String::new(scope, &text).unwrap();
     if let Some(json) = v8::json::parse(scope, json_str.into()) {
@@ -520,25 +530,31 @@ pub fn response_arraybuffer_callback(
             Bytes::new()
         }
     };
-    
+
     let ab = v8::ArrayBuffer::new(scope, body_bytes.len());
     if let Some(data_ptr) = ab.data() {
         // SAFETY: data_ptr from V8 ArrayBuffer backing store; valid, exclusively owned, and body_bytes.len() bytes long
-        let dest = unsafe { std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, body_bytes.len()) };
+        let dest = unsafe {
+            std::slice::from_raw_parts_mut(data_ptr.as_ptr() as *mut u8, body_bytes.len())
+        };
         dest.copy_from_slice(&body_bytes);
     }
     retval.set(ab.into());
 }
 
 /// Reject with an error
-fn reject_with_error(scope: &mut v8::PinnedRef<v8::HandleScope>, retval: &mut v8::ReturnValue, message: &str) {
+fn reject_with_error(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    retval: &mut v8::ReturnValue,
+    message: &str,
+) {
     let error_msg = v8::String::new(scope, message).unwrap();
     let error = v8::Exception::type_error(scope, error_msg);
     retval.set(error);
 }
 
 /// Static callback for Response.json() - creates a Response from a JSON object
-/// 
+///
 /// Usage: Response.json(data, options)
 /// - data: any JavaScript value (will be JSON.stringified)
 /// - options: optional { status, headers }
@@ -554,18 +570,18 @@ pub fn response_json_static_callback(
         retval.set_undefined();
         return;
     };
-    
+
     // Serialize data to JSON string
     let json_string = if let Some(json_str) = v8::json::stringify(scope, data) {
         json_str.to_rust_string_lossy(scope)
     } else {
         "null".to_string()
     };
-    
+
     // Get options argument (second argument - optional)
     let mut status = 200;
     let mut headers_obj: Option<v8::Local<v8::Object>> = None;
-    
+
     if args.length() > 1 {
         let options = args.get(1);
         if let Some(opts) = options.to_object(scope) {
@@ -581,27 +597,29 @@ pub fn response_json_static_callback(
                     }
                 }
             }
-            
+
             // Extract headers
             let headers_key = v8::String::new(scope, "headers").unwrap();
-            headers_obj = opts.get(scope, headers_key.into()).and_then(|h| h.to_object(scope));
+            headers_obj = opts
+                .get(scope, headers_key.into())
+                .and_then(|h| h.to_object(scope));
         }
     }
-    
+
     // Create a new Response object
     let response_obj = v8::Object::new(scope);
-    
+
     // Set status property
     let status_key = v8::String::new(scope, "status").unwrap();
     let status_val = v8::Number::new(scope, status as f64);
     response_obj.set(scope, status_key.into(), status_val.into());
-    
+
     // Create headers object with Content-Type: application/json
     let headers = v8::Object::new(scope);
     let content_type_key = v8::String::new(scope, "Content-Type").unwrap();
     let content_type_val = v8::String::new(scope, "application/json").unwrap();
     headers.set(scope, content_type_key.into(), content_type_val.into());
-    
+
     // Add any custom headers from options
     if let Some(hdrs) = headers_obj {
         if let Some(names) = hdrs.get_own_property_names(scope, Default::default()) {
@@ -610,7 +628,8 @@ pub fn response_json_static_callback(
                 if let Some(key) = names.get_index(scope, i) {
                     if let Some(key_str) = key.to_string(scope) {
                         let key_name = key_str.to_rust_string_lossy(scope);
-                        if key_name != "Content-Type" {  // Don't override Content-Type
+                        if key_name != "Content-Type" {
+                            // Don't override Content-Type
                             if let Some(value) = hdrs.get(scope, key.into()) {
                                 if let Some(value_str) = value.to_string(scope) {
                                     let value_string = value_str.to_rust_string_lossy(scope);
@@ -625,16 +644,16 @@ pub fn response_json_static_callback(
             }
         }
     }
-    
+
     // Set headers property
     let headers_key = v8::String::new(scope, "headers").unwrap();
     response_obj.set(scope, headers_key.into(), headers.into());
-    
+
     // Set body property
     let body_key = v8::String::new(scope, "body").unwrap();
     let body_val = v8::String::new(scope, &json_string).unwrap();
     response_obj.set(scope, body_key.into(), body_val.into());
-    
+
     // Return the Response object
     retval.set(response_obj.into());
 }
@@ -659,10 +678,10 @@ mod tests {
     fn test_abort_signal() {
         init_platform();
         let state = FetchState::new().unwrap();
-        
+
         let id = state.register_abort_signal();
         assert!(!state.is_aborted(id));
-        
+
         state.abort(id);
         assert!(state.is_aborted(id));
     }
@@ -671,7 +690,7 @@ mod tests {
     fn test_abort_signal_unknown_id() {
         init_platform();
         let state = FetchState::new().unwrap();
-        
+
         // Unknown ID should return true (treat as aborted for safety)
         assert!(state.is_aborted(99999));
     }

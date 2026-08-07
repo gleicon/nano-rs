@@ -20,11 +20,9 @@
 use anyhow::Result;
 use std::marker::PhantomData;
 
+use crate::limits::isolate::{HEAP_SIZE_BYTES_MAX, HEAP_SIZE_BYTES_PER_ISOLATE};
 use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-use crate::limits::isolate::{HEAP_SIZE_BYTES_PER_ISOLATE, HEAP_SIZE_BYTES_MAX};
-use crate::{
-    assert_precondition, assert_positive, assert_negative, assert_range
-};
+use crate::{assert_negative, assert_positive, assert_precondition, assert_range};
 
 /// V8 snapshot format magic number for validation
 // V8 snapshots start with a 4-byte magic sequence: &[0xD7, 0x3C, 0xD7, 0x3C]
@@ -246,9 +244,7 @@ impl NanoIsolate {
         let creation_thread_id = std::thread::current().id();
 
         // POSTCONDITION: Heap limit is within valid range
-        assert_range!(
-            HEAP_SIZE_BYTES_PER_ISOLATE, 1, HEAP_SIZE_BYTES_MAX
-        );
+        assert_range!(HEAP_SIZE_BYTES_PER_ISOLATE, 1, HEAP_SIZE_BYTES_MAX);
 
         Ok(Self {
             sentinel,
@@ -321,10 +317,7 @@ impl NanoIsolate {
     ///
     /// # Platform Requirement
     /// The V8 platform MUST be initialized before calling this function.
-    pub fn from_snapshot(
-        snapshot_data: &[u8],
-        vfs: IsolateVfs,
-    ) -> Result<Self> {
+    pub fn from_snapshot(snapshot_data: &[u8], vfs: IsolateVfs) -> Result<Self> {
         // PRECONDITION: Platform must be initialized
         assert_precondition!(
             crate::v8::is_initialized(),
@@ -347,11 +340,14 @@ impl NanoIsolate {
             tracing::warn!("Legacy cold sliver marker detected - creating fresh isolate");
             return Self::new_with_vfs(vfs);
         }
-        
+
         // Check for invalid/empty snapshot data
         if snapshot_data.len() < MIN_SNAPSHOT_SIZE {
-            tracing::warn!("Snapshot data too small ({} bytes, minimum {} bytes) - creating fresh isolate",
-                snapshot_data.len(), MIN_SNAPSHOT_SIZE);
+            tracing::warn!(
+                "Snapshot data too small ({} bytes, minimum {} bytes) - creating fresh isolate",
+                snapshot_data.len(),
+                MIN_SNAPSHOT_SIZE
+            );
             return Self::new_with_vfs(vfs);
         }
 
@@ -388,25 +384,27 @@ impl NanoIsolate {
         // Load the snapshot into V8
         // rusty_v8's StartupData supports From<Vec<u8>> via Cow<'static, [u8]>
         let startup_data = v8::StartupData::from(snapshot_data.to_vec());
-        
+
         // Validate the snapshot data is usable
         if !startup_data.is_valid() {
             tracing::warn!("V8 snapshot data failed validation ({} bytes, magic validated) - creating fresh isolate", snapshot_data.len());
             return Self::new_with_vfs(vfs);
         }
-        
-        tracing::info!("V8 snapshot validated ({} bytes), restoring isolate from snapshot", snapshot_data.len());
-        
+
+        tracing::info!(
+            "V8 snapshot validated ({} bytes), restoring isolate from snapshot",
+            snapshot_data.len()
+        );
+
         // Create isolate params with snapshot blob
-        let params = v8::CreateParams::default()
-            .snapshot_blob(startup_data);
-        
+        let params = v8::CreateParams::default().snapshot_blob(startup_data);
+
         // Create isolate from snapshot
         let mut isolate = v8::Isolate::new(params);
-        
+
         // Enable WebAssembly code generation
         isolate.set_allow_wasm_code_generation_callback(allow_wasm_code_generation);
-        
+
         // Create EPT fix sentinel
         let sentinel = {
             let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
@@ -415,12 +413,12 @@ impl NanoIsolate {
             let value: v8::Local<v8::Value> = undefined.into();
             v8::Global::new(&*scope, value)
         };
-        
+
         // Thread ID for affinity checks
         let creation_thread_id = std::thread::current().id();
-        
+
         tracing::debug!("Restored NanoIsolate from snapshot with EPT fix sentinel and VFS");
-        
+
         Ok(Self {
             sentinel,
             isolate,
@@ -477,7 +475,7 @@ impl NanoIsolate {
     pub fn isolate(&mut self) -> &mut v8::OwnedIsolate {
         &mut self.isolate
     }
-    
+
     /// Consume the NanoIsolate and return the inner OwnedIsolate
     ///
     /// This is used for snapshot creation - the OwnedIsolate can be
@@ -487,25 +485,25 @@ impl NanoIsolate {
     /// isolate is extracted for snapshotting.
     pub fn into_inner(self) -> v8::OwnedIsolate {
         use std::mem::ManuallyDrop;
-        
+
         // Wrap fields in ManuallyDrop to prevent automatic dropping
         // when we destructure self
         let mut this = ManuallyDrop::new(self);
-        
+
         // SAFETY: We're extracting isolate and will properly drop other fields
         unsafe {
             // Extract the isolate
             let isolate = std::ptr::read(&this.isolate);
-            
+
             // Explicitly drop the other fields
             std::ptr::drop_in_place(&mut this.sentinel);
             std::ptr::drop_in_place(&mut this.vfs);
             // _not_send_sync is Copy (PhantomData), no need to drop
-            
+
             isolate
         }
     }
-    
+
     /// Create a NanoIsolate using the snapshot creator workflow
     ///
     /// This creates an isolate that can later be serialized to a snapshot blob.
@@ -519,10 +517,10 @@ impl NanoIsolate {
     /// use nano::v8::snapshot::create_snapshot_from_nano;
     ///
     /// initialize_platform().unwrap();
-    /// 
+    ///
     /// // Create isolate for snapshotting with default context
     /// let isolate = NanoIsolate::snapshot_creator().unwrap();
-    /// 
+    ///
     /// // Create snapshot blob (required before dropping snapshot_creator isolate)
     /// let blob = create_snapshot_from_nano(isolate).unwrap();
     /// assert!(!blob.is_empty());
@@ -535,7 +533,7 @@ impl NanoIsolate {
         );
         Self::snapshot_creator_with_vfs(vfs)
     }
-    
+
     /// Create a NanoIsolate using snapshot creator with specific VFS
     ///
     /// This is the primary constructor for creating slivers.
@@ -548,7 +546,7 @@ impl NanoIsolate {
     pub fn snapshot_creator_with_vfs(vfs: IsolateVfs) -> Result<Self> {
         // Create isolate using snapshot_creator API (v139+)
         let mut isolate = v8::Isolate::snapshot_creator(None, None);
-        
+
         // Create a default context for the snapshot
         // V8 requires a default context to be set before create_blob() can work
         // v147 API: Use pin! pattern and init() for HandleScope, direct creation for ContextScope
@@ -576,9 +574,11 @@ impl NanoIsolate {
 
             sentinel
         };
-        
-        tracing::debug!("Created NanoIsolate using snapshot_creator with default context (snapshottable)");
-        
+
+        tracing::debug!(
+            "Created NanoIsolate using snapshot_creator with default context (snapshottable)"
+        );
+
         Ok(Self {
             sentinel,
             isolate,
@@ -645,7 +645,8 @@ impl NanoIsolate {
         if min_bytes > max_bytes {
             tracing::warn!(
                 "set_heap_limits: min_bytes ({}) > max_bytes ({}), clamping min to 0",
-                min_bytes, max_bytes
+                min_bytes,
+                max_bytes
             );
         }
 
@@ -688,7 +689,10 @@ impl NanoIsolate {
         });
 
         self.heap_callback_registered = true;
-        tracing::debug!("Registered near-heap-limit callback with limit {}MB", max_bytes / (1024 * 1024));
+        tracing::debug!(
+            "Registered near-heap-limit callback with limit {}MB",
+            max_bytes / (1024 * 1024)
+        );
     }
 
     /// Get V8 heap statistics
@@ -752,8 +756,6 @@ impl NanoIsolate {
     /// # Panics
     /// Panics if the state transition is invalid
     pub fn set_state(&mut self, new_state: IsolateState) {
-        
-
         let old_state = self.state;
 
         // Valid state transitions per state machine design
@@ -772,13 +774,22 @@ impl NanoIsolate {
             (IsolateState::Resetting, IsolateState::Ready) => (),
             // Terminated is terminal state
             (IsolateState::Terminated, _) => {
-                unreachable!("INVALID STATE TRANSITION: Terminated -> {:?} at {}:{}",
-                    new_state, file!(), line!());
+                unreachable!(
+                    "INVALID STATE TRANSITION: Terminated -> {:?} at {}:{}",
+                    new_state,
+                    file!(),
+                    line!()
+                );
             }
             // Any other transition is invalid
             _ => {
-                unreachable!("INVALID STATE TRANSITION: {:?} -> {:?} at {}:{}",
-                    old_state, new_state, file!(), line!());
+                unreachable!(
+                    "INVALID STATE TRANSITION: {:?} -> {:?} at {}:{}",
+                    old_state,
+                    new_state,
+                    file!(),
+                    line!()
+                );
             }
         }
 
@@ -925,7 +936,11 @@ mod tests {
         let mut isolate = NanoIsolate::new_with_vfs(vfs).expect("Failed to create isolate");
 
         // Write via VFS
-        isolate.vfs_mut().write("/config.json", b"{\"test\": true}").await.unwrap();
+        isolate
+            .vfs_mut()
+            .write("/config.json", b"{\"test\": true}")
+            .await
+            .unwrap();
 
         // Read back via VFS
         let content = isolate.vfs().read("/config.json").await.unwrap();

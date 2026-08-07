@@ -2,17 +2,16 @@
 //!
 //! WebCrypto RSA implementations using the `rsa` crate.
 
+use crate::runtime::crypto::{CryptoError, CryptoKey, HashAlgorithm, KeyUsage};
+use rand::rngs::OsRng;
 use rsa::{
-    RsaPrivateKey, RsaPublicKey,
-    pss::{SigningKey as PssSigningKey, VerifyingKey as PssVerifyingKey},
-    pkcs1v15::{SigningKey as Pkcs1v15SigningKey, VerifyingKey as Pkcs1v15VerifyingKey},
-    sha2::{Sha256, Sha384, Sha512},
     oaep::Oaep,
-    BigUint,
+    pkcs1v15::{SigningKey as Pkcs1v15SigningKey, VerifyingKey as Pkcs1v15VerifyingKey},
+    pss::{SigningKey as PssSigningKey, VerifyingKey as PssVerifyingKey},
+    sha2::{Sha256, Sha384, Sha512},
+    BigUint, RsaPrivateKey, RsaPublicKey,
 };
 use signature::{RandomizedSigner, Signer, Verifier};
-use rand::rngs::OsRng;
-use crate::runtime::crypto::{CryptoKey, CryptoError, KeyUsage, HashAlgorithm};
 
 /// RSA-OAEP encryption parameters
 #[derive(Debug, Clone)]
@@ -39,7 +38,9 @@ pub fn generate_key(
 ) -> Result<CryptoKey, CryptoError> {
     // Validate modulus length (WebCrypto requires >= 256 bits for RSA-OAEP)
     if modulus_length < 256 {
-        return Err(CryptoError::DataError("RSA modulus length must be at least 256".to_string()));
+        return Err(CryptoError::DataError(
+            "RSA modulus length must be at least 256".to_string(),
+        ));
     }
 
     // Parse public exponent (typically [1, 0, 1] = 65537)
@@ -51,16 +52,24 @@ pub fn generate_key(
 
     // Serialize to PKCS#8 format for storage
     use rsa::pkcs8::EncodePrivateKey;
-    let private_key_bytes = private_key.to_pkcs8_der()
+    let private_key_bytes = private_key
+        .to_pkcs8_der()
         .map_err(|_| CryptoError::OperationFailed)?
         .as_bytes()
         .to_vec();
 
     // Create algorithm identifier
     let alg_id = match algorithm {
-        "RSA-OAEP" => crate::runtime::crypto::AlgorithmIdentifier::RsaOaep { hash: crate::runtime::crypto::HashAlgorithm::Sha256 },
-        "RSA-PSS" => crate::runtime::crypto::AlgorithmIdentifier::RsaPss { hash: crate::runtime::crypto::HashAlgorithm::Sha256, salt_length: None },
-        "RSASSA-PKCS1-v1_5" => crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 { hash: crate::runtime::crypto::HashAlgorithm::Sha256 },
+        "RSA-OAEP" => crate::runtime::crypto::AlgorithmIdentifier::RsaOaep {
+            hash: crate::runtime::crypto::HashAlgorithm::Sha256,
+        },
+        "RSA-PSS" => crate::runtime::crypto::AlgorithmIdentifier::RsaPss {
+            hash: crate::runtime::crypto::HashAlgorithm::Sha256,
+            salt_length: None,
+        },
+        "RSASSA-PKCS1-v1_5" => crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 {
+            hash: crate::runtime::crypto::HashAlgorithm::Sha256,
+        },
         _ => return Err(CryptoError::InvalidAlgorithm(algorithm.to_string())),
     };
 
@@ -85,9 +94,16 @@ pub fn import_key(
 ) -> Result<CryptoKey, CryptoError> {
     // Create algorithm identifier
     let alg_id = match algorithm {
-        "RSA-OAEP" => crate::runtime::crypto::AlgorithmIdentifier::RsaOaep { hash: crate::runtime::crypto::HashAlgorithm::Sha256 },
-        "RSA-PSS" => crate::runtime::crypto::AlgorithmIdentifier::RsaPss { hash: crate::runtime::crypto::HashAlgorithm::Sha256, salt_length: None },
-        "RSASSA-PKCS1-v1_5" => crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 { hash: crate::runtime::crypto::HashAlgorithm::Sha256 },
+        "RSA-OAEP" => crate::runtime::crypto::AlgorithmIdentifier::RsaOaep {
+            hash: crate::runtime::crypto::HashAlgorithm::Sha256,
+        },
+        "RSA-PSS" => crate::runtime::crypto::AlgorithmIdentifier::RsaPss {
+            hash: crate::runtime::crypto::HashAlgorithm::Sha256,
+            salt_length: None,
+        },
+        "RSASSA-PKCS1-v1_5" => crate::runtime::crypto::AlgorithmIdentifier::RsaSsaPkcs1V1_5 {
+            hash: crate::runtime::crypto::HashAlgorithm::Sha256,
+        },
         _ => return Err(CryptoError::InvalidAlgorithm(algorithm.to_string())),
     };
 
@@ -109,7 +125,8 @@ pub fn import_key(
 
             // Serialize to SPKI format for storage
             use rsa::pkcs8::EncodePublicKey;
-            let public_key_bytes = public_key.to_public_key_der()
+            let public_key_bytes = public_key
+                .to_public_key_der()
                 .map_err(|_| CryptoError::OperationFailed)?
                 .as_bytes()
                 .to_vec();
@@ -127,10 +144,12 @@ pub fn import_key(
                 .map_err(|e| CryptoError::DataError(format!("Invalid JWK: {}", e)))?;
 
             // Extract JWK components
-            let n = jwk.get("n")
+            let n = jwk
+                .get("n")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CryptoError::DataError("Missing 'n' in JWK".to_string()))?;
-            let e = jwk.get("e")
+            let e = jwk
+                .get("e")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CryptoError::DataError("Missing 'e' in JWK".to_string()))?;
 
@@ -153,11 +172,13 @@ pub fn import_key(
                     exponent.clone(),
                     private_exp,
                     vec![], // prime_factors - empty for simplified import
-                ).map_err(|_| CryptoError::OperationFailed)?;
+                )
+                .map_err(|_| CryptoError::OperationFailed)?;
 
                 // Serialize to PKCS#8 for storage
                 use rsa::pkcs8::EncodePrivateKey;
-                let private_key_bytes = private_key.to_pkcs8_der()
+                let private_key_bytes = private_key
+                    .to_pkcs8_der()
                     .map_err(|_| CryptoError::OperationFailed)?
                     .as_bytes()
                     .to_vec();
@@ -175,7 +196,8 @@ pub fn import_key(
 
                 // Serialize to SPKI format for storage
                 use rsa::pkcs8::EncodePublicKey;
-                let public_key_bytes = public_key.to_public_key_der()
+                let public_key_bytes = public_key
+                    .to_public_key_der()
                     .map_err(|_| CryptoError::OperationFailed)?
                     .as_bytes()
                     .to_vec();
@@ -195,10 +217,7 @@ pub fn import_key(
 /// Export an RSA key to JWK or PKCS#8/PKCS#1 format
 ///
 /// WebCrypto: exportKey with format "jwk", "pkcs8", "spki"
-pub fn export_key(
-    _format: &str,
-    key: &CryptoKey,
-) -> Result<Vec<u8>, CryptoError> {
+pub fn export_key(_format: &str, key: &CryptoKey) -> Result<Vec<u8>, CryptoError> {
     if !key.extractable {
         return Err(CryptoError::InvalidAccess);
     }
@@ -229,7 +248,8 @@ pub fn encrypt(
 
     // Encrypt the data
     let mut rng = OsRng;
-    let encrypted = public_key.encrypt(&mut rng, oaep, data)
+    let encrypted = public_key
+        .encrypt(&mut rng, oaep, data)
         .map_err(|_e| CryptoError::OperationFailed)?;
 
     Ok(encrypted)
@@ -255,7 +275,8 @@ pub fn decrypt(
     };
 
     // Decrypt the data
-    let decrypted = private_key.decrypt(oaep, data)
+    let decrypted = private_key
+        .decrypt(oaep, data)
         .map_err(|_e| CryptoError::OperationFailed)?;
 
     Ok(decrypted)
@@ -391,8 +412,9 @@ fn get_private_key(key: &CryptoKey) -> Result<RsaPrivateKey, CryptoError> {
 
     match key.handle.as_ref() {
         crate::runtime::crypto::crypto_key::CryptoKeyHandle::RsaPrivateKey(bytes) => {
-            RsaPrivateKey::from_pkcs8_der(bytes)
-                .map_err(|e| CryptoError::DataError(format!("Failed to parse RSA private key: {}", e)))
+            RsaPrivateKey::from_pkcs8_der(bytes).map_err(|e| {
+                CryptoError::DataError(format!("Failed to parse RSA private key: {}", e))
+            })
         }
         _ => Err(CryptoError::InvalidKey),
     }
@@ -405,8 +427,9 @@ fn get_public_key(key: &CryptoKey) -> Result<RsaPublicKey, CryptoError> {
     // First try to get from public key handle
     match key.handle.as_ref() {
         crate::runtime::crypto::crypto_key::CryptoKeyHandle::RsaPublicKey(bytes) => {
-            return RsaPublicKey::from_public_key_der(bytes)
-                .map_err(|e| CryptoError::DataError(format!("Failed to parse RSA public key: {}", e)));
+            return RsaPublicKey::from_public_key_der(bytes).map_err(|e| {
+                CryptoError::DataError(format!("Failed to parse RSA public key: {}", e))
+            });
         }
         crate::runtime::crypto::crypto_key::CryptoKeyHandle::RsaPrivateKey(_) => {
             // Derive public key from private key
@@ -419,9 +442,10 @@ fn get_public_key(key: &CryptoKey) -> Result<RsaPublicKey, CryptoError> {
 
 /// Base64url decode without padding
 fn base64_decode_url_safe(input: &str) -> Result<Vec<u8>, CryptoError> {
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 
-    URL_SAFE_NO_PAD.decode(input)
+    URL_SAFE_NO_PAD
+        .decode(input)
         .map_err(|e| CryptoError::DataError(format!("Base64 decode error: {}", e)))
 }
 

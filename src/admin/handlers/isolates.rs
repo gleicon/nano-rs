@@ -3,11 +3,7 @@
 //! Provides ps-style listing of active V8 isolates across all worker pools.
 //! Similar to `ps` command but for NANO runtime isolates.
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-};
+use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -95,14 +91,12 @@ impl IsolatesError {
     }
 }
 
-
-
 /// Format an Instant as ISO 8601 string
 fn format_instant(instant: Instant) -> String {
     // Calculate the actual time by subtracting elapsed from now
     let elapsed = instant.elapsed();
     let actual_time = std::time::SystemTime::now() - elapsed;
-    
+
     // Convert to RFC3339 format
     actual_time
         .duration_since(std::time::UNIX_EPOCH)
@@ -217,11 +211,7 @@ pub async fn list_isolates(
     let diagnostics = collector.collect().await;
 
     // Convert to response format
-    let isolates: Vec<IsolateResponse> = diagnostics
-        .isolates
-        .iter()
-        .map(convert_isolate)
-        .collect();
+    let isolates: Vec<IsolateResponse> = diagnostics.isolates.iter().map(convert_isolate).collect();
 
     let apps: Vec<AppSummary> = diagnostics
         .app_stats
@@ -350,7 +340,10 @@ pub async fn prometheus_metrics_handler() -> impl axum::response::IntoResponse {
     // Build response with correct content type
     Response::builder()
         .status(axum::http::StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
+        .header(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )
         .body(output)
         .unwrap()
 }
@@ -485,7 +478,9 @@ pub async fn metrics_summary() -> Json<serde_json::Value> {
 
     // Calculate RPS approximation (requests since startup / uptime)
     let uptime_secs = METRICS.uptime_seconds();
-    let global_requests = METRICS.requests_total.get_all()
+    let global_requests = METRICS
+        .requests_total
+        .get_all()
         .iter()
         .map(|(_, v)| *v)
         .sum::<u64>();
@@ -572,8 +567,6 @@ pub async fn app_metrics_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    
 
     #[test]
     fn test_current_timestamp_format() {

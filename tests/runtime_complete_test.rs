@@ -92,10 +92,14 @@ fn test_all_apis_together() {
     "#;
 
     let code_string = v8::String::new(ctx_scope, code).unwrap();
-    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
+    let script =
+        v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
     let result = script.run(ctx_scope).expect("Script execution failed");
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "All Phase 3 APIs should work together");
 }
@@ -133,10 +137,14 @@ fn test_crypto_various_typed_arrays() {
     "#;
 
     let code_string = v8::String::new(ctx_scope, code).unwrap();
-    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
+    let script =
+        v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
     let result = script.run(ctx_scope).expect("Script execution failed");
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
 
     assert_eq!(
         result_str, "true",
@@ -178,10 +186,14 @@ fn test_performance_monotonic() {
     "#;
 
     let code_string = v8::String::new(ctx_scope, code).unwrap();
-    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
+    let script =
+        v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
     let result = script.run(ctx_scope).expect("Script execution failed");
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "performance.now() should be monotonic");
 }
@@ -221,10 +233,14 @@ fn test_structured_clone_complex() {
     "#;
 
     let code_string = v8::String::new(ctx_scope, code).unwrap();
-    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
+    let script =
+        v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
     let result = script.run(ctx_scope).expect("Script execution failed");
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
 
     assert_eq!(
         result_str, "true",
@@ -260,10 +276,14 @@ fn test_dom_exception_various_names() {
     "#;
 
     let code_string = v8::String::new(ctx_scope, code).unwrap();
-    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
+    let script =
+        v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
     let result = script.run(ctx_scope).expect("Script execution failed");
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
 
     assert_eq!(
         result_str, "true",
@@ -297,10 +317,14 @@ fn test_blob_with_type() {
     "#;
 
     let code_string = v8::String::new(ctx_scope, code).unwrap();
-    let script = v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
+    let script =
+        v8::Script::compile(ctx_scope, code_string, None).expect("Script compilation failed");
 
     let result = script.run(ctx_scope).expect("Script execution failed");
-    let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
+    let result_str = result
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
 
     assert_eq!(result_str, "true", "Blob should support type option");
 }

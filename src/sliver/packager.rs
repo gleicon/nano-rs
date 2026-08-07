@@ -30,11 +30,14 @@ pub async fn create_sliver_from_directory(
         bail!("Source path is not a directory: {}", source_dir);
     }
 
-    let output_path = output.map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(format!("{}.sliver", name))
-    });
+    let output_path = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(format!("{}.sliver", name)));
     if output_path.exists() {
-        bail!("Sliver file already exists: {}. Use --output to specify a different path.", output_path.display());
+        bail!(
+            "Sliver file already exists: {}. Use --output to specify a different path.",
+            output_path.display()
+        );
     }
 
     let sliver_hostname = hostname.unwrap_or_else(|| name.to_string());
@@ -47,9 +50,15 @@ pub async fn create_sliver_from_directory(
         "Created from directory: {} | Entrypoint: {} | Tag: {}",
         source_dir, entrypoint, sliver_tag
     ));
-    metadata.custom.insert("entrypoint".to_string(), entrypoint.clone());
-    metadata.custom.insert("source_dir".to_string(), source_dir.to_string());
-    metadata.custom.insert("tag".to_string(), sliver_tag.clone());
+    metadata
+        .custom
+        .insert("entrypoint".to_string(), entrypoint.clone());
+    metadata
+        .custom
+        .insert("source_dir".to_string(), source_dir.to_string());
+    metadata
+        .custom
+        .insert("tag".to_string(), sliver_tag.clone());
 
     let vfs_entries = load_directory_files(source_path)?;
 
@@ -57,21 +66,27 @@ pub async fn create_sliver_from_directory(
     let bytecode: Option<Vec<u8>> = if !source_only {
         let entrypoint_path = source_path.join(&entrypoint);
         match std::fs::read_to_string(&entrypoint_path) {
-            Ok(js_code) => {
-                match compile_js_to_bytecode(&js_code) {
-                    Some(bc) => {
-                        metadata.v8_cache_version = Some(v8::script_compiler::cached_data_version_tag());
-                        tracing::info!("Compiled bytecode: {} bytes for '{}'", bc.len(), entrypoint);
-                        Some(bc)
-                    }
-                    None => {
-                        tracing::warn!("Bytecode compilation failed for '{}'; creating source-only sliver", entrypoint);
-                        None
-                    }
+            Ok(js_code) => match compile_js_to_bytecode(&js_code) {
+                Some(bc) => {
+                    metadata.v8_cache_version =
+                        Some(v8::script_compiler::cached_data_version_tag());
+                    tracing::info!("Compiled bytecode: {} bytes for '{}'", bc.len(), entrypoint);
+                    Some(bc)
                 }
-            }
+                None => {
+                    tracing::warn!(
+                        "Bytecode compilation failed for '{}'; creating source-only sliver",
+                        entrypoint
+                    );
+                    None
+                }
+            },
             Err(e) => {
-                tracing::warn!("Could not read entrypoint '{}' for compilation: {}; source-only", entrypoint, e);
+                tracing::warn!(
+                    "Could not read entrypoint '{}' for compilation: {}; source-only",
+                    entrypoint,
+                    e
+                );
                 None
             }
         }
@@ -99,8 +114,13 @@ pub async fn create_sliver_from_directory(
     println!("  Hostname: {}", sliver_hostname);
     println!("  Tag: {}", sliver_tag);
     println!("  Entrypoint: {}", entrypoint);
-    println!("  Bytecode: {}",
-        bytecode.as_ref().map(|b| format!("{} bytes", b.len())).unwrap_or_else(|| "none (source-only)".to_string()));
+    println!(
+        "  Bytecode: {}",
+        bytecode
+            .as_ref()
+            .map(|b| format!("{} bytes", b.len()))
+            .unwrap_or_else(|| "none (source-only)".to_string())
+    );
     println!("  Files: {}", vfs_entries.len());
     println!("  Size: {} bytes", archive_data.len());
 
@@ -156,7 +176,8 @@ fn load_directory_files(dir: &Path) -> Result<Vec<(VfsPath, VfsFile)>> {
         .filter(|e| e.file_type().is_file())
     {
         let path = entry.path();
-        let relative_path = path.strip_prefix(dir)
+        let relative_path = path
+            .strip_prefix(dir)
             .map_err(|e| anyhow::anyhow!("Relative path error: {}", e))?;
 
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -164,8 +185,8 @@ fn load_directory_files(dir: &Path) -> Result<Vec<(VfsPath, VfsFile)>> {
             continue;
         }
 
-        let content = std::fs::read(path)
-            .with_context(|| format!("Failed to read: {}", path.display()))?;
+        let content =
+            std::fs::read(path).with_context(|| format!("Failed to read: {}", path.display()))?;
         let metadata = std::fs::metadata(path)
             .with_context(|| format!("Failed to stat: {}", path.display()))?;
 
@@ -173,12 +194,15 @@ fn load_directory_files(dir: &Path) -> Result<Vec<(VfsPath, VfsFile)>> {
         let vfs_path = VfsPath::new(&vfs_path_str)
             .with_context(|| format!("Invalid VFS path: {}", vfs_path_str))?;
 
-        entries.push((vfs_path, VfsFile {
-            content,
-            modified_at: metadata.modified().unwrap_or_else(|_| SystemTime::now()),
-            created_at: metadata.created().unwrap_or_else(|_| SystemTime::now()),
-            size: metadata.len() as usize,
-        }));
+        entries.push((
+            vfs_path,
+            VfsFile {
+                content,
+                modified_at: metadata.modified().unwrap_or_else(|_| SystemTime::now()),
+                created_at: metadata.created().unwrap_or_else(|_| SystemTime::now()),
+                size: metadata.len() as usize,
+            },
+        ));
     }
     Ok(entries)
 }
@@ -207,7 +231,10 @@ mod tests {
         }
         let result = compile_js_to_bytecode("function { broken syntax }}}}");
         // Invalid JS should not panic — returns None
-        assert!(result.is_none(), "syntax error should yield None, not panic");
+        assert!(
+            result.is_none(),
+            "syntax error should yield None, not panic"
+        );
     }
 
     #[test]

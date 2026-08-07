@@ -7,10 +7,10 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use std::fs;
 
-use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
 use crate::http::v8_bridge::serialize_request_to_json;
-use crate::runtime::async_support;
+use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
 use crate::runtime::apis::RuntimeAPIs;
+use crate::runtime::async_support;
 
 /// Context for executing a JavaScript handler
 #[derive(Debug, Clone)]
@@ -67,14 +67,14 @@ pub fn execute_handler_with_context(
 ) -> Result<NanoResponse> {
     use crate::runtime::vfs_bindings;
     use crate::v8::module::{is_esm_module, transform_module_code};
-    
+
     // Read the entrypoint file
     let code = fs::read_to_string(&context.entrypoint)
         .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
 
     // Check if this is an ESM module before consuming code
     let is_esm = is_esm_module(&code);
-    
+
     // Transform ES6 module syntax only if this is an ESM module
     let transformed_code = if is_esm {
         transform_module_code(&code)
@@ -120,7 +120,8 @@ pub fn execute_handler_with_context(
     // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
     let fetch_val = if is_esm {
         let fetch_key = v8::String::new(&ctx_scope, "__nano_user_fetch").unwrap();
-        global.get(&ctx_scope, fetch_key.into())
+        global
+            .get(&ctx_scope, fetch_key.into())
             .filter(|val| !val.is_undefined() && !val.is_null())
     } else {
         None
@@ -231,19 +232,20 @@ fn execute_in_v8(
     // CRITICAL FIX: scope_storage must outlive all V8 operations.
     // We use explicit drops at the end to ensure correct drop order.
     let isolate_ref = isolate.isolate();
-    
+
     // Create scope storage first - it must live the longest
     let mut scope_storage = unsafe {
-        v8::HandleScope::new(std::mem::transmute::<_, &'static mut v8::Isolate>(isolate_ref))
+        v8::HandleScope::new(std::mem::transmute::<_, &'static mut v8::Isolate>(
+            isolate_ref,
+        ))
     };
-    
+
     // Use a macro-like block to capture the result, ensuring all V8 handles
     // are converted to owned data before the scopes are dropped
     let result: Result<NanoResponse> = 'v8_block: {
         let scope_pin = unsafe { std::pin::Pin::new_unchecked(&mut scope_storage) };
-        let mut pinned_ref: v8::PinnedRef<v8::HandleScope> = unsafe {
-            std::mem::transmute(scope_pin.init())
-        };
+        let mut pinned_ref: v8::PinnedRef<v8::HandleScope> =
+            unsafe { std::mem::transmute(scope_pin.init()) };
 
         // Create context within the scope
         let v8_context = v8::Context::new(&mut pinned_ref, Default::default());
@@ -271,7 +273,8 @@ fn execute_in_v8(
         // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
         let fetch_val = if is_esm {
             let fetch_key = v8::String::new(&ctx_scope, "__nano_user_fetch").unwrap();
-            global.get(&ctx_scope, fetch_key.into())
+            global
+                .get(&ctx_scope, fetch_key.into())
                 .filter(|val| !val.is_undefined() && !val.is_null())
         } else {
             None
@@ -334,60 +337,66 @@ fn execute_in_v8(
             None => break 'v8_block Err(anyhow!("Failed to parse request JSON")),
         };
 
-    // Convert plain headers object to Headers instance
-    // Get the Headers constructor
-    let headers_key = v8::String::new(&ctx_scope, "Headers").unwrap();
-    if let Some(headers_ctor) = global.get(&ctx_scope, headers_key.into()) {
-        if headers_ctor.is_function() {
-            let headers_ctor_fn = headers_ctor.cast::<v8::Function>();
+        // Convert plain headers object to Headers instance
+        // Get the Headers constructor
+        let headers_key = v8::String::new(&ctx_scope, "Headers").unwrap();
+        if let Some(headers_ctor) = global.get(&ctx_scope, headers_key.into()) {
+            if headers_ctor.is_function() {
+                let headers_ctor_fn = headers_ctor.cast::<v8::Function>();
 
-            // Get the headers from the request
-            let req_headers_key = v8::String::new(&ctx_scope, "headers").unwrap();
-            if let Some(req_headers) = js_request.to_object(&ctx_scope).and_then(|o| o.get(&ctx_scope, req_headers_key.into())) {
-                if !req_headers.is_null() && !req_headers.is_undefined() {
-                    // Create new Headers(headers)
-                    if let Some(new_headers) = headers_ctor_fn.call(&ctx_scope, headers_ctor.into(), &[req_headers]) {
-                        if let Some(req_obj) = js_request.to_object(&ctx_scope) {
-                            let _ = req_obj.set(&ctx_scope, req_headers_key.into(), new_headers);
+                // Get the headers from the request
+                let req_headers_key = v8::String::new(&ctx_scope, "headers").unwrap();
+                if let Some(req_headers) = js_request
+                    .to_object(&ctx_scope)
+                    .and_then(|o| o.get(&ctx_scope, req_headers_key.into()))
+                {
+                    if !req_headers.is_null() && !req_headers.is_undefined() {
+                        // Create new Headers(headers)
+                        if let Some(new_headers) =
+                            headers_ctor_fn.call(&ctx_scope, headers_ctor.into(), &[req_headers])
+                        {
+                            if let Some(req_obj) = js_request.to_object(&ctx_scope) {
+                                let _ =
+                                    req_obj.set(&ctx_scope, req_headers_key.into(), new_headers);
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    // Call the fetch handler with the Request
-    let result = fetch_fn.call(&ctx_scope, global.into(), &[js_request]);
+        // Call the fetch handler with the Request
+        let result = fetch_fn.call(&ctx_scope, global.into(), &[js_request]);
 
-    // Extract the response (may be a Promise, so resolve it)
-    let final_result = match result {
-        Some(response) => {
-            // Check if response is a Promise and resolve if needed
-            // Resolve using async event loop for Promises
-            let resolved = if response.is_promise() {
-                let promise = response.cast::<v8::Promise>();
-                match async_support::resolve_promise_with_async(&mut ctx_scope, promise) {
-                    Ok(value) => Some(value),
-                    Err(e) => break 'v8_block Err(e),
+        // Extract the response (may be a Promise, so resolve it)
+        let final_result = match result {
+            Some(response) => {
+                // Check if response is a Promise and resolve if needed
+                // Resolve using async event loop for Promises
+                let resolved = if response.is_promise() {
+                    let promise = response.cast::<v8::Promise>();
+                    match async_support::resolve_promise_with_async(&mut ctx_scope, promise) {
+                        Ok(value) => Some(value),
+                        Err(e) => break 'v8_block Err(e),
+                    }
+                } else {
+                    Some(response)
+                };
+
+                match resolved {
+                    Some(response) => extract_js_response(&mut ctx_scope, response),
+                    None => Err(anyhow!("Handler returned None")),
                 }
-            } else {
-                Some(response)
-            };
-
-            match resolved {
-                Some(response) => extract_js_response(&mut ctx_scope, response),
-                None => Err(anyhow!("Handler returned None")),
             }
-        }
-        None => Err(anyhow!("Handler returned None")),
-    };
-    
-    break 'v8_block final_result;
-};
+            None => Err(anyhow!("Handler returned None")),
+        };
 
-// At this point, all V8 scopes have been dropped in the correct order
-// (ctx_scope, then pinned_ref, then scope_storage)
-result
+        break 'v8_block final_result;
+    };
+
+    // At this point, all V8 scopes have been dropped in the correct order
+    // (ctx_scope, then pinned_ref, then scope_storage)
+    result
 }
 
 /// Extract a NanoResponse from a V8 JavaScript Response object
@@ -406,8 +415,12 @@ pub fn extract_js_response(
     let status_val_opt = obj.get(scope, status_key.into());
     let status = match status_val_opt {
         Some(val) if !val.is_null() && !val.is_undefined() => {
-            tracing::debug!("Status value found: is_number={}, is_int32={}, to_integer={:?}",
-                val.is_number(), val.is_int32(), val.to_integer(scope).map(|i| i.value()));
+            tracing::debug!(
+                "Status value found: is_number={}, is_int32={}, to_integer={:?}",
+                val.is_number(),
+                val.is_int32(),
+                val.to_integer(scope).map(|i| i.value())
+            );
             match val.to_integer(scope) {
                 Some(int) => {
                     let s = int.value() as u16;
@@ -453,7 +466,8 @@ pub fn extract_js_response(
             // Headers may be stored internally in __headers__ property (for Headers class instances)
             // or directly on the object (for plain objects used by Response)
             let internal_headers_key = v8::String::new(scope, "__headers__").unwrap();
-            let headers_source = headers_obj.get(scope, internal_headers_key.into())
+            let headers_source = headers_obj
+                .get(scope, internal_headers_key.into())
                 .and_then(|v| v.to_object(scope))
                 .unwrap_or(headers_obj);
 
@@ -465,7 +479,11 @@ pub fn extract_js_response(
                         if let Some(key_str) = key.to_string(scope) {
                             let key_name = key_str.to_rust_string_lossy(scope);
                             // Skip internal properties and methods (functions)
-                            if key_name.starts_with("__") || key_name == "set" || key_name == "get" || key_name == "forEach" {
+                            if key_name.starts_with("__")
+                                || key_name == "set"
+                                || key_name == "get"
+                                || key_name == "forEach"
+                            {
                                 continue;
                             }
                             if let Some(value) = headers_source.get(scope, key.into()) {
@@ -488,8 +506,12 @@ pub fn extract_js_response(
     let body_key = v8::String::new(scope, "body").unwrap();
     let body = match obj.get(scope, body_key.into()) {
         Some(val) if !val.is_null() && !val.is_undefined() => {
-            tracing::debug!("Response body value: type check - is_string={}, is_object={}, is_array={}",
-                val.is_string(), val.is_object(), val.is_array());
+            tracing::debug!(
+                "Response body value: type check - is_string={}, is_object={}, is_array={}",
+                val.is_string(),
+                val.is_object(),
+                val.is_array()
+            );
             match val.to_string(scope) {
                 Some(s) => {
                     let body_str = s.to_rust_string_lossy(scope);
@@ -516,16 +538,20 @@ pub fn extract_js_response(
         }
     };
 
-    tracing::debug!("Final NanoResponse: status={}, has_body={}, body_len={}",
-        status, body.is_some(), body.as_ref().map(|b| b.len()).unwrap_or(0));
-    
+    tracing::debug!(
+        "Final NanoResponse: status={}, has_body={}, body_len={}",
+        status,
+        body.is_some(),
+        body.as_ref().map(|b| b.len()).unwrap_or(0)
+    );
+
     Ok(NanoResponse::new(status, nano_headers, body))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http::{NanoUrl, NanoHeaders};
+    use crate::http::{NanoHeaders, NanoUrl};
     use crate::v8::platform;
 
     fn init_platform() {
@@ -535,12 +561,7 @@ mod tests {
     #[test]
     fn test_handler_context_creation() {
         let url = NanoUrl::parse("https://example.com/api").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: "/app/index.js".to_string(),
@@ -574,11 +595,18 @@ mod tests {
         let result = script.run(ctx_scope).expect("Script execution failed");
 
         let response = extract_js_response(ctx_scope, result);
-        assert!(response.is_ok(), "Failed to extract response: {:?}", response.err());
+        assert!(
+            response.is_ok(),
+            "Failed to extract response: {:?}",
+            response.err()
+        );
 
         let nano_response = response.unwrap();
         assert_eq!(nano_response.status(), 200);
-        assert_eq!(nano_response.headers().get("Content-Type"), Some("text/plain".to_string()));
+        assert_eq!(
+            nano_response.headers().get("Content-Type"),
+            Some("text/plain".to_string())
+        );
         assert!(
             nano_response.body().is_some(),
             "Response should have a body"

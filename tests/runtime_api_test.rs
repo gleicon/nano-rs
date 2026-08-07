@@ -7,8 +7,8 @@
 //! on the same thread to avoid "Cannot create a handle without a HandleScope" errors.
 //! We use std::sync::Once for thread-safe initialization within spawn_blocking.
 
-use nano::runtime::{HandlerContext, execute_handler};
-use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
+use nano::runtime::{execute_handler, HandlerContext};
 use nano::v8::{initialize_platform, NanoIsolate};
 use std::sync::Once;
 
@@ -25,19 +25,14 @@ fn init_platform() {
 #[test]
 fn test_handler_context_creation() {
     let url = NanoUrl::parse("https://example.com/api").unwrap();
-    let request = NanoRequest::new(
-        "GET".to_string(),
-        url,
-        NanoHeaders::new(),
-        None,
-    );
+    let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
     let context = HandlerContext {
         entrypoint: "/app/index.js".to_string(),
         request,
-            memory_limit_mb: 0,
-            hostname: String::new(),
-        };
+        memory_limit_mb: 0,
+        hostname: String::new(),
+    };
 
     assert_eq!(context.entrypoint, "/app/index.js");
     assert_eq!(context.request.method(), "GET");
@@ -56,16 +51,11 @@ async fn test_execute_handler_no_fetch() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init and all V8 operations must be in the same thread
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("https://example.com/api").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -75,8 +65,10 @@ async fn test_execute_handler_no_fetch() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
+    })
+    .await
+    .unwrap();
+
     // Should return a placeholder response since no fetch function defined
     assert!(response.is_ok());
     let response = response.unwrap();
@@ -104,16 +96,11 @@ async fn test_execute_handler_with_fetch() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("https://example.com/api").unwrap();
-        let request = NanoRequest::new(
-            "POST".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("POST".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -123,12 +110,21 @@ async fn test_execute_handler_with_fetch() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(response.headers().get("Content-Type"), Some("application/json".to_string()));
+    assert_eq!(
+        response.headers().get("Content-Type"),
+        Some("application/json".to_string())
+    );
 }
 
 /// Test handler execution with custom status code
@@ -152,16 +148,11 @@ async fn test_execute_handler_custom_status() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("https://example.com/not-found").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -171,8 +162,10 @@ async fn test_execute_handler_custom_status() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
+    })
+    .await
+    .unwrap();
+
     assert!(response.is_ok());
     let response = response.unwrap();
     assert_eq!(response.status(), 404);
@@ -199,16 +192,11 @@ async fn test_execute_handler_request_access() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("https://example.com/api").unwrap();
-        let request = NanoRequest::new(
-            "DELETE".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("DELETE".to_string(), url, NanoHeaders::new(), None);
 
         let context = HandlerContext {
             entrypoint: js_path_str,
@@ -218,10 +206,15 @@ async fn test_execute_handler_request_access() {
         };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
+    })
+    .await
+    .unwrap();
+
     assert!(response.is_ok());
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(response.headers().get("X-Request-Method"), Some("DELETE".to_string()));
+    assert_eq!(
+        response.headers().get("X-Request-Method"),
+        Some("DELETE".to_string())
+    );
 }

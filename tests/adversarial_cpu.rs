@@ -10,11 +10,10 @@
 //! - Catastrophic regex backtracking
 //! - JSON parse bombs
 
-
 #[path = "common.rs"]
 mod common;
-use std::time::{Duration, Instant};
 use common::{find_available_port, NanoProcess};
+use std::time::{Duration, Instant};
 
 /// Test infinite loop termination
 /// Attack: while(true) { Math.random(); }
@@ -33,10 +32,10 @@ async fn test_infinite_loop_terminated() {
         "cpu-infinite.local",
         "infinite.js",
         js_content,
-        50,    // 50ms CPU limit
-        32,    // 32MB memory
+        50, // 50ms CPU limit
+        32, // 32MB memory
     );
-    
+
     nano.wait_ready(port, "cpu-infinite.local").await;
 
     let start = Instant::now();
@@ -98,10 +97,10 @@ async fn test_pathological_regex_redos() {
         "cpu-redos.local",
         "redos.js",
         js_content,
-        50,  // 50ms CPU limit
+        50, // 50ms CPU limit
         32,
     );
-    
+
     nano.wait_ready(port, "cpu-redos.local").await;
 
     let start = Instant::now();
@@ -162,10 +161,10 @@ async fn test_algorithmic_complexity_attack() {
         "cpu-complexity.local",
         "complexity.js",
         js_content,
-        50,  // 50ms limit - way too short for O(n²) with n=100000
+        50, // 50ms limit - way too short for O(n²) with n=100000
         32,
     );
-    
+
     nano.wait_ready(port, "cpu-complexity.local").await;
 
     let start = Instant::now();
@@ -214,10 +213,10 @@ async fn test_recursive_function_bomb() {
         "cpu-recursive.local",
         "recursive.js",
         js_content,
-        50,  // 50ms limit
+        50, // 50ms limit
         32,
     );
-    
+
     nano.wait_ready(port, "cpu-recursive.local").await;
 
     let start = Instant::now();
@@ -274,10 +273,10 @@ async fn test_generator_memory_pressure() {
         "cpu-generator.local",
         "generator.js",
         js_content,
-        50,  // 50ms limit
+        50, // 50ms limit
         32,
     );
-    
+
     nano.wait_ready(port, "cpu-generator.local").await;
 
     let start = Instant::now();
@@ -335,10 +334,10 @@ async fn test_computationally_expensive_crypto() {
         "cpu-crypto.local",
         "crypto_bomb.js",
         js_content,
-        50,  // 50ms limit
+        50, // 50ms limit
         32,
     );
-    
+
     nano.wait_ready(port, "cpu-crypto.local").await;
 
     let start = Instant::now();
@@ -402,10 +401,10 @@ async fn test_regex_catastrophic_backtracking() {
         "cpu-regex.local",
         "regex_bomb.js",
         js_content,
-        50,  // 50ms limit
+        50, // 50ms limit
         32,
     );
-    
+
     nano.wait_ready(port, "cpu-regex.local").await;
 
     let start = Instant::now();
@@ -434,7 +433,7 @@ async fn test_regex_catastrophic_backtracking() {
 #[tokio::test]
 async fn test_json_parse_bomb() {
     let port = find_available_port();
-    
+
     // Create deeply nested JSON string programmatically in JS
     let js_content = br#"export default {
     async fetch(request) {
@@ -459,10 +458,10 @@ async fn test_json_parse_bomb() {
         "cpu-json.local",
         "json_bomb.js",
         js_content,
-        50,  // 50ms limit - not enough time to build and parse deep JSON
+        50, // 50ms limit - not enough time to build and parse deep JSON
         32,
     );
-    
+
     nano.wait_ready(port, "cpu-json.local").await;
 
     let start = Instant::now();

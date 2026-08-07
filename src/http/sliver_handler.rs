@@ -49,15 +49,17 @@ pub async fn sliver_js_handler(
         .get("host")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("localhost");
-    let path_and_query = uri.path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
+    let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
     // Create request span for distributed tracing
     let span = create_request_span(&state.worker_pool.hostname, &request_id);
     let _enter = span.enter();
 
-    tracing::debug!("Sliver handler received request: {} {}", method, path_and_query);
+    tracing::debug!(
+        "Sliver handler received request: {} {}",
+        method,
+        path_and_query
+    );
 
     // Read body (1MB limit per D-05)
     let body_bytes = match axum::body::to_bytes(request.into_body(), 1048576).await {
@@ -71,16 +73,17 @@ pub async fn sliver_js_handler(
         }
     };
 
-    let nano_request = match NanoRequest::from_axum_parts(&method, &uri, host, &headers, Some(body_bytes)) {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("Failed to parse URL: {}", e);
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from("Bad request: invalid URL"))
-                .unwrap();
-        }
-    };
+    let nano_request =
+        match NanoRequest::from_axum_parts(&method, &uri, host, &headers, Some(body_bytes)) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Failed to parse URL: {}", e);
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from("Bad request: invalid URL"))
+                    .unwrap();
+            }
+        };
 
     // Create oneshot channel for response
     let (tx, rx) = oneshot::channel();
@@ -91,8 +94,9 @@ pub async fn sliver_js_handler(
         nano_request,
         tx,
         state.worker_pool.hostname.clone(),
-    ).with_request_id(request_id.clone());
-    
+    )
+    .with_request_id(request_id.clone());
+
     // Dispatch to worker pool
     if let Err(e) = state.worker_pool.dispatch(task) {
         tracing::error!("Failed to dispatch to worker pool: {}", e);
@@ -101,7 +105,7 @@ pub async fn sliver_js_handler(
             .body(Body::from(format!("Service unavailable: {}", e)))
             .unwrap();
     }
-    
+
     // Wait for response
     let nano_response = match rx.await {
         Ok(Ok(response)) => response,

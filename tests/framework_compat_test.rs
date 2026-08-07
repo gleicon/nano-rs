@@ -1,5 +1,5 @@
 //! Framework Compatibility Tests
-//! 
+//!
 //! Tests that Hono.js-style and generic WinterTC apps execute correctly
 //! in NANO's V8 runtime with all WinterTC APIs available.
 //!
@@ -8,8 +8,8 @@
 //! on the same thread to avoid "Cannot create a handle without a HandleScope" errors.
 //! We use std::sync::Once for thread-safe initialization within spawn_blocking.
 
-use nano::runtime::{HandlerContext, execute_handler};
-use nano::http::{NanoRequest, NanoUrl, NanoHeaders};
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
+use nano::runtime::{execute_handler, HandlerContext};
 use nano::v8::{initialize_platform, NanoIsolate};
 use std::sync::Once;
 
@@ -47,7 +47,7 @@ async fn test_generic_wintertc_app_root_route() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init and all V8 operations must be in the same thread
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         // Create a request to the root route
@@ -55,22 +55,28 @@ async fn test_generic_wintertc_app_root_route() {
         let mut headers = NanoHeaders::new();
         headers.set("User-Agent", "Test/1.0");
         headers.set("Accept", "application/json");
-        
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            headers,
-            None,
-        );
 
-        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
+        let request = NanoRequest::new("GET".to_string(), url, headers, None);
+
+        let context = HandlerContext {
+            entrypoint: js_path_str,
+            request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
         // Execute the handler
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
+    })
+    .await
+    .unwrap();
+
     // Verify response
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(
@@ -91,23 +97,29 @@ async fn test_generic_wintertc_app_health_route() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://test.example.com/health").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
-        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
+        let context = HandlerContext {
+            entrypoint: js_path_str,
+            request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
 }
@@ -120,23 +132,29 @@ async fn test_generic_wintertc_app_api_data_route() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://test.example.com/api/data").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
-        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
+        let context = HandlerContext {
+            entrypoint: js_path_str,
+            request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
 }
@@ -149,23 +167,29 @@ async fn test_generic_wintertc_app_404() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://test.example.com/nonexistent").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
-        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
+        let context = HandlerContext {
+            entrypoint: js_path_str,
+            request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 404);
 }
@@ -178,26 +202,32 @@ async fn test_hono_style_app_root_route() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://hono.example.com/").unwrap();
         let mut headers = NanoHeaders::new();
         headers.set("Accept", "application/json");
-        
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            headers,
-            None,
-        );
 
-        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
+        let request = NanoRequest::new("GET".to_string(), url, headers, None);
+
+        let context = HandlerContext {
+            entrypoint: js_path_str,
+            request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(
@@ -223,23 +253,29 @@ async fn test_hono_style_app_about_route() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://hono.example.com/about").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
-        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
+        let context = HandlerContext {
+            entrypoint: js_path_str,
+            request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 200);
 }
@@ -252,23 +288,29 @@ async fn test_hono_style_app_404() {
     let response = tokio::task::spawn_blocking(move || {
         // V8 platform init (Once ensures this only runs once across all threads)
         init_platform();
-        
+
         let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
         let url = NanoUrl::parse("http://hono.example.com/unknown").unwrap();
-        let request = NanoRequest::new(
-            "GET".to_string(),
-            url,
-            NanoHeaders::new(),
-            None,
-        );
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
-        let context = HandlerContext { entrypoint: js_path_str, request, memory_limit_mb: 0, hostname: String::new() };
+        let context = HandlerContext {
+            entrypoint: js_path_str,
+            request,
+            memory_limit_mb: 0,
+            hostname: String::new(),
+        };
 
         execute_handler(&mut isolate, context)
-    }).await.unwrap();
-    
-    assert!(response.is_ok(), "Handler execution failed: {:?}", response.err());
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        response.is_ok(),
+        "Handler execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.status(), 404);
 }

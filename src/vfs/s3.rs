@@ -121,9 +121,7 @@ impl S3Backend {
         match bucket.list(String::new(), Some("/".to_string())).await {
             Ok(_) => {}
             Err(e) => {
-                return Err(VfsError::IoError(format!(
-                    "Failed to connect to S3: {e}"
-                )));
+                return Err(VfsError::IoError(format!("Failed to connect to S3: {e}")));
             }
         }
 
@@ -175,7 +173,10 @@ impl S3Backend {
     /// - Avoid leading/trailing slashes
     /// - Control characters should be avoided
     fn sanitize_namespace(namespace: &str) -> String {
-        namespace.replace("::", "__").replace('\t', "_").replace('\n', "_")
+        namespace
+            .replace("::", "__")
+            .replace('\t', "_")
+            .replace('\n', "_")
     }
 
     /// Convert a VfsPath to an S3 key
@@ -199,7 +200,12 @@ impl S3Backend {
     }
 
     /// Check write bounds
-    fn check_write_bounds(&self, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
+    fn check_write_bounds(
+        &self,
+        content_len: usize,
+        is_new: bool,
+        old_size: usize,
+    ) -> VfsResult<()> {
         let file_size_max = self.limits.file_size_bytes_max;
         let file_count_max = self.limits.files_count_max;
         let total_storage_max = self.limits.total_storage_bytes_max;
@@ -296,7 +302,8 @@ impl VfsBackend for S3Backend {
                     if delta > 0 {
                         self.total_bytes.fetch_add(delta as usize, Ordering::SeqCst);
                     } else if delta < 0 {
-                        self.total_bytes.fetch_sub((-delta) as usize, Ordering::SeqCst);
+                        self.total_bytes
+                            .fetch_sub((-delta) as usize, Ordering::SeqCst);
                     }
                 }
                 Ok(())
@@ -358,10 +365,12 @@ impl VfsBackend for S3Backend {
             .last_modified
             .and_then(|ts| {
                 // Parse HTTP date format
-                chrono::DateTime::parse_from_rfc2822(&ts).ok().and_then(|dt| {
-                    let utc: chrono::DateTime<chrono::Utc> = dt.into();
-                    std::time::SystemTime::try_from(utc).ok()
-                })
+                chrono::DateTime::parse_from_rfc2822(&ts)
+                    .ok()
+                    .and_then(|dt| {
+                        let utc: chrono::DateTime<chrono::Utc> = dt.into();
+                        std::time::SystemTime::try_from(utc).ok()
+                    })
             })
             .unwrap_or_else(std::time::SystemTime::now);
 
@@ -381,7 +390,11 @@ impl VfsBackend for S3Backend {
             format!("{}/", s3_key)
         };
 
-        let list_results = match self.bucket.list(prefix.clone(), Some("/".to_string())).await {
+        let list_results = match self
+            .bucket
+            .list(prefix.clone(), Some("/".to_string()))
+            .await
+        {
             Ok(results) => results,
             Err(e) => return Err(Self::map_s3_error(path.as_str(), e)),
         };
@@ -436,8 +449,14 @@ mod tests {
     fn test_s3_key_formatting() {
         // We can't create an actual S3Backend in unit tests without credentials,
         // but we can test the helper functions
-        assert_eq!(S3Backend::sanitize_namespace("api::example::com"), "api__example__com");
-        assert_eq!(S3Backend::sanitize_namespace("api.example.com"), "api.example.com");
+        assert_eq!(
+            S3Backend::sanitize_namespace("api::example::com"),
+            "api__example__com"
+        );
+        assert_eq!(
+            S3Backend::sanitize_namespace("api.example.com"),
+            "api.example.com"
+        );
     }
 
     #[test]

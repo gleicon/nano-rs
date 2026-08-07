@@ -143,10 +143,10 @@ pub fn create_test_sliver_data(size: usize) -> TestSliverData {
 
     let hostname = format!("bench-{}.example.com", size);
     let metadata = SliverMetadata::new(&hostname, "1.1.0");
-    
+
     // Simulate 1MB heap snapshot
     let heap_data = vec![0xABu8; 1024 * 1024];
-    
+
     // Create VFS entries
     let vfs_entries: Vec<(VfsPath, VfsFile)> = (0..size)
         .map(|i| {
@@ -196,7 +196,10 @@ pub fn format_duration(duration: Duration) -> String {
 }
 
 /// Compare multiple operations
-pub fn compare_operations(baseline: (&str, f64), comparisons: &[(&str, f64)]) -> Vec<ComparisonResult> {
+pub fn compare_operations(
+    baseline: (&str, f64),
+    comparisons: &[(&str, f64)],
+) -> Vec<ComparisonResult> {
     comparisons
         .iter()
         .map(|(name, time)| ComparisonResult {
@@ -215,13 +218,13 @@ mod tests {
     #[test]
     fn test_micro_timer() {
         let mut timer = MicroTimer::new();
-        
+
         // Small delay
         std::thread::sleep(Duration::from_millis(1));
-        
+
         let elapsed = timer.elapsed_ms();
         assert!(elapsed >= 1.0, "Timer should measure at least 1ms");
-        
+
         // Reset and measure again
         timer.start();
         let elapsed2 = timer.elapsed_ms();
@@ -236,10 +239,10 @@ mod tests {
             comparison_name: "fresh".to_string(),
             comparison_ms: 50.0,
         };
-        
+
         assert_eq!(result.speedup_ratio(), 25.0);
         assert!((result.improvement_pct() - 96.0).abs() < 0.1);
-        
+
         let formatted = result.format();
         assert!(formatted.contains("sliver"));
         assert!(formatted.contains("25.0x faster"));
@@ -253,9 +256,9 @@ mod tests {
             snapshot_restore_ms: 3.0,
             setup_ms: 4.0,
         };
-        
+
         assert_eq!(breakdown.total_ms(), 10.0);
-        
+
         let table = breakdown.format_table();
         assert!(table.contains("Unpack"));
         assert!(table.contains("10.00"));

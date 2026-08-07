@@ -7,7 +7,7 @@
 //! - Backward compatibility with classic scripts
 
 use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
-use nano::v8::{initialize_platform, is_esm_module, NanoIsolate, transform_module_code};
+use nano::v8::{initialize_platform, is_esm_module, transform_module_code, NanoIsolate};
 use std::fs;
 use std::path::PathBuf;
 
@@ -69,10 +69,13 @@ fn test_transform_module_code() {
 #[test]
 fn test_fixture_export_default_fetch() {
     let code = read_fixture("handlers/export_default_fetch.js");
-    
+
     // Should be detected as ESM
-    assert!(is_esm_module(&code), "export_default_fetch.js should be detected as ESM");
-    
+    assert!(
+        is_esm_module(&code),
+        "export_default_fetch.js should be detected as ESM"
+    );
+
     // Should be transformable
     let transformed = transform_module_code(&code);
     assert!(transformed.contains("var __nano_handler ="));
@@ -82,10 +85,13 @@ fn test_fixture_export_default_fetch() {
 #[test]
 fn test_fixture_with_import() {
     let code = read_fixture("handlers/with_import.js");
-    
+
     // Should be detected as ESM
-    assert!(is_esm_module(&code), "with_import.js should be detected as ESM");
-    
+    assert!(
+        is_esm_module(&code),
+        "with_import.js should be detected as ESM"
+    );
+
     // Should contain import statement
     assert!(code.contains("import { greet } from"));
 }
@@ -93,10 +99,13 @@ fn test_fixture_with_import() {
 #[test]
 fn test_fixture_async_fetch() {
     let code = read_fixture("handlers/async_fetch.js");
-    
+
     // Should be detected as ESM
-    assert!(is_esm_module(&code), "async_fetch.js should be detected as ESM");
-    
+    assert!(
+        is_esm_module(&code),
+        "async_fetch.js should be detected as ESM"
+    );
+
     // Should contain async/await
     assert!(code.contains("async fetch"));
     assert!(code.contains("await Promise.resolve"));
@@ -105,10 +114,10 @@ fn test_fixture_async_fetch() {
 #[test]
 fn test_helper_module() {
     let code = read_fixture("utils/helper.js");
-    
+
     // Should be detected as ESM
     assert!(is_esm_module(&code), "helper.js should be detected as ESM");
-    
+
     // Should contain exports
     assert!(code.contains("export function greet"));
     assert!(code.contains("export const VERSION"));
@@ -148,7 +157,10 @@ fn test_classic_script_still_works() {
     "#;
 
     // Should NOT be detected as ESM
-    assert!(!is_esm_module(code), "Classic script should not be detected as ESM");
+    assert!(
+        !is_esm_module(code),
+        "Classic script should not be detected as ESM"
+    );
 
     // Execute directly (no transformation needed)
     let code_str = v8::String::new(ctx_scope, code).unwrap();
@@ -158,8 +170,10 @@ fn test_classic_script_still_works() {
     // Get global and look for fetch function
     let global = context.global(ctx_scope);
     let fetch_key = v8::String::new(ctx_scope, "fetch").unwrap();
-    let fetch_val = global.get(ctx_scope, fetch_key.into()).expect("fetch should be defined");
-    
+    let fetch_val = global
+        .get(ctx_scope, fetch_key.into())
+        .expect("fetch should be defined");
+
     assert!(fetch_val.is_function(), "fetch should be a function");
 }
 
@@ -199,9 +213,14 @@ fn test_esm_transformed_code_runs() {
     // Get global and look for __nano_user_fetch function (set by ESM transform)
     let global = context.global(ctx_scope);
     let fetch_key = v8::String::new(ctx_scope, "__nano_user_fetch").unwrap();
-    let fetch_val = global.get(ctx_scope, fetch_key.into()).expect("__nano_user_fetch should be defined after transformation");
-    
-    assert!(fetch_val.is_function(), "__nano_user_fetch should be a function after ESM transformation");
+    let fetch_val = global
+        .get(ctx_scope, fetch_key.into())
+        .expect("__nano_user_fetch should be defined after transformation");
+
+    assert!(
+        fetch_val.is_function(),
+        "__nano_user_fetch should be a function after ESM transformation"
+    );
 }
 
 #[test]
@@ -237,7 +256,7 @@ fn test_export_default_function_pattern() {
     let global = context.global(ctx_scope);
     let fetch_key = v8::String::new(ctx_scope, "fetch").unwrap();
     let fetch_val = global.get(ctx_scope, fetch_key.into());
-    
+
     // Note: The current transform handles object exports better than function exports
     // This test verifies the detection works, the execution depends on transform quality
     assert!(fetch_val.is_some() || transformed.contains("__nano_handler"));
@@ -290,14 +309,14 @@ fn test_transform_preserves_code_structure() {
     "#;
 
     let transformed = transform_module_code(code);
-    
+
     // Should preserve async keywords
     assert!(transformed.contains("async fetch"));
     assert!(transformed.contains("async other"));
-    
+
     // Should have the handler assignment
     assert!(transformed.contains("var __nano_handler ="));
-    
+
     // Should have fetch extraction in __nano_user_fetch
     assert!(transformed.contains("var __nano_user_fetch"));
     assert!(transformed.contains("__nano_user_fetch = __nano_handler.fetch"));

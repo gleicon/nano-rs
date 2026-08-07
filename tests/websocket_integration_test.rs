@@ -37,7 +37,9 @@ fn write_js(name: &str, code: &str) -> String {
 
 /// Whether full WS server tests are enabled.
 fn ws_tests_enabled() -> bool {
-    std::env::var("NANO_WS_TESTS").map(|v| v == "1").unwrap_or(false)
+    std::env::var("NANO_WS_TESTS")
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +89,7 @@ async fn start_ws_test_server(js_code: &str) -> (std::net::SocketAddr, ()) {
     use std::sync::Arc;
 
     use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
-    use nano::http::server::{AppStateWithShutdown, create_app_with_shutdown};
+    use nano::http::server::{create_app_with_shutdown, AppStateWithShutdown};
     use nano::signal::ShutdownState;
 
     let entrypoint = write_js(&format!("ws_test_{}.js", std::process::id()), js_code);
@@ -135,14 +137,20 @@ async fn start_ws_test_server(js_code: &str) -> (std::net::SocketAddr, ()) {
 #[tokio::test]
 #[ignore = "requires NANO_WS_TESTS=1 and full V8 server setup"]
 async fn ws_upgrade() {
-    if !ws_tests_enabled() { return; }
+    if !ws_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
     let url = format!("ws://127.0.0.1:{}/", addr.port());
 
     let result = tokio_tungstenite::connect_async(&url).await;
-    assert!(result.is_ok(), "WS upgrade should succeed (101): {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "WS upgrade should succeed (101): {:?}",
+        result.err()
+    );
 }
 
 /// [WS-MESSAGE-01] Echo: send "hello", receive "hello".
@@ -155,14 +163,20 @@ async fn ws_message_echo() {
     use futures_util::{SinkExt, StreamExt};
     use tungstenite::Message;
 
-    if !ws_tests_enabled() { return; }
+    if !ws_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
     let url = format!("ws://127.0.0.1:{}/", addr.port());
 
-    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
-    ws.send(Message::Text("hello".to_string())).await.expect("send");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("connect");
+    ws.send(Message::Text("hello".to_string()))
+        .await
+        .expect("send");
 
     let msg = ws.next().await.expect("receive").expect("frame");
     match msg {
@@ -181,16 +195,22 @@ async fn ws_close() {
     use futures_util::{SinkExt, StreamExt};
     use tungstenite::Message;
 
-    if !ws_tests_enabled() { return; }
+    if !ws_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
     let url = format!("ws://127.0.0.1:{}/", addr.port());
 
-    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("connect");
 
     // Echo "ping" first to confirm the connection is live.
-    ws.send(Message::Text("ping".to_string())).await.expect("send");
+    ws.send(Message::Text("ping".to_string()))
+        .await
+        .expect("send");
     let _ = ws.next().await.expect("echo back");
 
     // Now close cleanly.
@@ -216,13 +236,17 @@ async fn ws_size_limit() {
     use futures_util::{SinkExt, StreamExt};
     use tungstenite::Message;
 
-    if !ws_tests_enabled() { return; }
+    if !ws_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
     let url = format!("ws://127.0.0.1:{}/", addr.port());
 
-    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.expect("connect");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("connect");
 
     // Send a 33 MiB binary message (exceeds 32 MiB limit per D-09/D-12b).
     // The server may close the TCP connection while we're still sending —
@@ -233,8 +257,11 @@ async fn ws_size_limit() {
     let send_result = ws.send(Message::Binary(oversized)).await;
 
     match send_result {
-        Err(e) if e.to_string().contains("Broken pipe") || e.to_string().contains("BrokenPipe")
-               || e.to_string().contains("Connection reset") => {
+        Err(e)
+            if e.to_string().contains("Broken pipe")
+                || e.to_string().contains("BrokenPipe")
+                || e.to_string().contains("Connection reset") =>
+        {
             // Server closed mid-send enforcing the size limit — correct.
             return;
         }
@@ -243,13 +270,18 @@ async fn ws_size_limit() {
     }
 
     // If send succeeded (large TCP buffer), server should respond with Close 1009.
-    let frame = ws.next().await.expect("should receive close").expect("frame");
+    let frame = ws
+        .next()
+        .await
+        .expect("should receive close")
+        .expect("frame");
     match frame {
         Message::Close(Some(cf)) => {
             assert_eq!(
                 cf.code,
                 tungstenite::protocol::frame::coding::CloseCode::Size,
-                "should close with 1009 (Size), got {:?}", cf.code
+                "should close with 1009 (Size), got {:?}",
+                cf.code
             );
         }
         Message::Close(None) => {
@@ -266,7 +298,9 @@ async fn ws_size_limit() {
 #[tokio::test]
 #[ignore = "requires NANO_WS_TESTS=1 and full V8 server setup"]
 async fn ws_accept_guard() {
-    if !ws_tests_enabled() { return; }
+    if !ws_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_SEND_BEFORE_ACCEPT_JS).await;
@@ -291,7 +325,10 @@ async fn ws_accept_guard() {
                     // Correct: server closed due to TypeError
                 }
                 Some(Ok(other)) => {
-                    panic!("Expected close after accept guard violation, got {:?}", other);
+                    panic!(
+                        "Expected close after accept guard violation, got {:?}",
+                        other
+                    );
                 }
             }
         }

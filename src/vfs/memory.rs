@@ -73,7 +73,13 @@ impl MemoryBackend {
     }
 
     /// Check if we can write a file of the given size
-    fn check_write_bounds(&self, _path: &VfsPath, content_len: usize, is_new: bool, old_size: usize) -> VfsResult<()> {
+    fn check_write_bounds(
+        &self,
+        _path: &VfsPath,
+        content_len: usize,
+        is_new: bool,
+        old_size: usize,
+    ) -> VfsResult<()> {
         let file_size_max = self.limits.file_size_bytes_max;
         let file_count_max = self.limits.files_count_max;
         let total_storage_max = self.limits.total_storage_bytes_max;
@@ -114,7 +120,6 @@ impl MemoryBackend {
 
         Ok(())
     }
-
 }
 
 impl Default for MemoryBackend {
@@ -150,13 +155,13 @@ impl MemoryBackend {
     /// Used by the sliver unpacker to restore VFS state.
     pub fn restore_from_snapshot(&self, entries: &[(VfsPath, VfsFile)]) {
         self.clear();
-        
+
         let mut total_bytes: usize = 0;
         for (path, file) in entries {
             total_bytes += file.content.len();
             self.storage.insert(path.as_str().to_string(), file.clone());
         }
-        
+
         self.file_count.store(entries.len(), Ordering::SeqCst);
         self.total_bytes.store(total_bytes, Ordering::SeqCst);
     }
@@ -219,9 +224,11 @@ impl VfsBackend for MemoryBackend {
         }
         let size_delta = content_len as i64 - old_size as i64;
         if size_delta > 0 {
-            self.total_bytes.fetch_add(size_delta as usize, Ordering::SeqCst);
+            self.total_bytes
+                .fetch_add(size_delta as usize, Ordering::SeqCst);
         } else if size_delta < 0 {
-            self.total_bytes.fetch_sub((-size_delta) as usize, Ordering::SeqCst);
+            self.total_bytes
+                .fetch_sub((-size_delta) as usize, Ordering::SeqCst);
         }
 
         Ok(())

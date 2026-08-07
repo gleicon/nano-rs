@@ -46,16 +46,19 @@ impl ContextManager {
     /// isolate and context are kept alive.
     pub fn initialize_handler(&mut self, entrypoint: &str) -> Result<()> {
         use crate::data_plane::read_code_cached;
-        use crate::v8::module::{is_esm_module, transform_module_code};
         use crate::runtime::apis::RuntimeAPIs;
+        use crate::v8::module::{is_esm_module, transform_module_code};
 
         if self.initialized_entrypoint.as_deref() == Some(entrypoint) {
             tracing::debug!("Handler already initialized for entrypoint: {}", entrypoint);
             return Ok(());
         }
 
-        tracing::info!("Initializing handler for entrypoint: {} (isolate: {})",
-            entrypoint, self.isolate_id);
+        tracing::info!(
+            "Initializing handler for entrypoint: {} (isolate: {})",
+            entrypoint,
+            self.isolate_id
+        );
 
         // Read and transform code
         let code = read_code_cached(entrypoint)?;
@@ -83,7 +86,8 @@ impl ContextManager {
         let script = v8::Script::compile(&context_scope, code_str, None)
             .ok_or_else(|| anyhow::anyhow!("Script compilation failed"))?;
 
-        let _script_result = script.run(&context_scope)
+        let _script_result = script
+            .run(&context_scope)
             .ok_or_else(|| anyhow::anyhow!("Script execution failed"))?;
 
         // Verify handler exists
@@ -110,7 +114,8 @@ impl ContextManager {
 
         tracing::info!(
             "Handler initialized for entrypoint: {} (isolate: {})",
-            entrypoint, self.isolate_id
+            entrypoint,
+            self.isolate_id
         );
 
         // Scopes are dropped here, BUT the isolate keeps the context alive internally
@@ -143,10 +148,18 @@ impl ContextManager {
     }
 
     // Backward compatibility
-    pub fn create_initial_context(&mut self) -> Result<()> { Ok(()) }
-    pub fn reset_context(&mut self) -> Result<std::time::Duration> { Ok(std::time::Duration::from_millis(0)) }
-    pub fn average_reset_time_ms(&self) -> f64 { 0.0 }
-    pub fn reset_count(&self) -> u64 { 0 }
+    pub fn create_initial_context(&mut self) -> Result<()> {
+        Ok(())
+    }
+    pub fn reset_context(&mut self) -> Result<std::time::Duration> {
+        Ok(std::time::Duration::from_millis(0))
+    }
+    pub fn average_reset_time_ms(&self) -> f64 {
+        0.0
+    }
+    pub fn reset_count(&self) -> u64 {
+        0
+    }
 }
 
 #[cfg(test)]

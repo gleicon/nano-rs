@@ -1,7 +1,7 @@
 //! Unit tests for app timeout — extracted from src/app/timeout.rs
 use std::time::Duration;
 
-use nano::app::timeout::{TimeoutConfig, TimeoutError, TimeoutWatchdog, with_timeout};
+use nano::app::timeout::{with_timeout, TimeoutConfig, TimeoutError, TimeoutWatchdog};
 
 #[test]
 fn test_timeout_config() {
@@ -19,8 +19,11 @@ fn test_timeout_config() {
 fn test_watchdog_creation() {
     let watchdog = TimeoutWatchdog::new(5, "test.app");
     let remaining = watchdog.remaining_ms();
-    assert!(remaining >= 4990 && remaining <= 5000,
-        "Expected remaining_ms around 5000, got {}", remaining);
+    assert!(
+        remaining >= 4990 && remaining <= 5000,
+        "Expected remaining_ms around 5000, got {}",
+        remaining
+    );
     assert!(!watchdog.check_expired());
 }
 
@@ -66,10 +69,12 @@ fn test_cancelled_error() {
 async fn test_run_future_success() {
     let watchdog = TimeoutWatchdog::new(5, "test.app");
 
-    let result = watchdog.run_future(async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        42
-    }).await;
+    let result = watchdog
+        .run_future(async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            42
+        })
+        .await;
 
     assert_eq!(result.unwrap(), 42);
 }
@@ -78,23 +83,30 @@ async fn test_run_future_success() {
 async fn test_run_future_timeout() {
     let watchdog = TimeoutWatchdog::new(0, "test.app");
 
-    let result = watchdog.run_future(async {
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        42
-    }).await;
+    let result = watchdog
+        .run_future(async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            42
+        })
+        .await;
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), TimeoutError::RequestTimeout { .. }));
+    assert!(matches!(
+        result.unwrap_err(),
+        TimeoutError::RequestTimeout { .. }
+    ));
 }
 
 #[tokio::test]
 async fn test_run_blocking_success() {
     let watchdog = TimeoutWatchdog::new(5, "test.app");
 
-    let result = watchdog.run_blocking(|| {
-        std::thread::sleep(Duration::from_millis(10));
-        42
-    }).await;
+    let result = watchdog
+        .run_blocking(|| {
+            std::thread::sleep(Duration::from_millis(10));
+            42
+        })
+        .await;
 
     assert_eq!(result.unwrap(), 42);
 }
@@ -104,7 +116,8 @@ async fn test_with_timeout_success() {
     let result = with_timeout(5, "test.app", async {
         tokio::time::sleep(Duration::from_millis(10)).await;
         "success"
-    }).await;
+    })
+    .await;
 
     assert_eq!(result.unwrap(), "success");
 }
@@ -114,10 +127,14 @@ async fn test_with_timeout_expires() {
     let result = with_timeout(0, "test.app", async {
         tokio::time::sleep(Duration::from_secs(10)).await;
         "should not reach"
-    }).await;
+    })
+    .await;
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), TimeoutError::RequestTimeout { .. }));
+    assert!(matches!(
+        result.unwrap_err(),
+        TimeoutError::RequestTimeout { .. }
+    ));
 }
 
 #[test]

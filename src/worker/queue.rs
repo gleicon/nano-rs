@@ -21,11 +21,11 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
-use crate::vfs::{BackendFactory, MemoryBackend};
-use crate::config::{VfsBackendType, VfsDiskConfig};
-use crate::worker::HandlerTask;
 use crate::app::registry::AppRegistry;
+use crate::config::{VfsBackendType, VfsDiskConfig};
 use crate::control_plane::ControlPlane;
+use crate::vfs::{BackendFactory, MemoryBackend};
+use crate::worker::HandlerTask;
 
 /// Error types for queue operations
 #[derive(Debug, Clone, PartialEq)]
@@ -139,7 +139,7 @@ pub struct StatsSnapshot {
 #[derive(Debug)]
 pub struct EntrypointWorkerPool {
     /// Inner WorkerPool that handles all execution
-    /// 
+    ///
     /// This wraps the unified WorkerPool created with AppSource::Entrypoint.
     /// Public for backward compatibility with code that accesses .inner
     pub inner: crate::worker::pool::WorkerPool,
@@ -169,7 +169,12 @@ impl EntrypointWorkerPool {
     /// This method delegates to `WorkerPool::with_source()`. For new code,
     /// use `WorkerPool::with_source(hostname, worker_count, 0, AppSource::entrypoint(path))`.
     pub fn new(hostname: &str, worker_count: u32) -> Self {
-        Self::with_backend(hostname, worker_count, 0, crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()))
+        Self::with_backend(
+            hostname,
+            worker_count,
+            0,
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()),
+        )
     }
 
     /// Create a new worker pool with a custom VFS backend
@@ -188,7 +193,12 @@ impl EntrypointWorkerPool {
     ///
     /// This method delegates to `WorkerPool::with_source_and_backend()`. For new code,
     /// use the unified constructor directly.
-    pub fn with_backend(hostname: &str, worker_count: u32, memory_limit_mb: u32, vfs_backend: crate::vfs::VfsBackendEnum) -> Self {
+    pub fn with_backend(
+        hostname: &str,
+        worker_count: u32,
+        memory_limit_mb: u32,
+        vfs_backend: crate::vfs::VfsBackendEnum,
+    ) -> Self {
         use crate::worker::AppSource;
 
         let source = AppSource::entrypoint("index.js");
@@ -199,13 +209,13 @@ impl EntrypointWorkerPool {
             vfs_backend,
             source,
         );
-        
+
         tracing::info!(
             "EntrypointWorkerPool for {} delegates to unified WorkerPool ({} workers)",
             hostname,
             worker_count
         );
-        
+
         Self {
             inner,
             hostname: hostname.to_string(),
@@ -229,7 +239,9 @@ impl EntrypointWorkerPool {
     /// The unified WorkerPool uses unbounded channels. This method now delegates
     /// to the standard `dispatch()` which provides equivalent functionality.
     pub fn try_dispatch(&self, task: HandlerTask) -> Result<(), QueueError> {
-        self.inner.dispatch(task).map_err(|e| QueueError::SendError(e.to_string()))
+        self.inner
+            .dispatch(task)
+            .map_err(|e| QueueError::SendError(e.to_string()))
     }
 
     /// Shutdown the worker pool gracefully
@@ -241,14 +253,14 @@ impl EntrypointWorkerPool {
         // Delegate to inner WorkerPool shutdown
         let _ = self.inner.shutdown();
     }
-    
+
     /// Get the number of workers in this pool
     ///
     /// Provided for backward compatibility with code that accessed the field directly.
     pub fn worker_count(&self) -> u32 {
         self.worker_count
     }
-    
+
     /// Get the hostname this pool serves
     ///
     /// Provided for backward compatibility with code that accessed the field directly.
@@ -339,7 +351,12 @@ impl WorkQueue {
                     max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
                     max_timeout_ms: 30000,             // 30s default
                     max_batch_size: 100,               // 100 req default
-                    allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
+                    allowed_methods: vec![
+                        "GET".to_string(),
+                        "POST".to_string(),
+                        "PUT".to_string(),
+                        "DELETE".to_string(),
+                    ],
                 };
                 control_plane.register_tenant(hostname, limits);
                 tracing::debug!("Pre-registered tenant in control plane at startup");
@@ -393,7 +410,10 @@ impl WorkQueue {
         let hash = hash_hostname(hostname);
 
         if !self.pools.contains_key(&hash) {
-            tracing::info!("Creating new EntrypointWorkerPool for hostname: {}", hostname);
+            tracing::info!(
+                "Creating new EntrypointWorkerPool for hostname: {}",
+                hostname
+            );
 
             self.ensure_tenant(hostname);
 
@@ -405,11 +425,7 @@ impl WorkQueue {
                         VfsBackendType::Disk => {
                             if let Some(ref disk_config) = app_config.vfs_disk {
                                 match BackendFactory::new()
-                                    .create_backend(
-                                        VfsBackendType::Disk,
-                                        Some(disk_config),
-                                        None,
-                                    )
+                                    .create_backend(VfsBackendType::Disk, Some(disk_config), None)
                                     .await
                                 {
                                     Ok(backend) => {
@@ -435,7 +451,9 @@ impl WorkQueue {
                                             hostname,
                                             self.workers_per_pool,
                                             memory_mb,
-                                            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+                                            crate::vfs::VfsBackendEnum::memory(
+                                                MemoryBackend::default(),
+                                            ),
                                         )
                                     }
                                 }
@@ -459,7 +477,8 @@ impl WorkQueue {
                             if !app_config.entrypoint.is_empty() {
                                 let entrypoint_path = std::path::Path::new(&app_config.entrypoint);
                                 if let Some(parent) = entrypoint_path.parent() {
-                                    let stem = entrypoint_path.file_stem()
+                                    let stem = entrypoint_path
+                                        .file_stem()
                                         .map(|s| s.to_string_lossy().to_string())
                                         .unwrap_or_default();
                                     let subdir = parent.join(&stem);
@@ -475,7 +494,9 @@ impl WorkQueue {
                                     match BackendFactory::new()
                                         .create_backend(
                                             VfsBackendType::Disk,
-                                            Some(&VfsDiskConfig { base_path: base_path.to_string_lossy().to_string() }),
+                                            Some(&VfsDiskConfig {
+                                                base_path: base_path.to_string_lossy().to_string(),
+                                            }),
                                             None,
                                         )
                                         .await
@@ -501,7 +522,9 @@ impl WorkQueue {
                                                 hostname,
                                                 self.workers_per_pool,
                                                 memory_mb,
-                                                crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+                                                crate::vfs::VfsBackendEnum::memory(
+                                                    MemoryBackend::default(),
+                                                ),
                                             )
                                         }
                                     }
@@ -515,7 +538,10 @@ impl WorkQueue {
                                     )
                                 }
                             } else {
-                                tracing::debug!("Using memory backend for hostname: {} (no entrypoint)", hostname);
+                                tracing::debug!(
+                                    "Using memory backend for hostname: {} (no entrypoint)",
+                                    hostname
+                                );
                                 EntrypointWorkerPool::with_backend(
                                     hostname,
                                     self.workers_per_pool,
@@ -525,7 +551,10 @@ impl WorkQueue {
                             }
                         }
                         VfsBackendType::S3 => {
-                            tracing::debug!("Using default memory backend for hostname: {}", hostname);
+                            tracing::debug!(
+                                "Using default memory backend for hostname: {}",
+                                hostname
+                            );
                             EntrypointWorkerPool::with_backend(
                                 hostname,
                                 self.workers_per_pool,
@@ -565,7 +594,11 @@ impl WorkQueue {
             // Create disk backend asynchronously using global config
             let base_path = disk_config.base_path.clone();
             match BackendFactory::new()
-                .create_backend(VfsBackendType::Disk, Some(&VfsDiskConfig { base_path }), None)
+                .create_backend(
+                    VfsBackendType::Disk,
+                    Some(&VfsDiskConfig { base_path }),
+                    None,
+                )
                 .await
             {
                 Ok(backend) => {
@@ -585,7 +618,10 @@ impl WorkQueue {
             }
         } else {
             // Use memory backend (default)
-            tracing::debug!("Using memory backend for hostname: {} (no config)", hostname);
+            tracing::debug!(
+                "Using memory backend for hostname: {} (no config)",
+                hostname
+            );
             EntrypointWorkerPool::new(hostname, self.workers_per_pool)
         }
     }
@@ -601,10 +637,18 @@ impl WorkQueue {
                     max_script_size: 10 * 1024 * 1024,
                     max_timeout_ms: 30000,
                     max_batch_size: 100,
-                    allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string()],
+                    allowed_methods: vec![
+                        "GET".to_string(),
+                        "POST".to_string(),
+                        "PUT".to_string(),
+                        "DELETE".to_string(),
+                    ],
                 };
                 control_plane.register_tenant(hostname.to_string(), limits);
-                tracing::debug!("ensure_tenant: auto-registered {} with default limits", hostname);
+                tracing::debug!(
+                    "ensure_tenant: auto-registered {} with default limits",
+                    hostname
+                );
             }
         }
     }
@@ -671,7 +715,6 @@ pub fn hash_hostname(hostname: &str) -> u64 {
     hasher.finish()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -691,7 +734,11 @@ mod tests {
     fn test_workqueue_creation() {
         let queue = WorkQueue::new(4);
         assert_eq!(queue.workers_per_pool, 4);
-        assert_eq!(queue.channel_capacity(), 256, "POOL-02: bounded channel must be 256 slots");
+        assert_eq!(
+            queue.channel_capacity(),
+            256,
+            "POOL-02: bounded channel must be 256 slots"
+        );
         assert_eq!(queue.pools.len(), 0);
     }
 
@@ -743,7 +790,10 @@ mod tests {
         let worker_count = pool.worker_count;
 
         let idx = (hash_hostname("app.example.com") % worker_count as u64) as usize;
-        assert!(idx < worker_count as usize, "worker index must be in bounds");
+        assert!(
+            idx < worker_count as usize,
+            "worker index must be in bounds"
+        );
 
         assert_ne!(
             hash_hostname("app.example.com"),
@@ -799,21 +849,33 @@ mod tests {
         let mut queue = WorkQueue::new(2);
 
         assert!(
-            !queue.control_plane.as_ref().unwrap().tenant_exists("new.host.local"),
+            !queue
+                .control_plane
+                .as_ref()
+                .unwrap()
+                .tenant_exists("new.host.local"),
             "hostname must not exist before first pool creation"
         );
 
         queue.get_or_create_pool("new.host.local").await;
 
         assert!(
-            queue.control_plane.as_ref().unwrap().tenant_exists("new.host.local"),
+            queue
+                .control_plane
+                .as_ref()
+                .unwrap()
+                .tenant_exists("new.host.local"),
             "hostname must be registered after pool creation"
         );
 
         // idempotent: must not double-register or panic
         queue.ensure_tenant("new.host.local");
         assert!(
-            queue.control_plane.as_ref().unwrap().tenant_exists("new.host.local"),
+            queue
+                .control_plane
+                .as_ref()
+                .unwrap()
+                .tenant_exists("new.host.local"),
             "idempotent: already-registered hostname must still exist"
         );
     }

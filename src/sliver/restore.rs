@@ -18,10 +18,7 @@ use crate::vfs::IsolateVfs;
 ///
 /// # Returns
 /// SliverResult indicating success
-pub async fn restore_vfs(
-    unpacked: &UnpackedSliver,
-    vfs: &IsolateVfs,
-) -> SliverResult<()> {
+pub async fn restore_vfs(unpacked: &UnpackedSliver, vfs: &IsolateVfs) -> SliverResult<()> {
     tracing::info!(
         "Starting VFS restoration for {} ({} entries)",
         unpacked.metadata.hostname,
@@ -31,7 +28,10 @@ pub async fn restore_vfs(
     // Use the UnpackedSliver's restore method
     unpacked.restore_to_vfs(vfs).await?;
 
-    tracing::info!("VFS restoration complete for {}", unpacked.metadata.hostname);
+    tracing::info!(
+        "VFS restoration complete for {}",
+        unpacked.metadata.hostname
+    );
     Ok(())
 }
 
@@ -99,17 +99,22 @@ mod tests {
     use crate::sliver::packer::pack_sliver;
     use crate::sliver::unpacker::unpack_sliver;
     use crate::vfs::{IsolateVfs, MemoryBackend, VfsFile, VfsNamespace, VfsPath};
-    
 
     #[tokio::test]
     async fn test_restore_vfs_to_isolate() {
         // Create sliver with VFS entries
         let metadata = SliverMetadata::new("test.example.com", "1.1.0");
         let heap_data = vec![0u8; 100];
-        
+
         let vfs_entries = vec![
-            (VfsPath::new("config.json").unwrap(), VfsFile::new(b"{}".to_vec())),
-            (VfsPath::new("data/users.txt").unwrap(), VfsFile::new(b"user1\nuser2".to_vec())),
+            (
+                VfsPath::new("config.json").unwrap(),
+                VfsFile::new(b"{}".to_vec()),
+            ),
+            (
+                VfsPath::new("data/users.txt").unwrap(),
+                VfsFile::new(b"user1\nuser2".to_vec()),
+            ),
         ];
 
         let archive = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries)).unwrap();
@@ -123,10 +128,19 @@ mod tests {
         restore_vfs(&unpacked, &vfs).await.unwrap();
 
         // Verify
-        assert!(vfs.exists(&VfsPath::new("config.json").unwrap()).await.unwrap());
-        assert!(vfs.exists(&VfsPath::new("data/users.txt").unwrap()).await.unwrap());
-        
-        let config_content = vfs.read(&VfsPath::new("config.json").unwrap()).await.unwrap();
+        assert!(vfs
+            .exists(&VfsPath::new("config.json").unwrap())
+            .await
+            .unwrap());
+        assert!(vfs
+            .exists(&VfsPath::new("data/users.txt").unwrap())
+            .await
+            .unwrap());
+
+        let config_content = vfs
+            .read(&VfsPath::new("config.json").unwrap())
+            .await
+            .unwrap();
         assert_eq!(config_content, b"{}");
     }
 
@@ -134,10 +148,11 @@ mod tests {
     async fn test_verify_vfs_restoration() {
         let metadata = SliverMetadata::new("test.example.com", "1.1.0");
         let heap_data = vec![0u8; 100];
-        
-        let vfs_entries = vec![
-            (VfsPath::new("file1.txt").unwrap(), VfsFile::new(b"content1".to_vec())),
-        ];
+
+        let vfs_entries = vec![(
+            VfsPath::new("file1.txt").unwrap(),
+            VfsFile::new(b"content1".to_vec()),
+        )];
 
         let archive = pack_sliver(&metadata, Some(&heap_data), Some(&vfs_entries)).unwrap();
         let unpacked = unpack_sliver(&archive).unwrap();

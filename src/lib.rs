@@ -6,23 +6,23 @@
 
 use anyhow::Result;
 
-pub mod v8;
-pub mod runtime;
-pub mod http;
-pub mod worker;
-pub mod config;
-pub mod app;
 pub mod admin;
-pub mod logging;
-pub mod signal;
-pub mod metrics;
-pub mod vfs;
-pub mod sliver;
-pub mod wasm;
-pub mod limits;
+pub mod app;
 pub mod assertions;
+pub mod config;
 pub mod control_plane;
 pub mod data_plane;
+pub mod http;
+pub mod limits;
+pub mod logging;
+pub mod metrics;
+pub mod runtime;
+pub mod signal;
+pub mod sliver;
+pub mod v8;
+pub mod vfs;
+pub mod wasm;
+pub mod worker;
 
 /// Library entry point — stub used by tests and binary glue.
 ///

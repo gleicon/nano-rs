@@ -539,7 +539,7 @@ impl RequestMemoryTracker {
     pub fn reset(&mut self) {
         self.start_stats = None;
     }
-    
+
     /// Check if current memory growth exceeds the limit without returning detailed error
     ///
     /// This is a lightweight check suitable for frequent polling during execution.
@@ -552,7 +552,7 @@ impl RequestMemoryTracker {
     /// * `Err(String)` with error message if limit exceeded
     pub fn check_memory(&self, isolate: &mut v8::Isolate) -> Result<(), String> {
         let growth = self.current_growth_bytes(isolate);
-        
+
         if self.limit_bytes > 0 && growth > self.limit_bytes {
             let growth_mb = growth / (1024 * 1024);
             let limit_mb = self.limit_bytes / (1024 * 1024);

@@ -3,16 +3,16 @@
 //! Handles WebSocket connection upgrading and bidirectional relay
 //! between axum WebSocket connections and the worker runtime.
 
-use std::sync::Arc;
+use crate::http::router::{AppState, HandlerType};
+use crate::http::NanoRequest;
+use crate::worker::{HandlerTask, QueueError, WsChannels};
 use axum::{
     body::Body,
-    extract::ws::{WebSocket, WebSocketUpgrade, Message as AxumWsMessage},
+    extract::ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade},
     http::{Request, Response, StatusCode},
     response::IntoResponse,
 };
-use crate::http::{NanoRequest};
-use crate::worker::{HandlerTask, QueueError, WsChannels};
-use crate::http::router::{AppState, HandlerType};
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Perform the WebSocket upgrade handshake per RFC 6455 §4.2.2.
@@ -26,7 +26,9 @@ pub(crate) async fn handle_ws_upgrade(
     let target = state.router.read().await.resolve(&host).clone();
     let entrypoint = match &target.handler_type {
         HandlerType::WinterTCHandler(path) => path.clone(),
-        HandlerType::WinterTCSliverHandler { entrypoint: path, .. } => path.clone(),
+        HandlerType::WinterTCSliverHandler {
+            entrypoint: path, ..
+        } => path.clone(),
         _ => {
             return Response::builder()
                 .status(StatusCode::FORBIDDEN)
@@ -44,7 +46,11 @@ pub(crate) async fn handle_ws_upgrade(
     let ws_upgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
         Ok(ws) => ws,
         Err(rejection) => {
-            tracing::warn!("WS upgrade extraction failed for host {:?}: {:?}", host, rejection);
+            tracing::warn!(
+                "WS upgrade extraction failed for host {:?}: {:?}",
+                host,
+                rejection
+            );
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("content-type", "text/plain")
@@ -53,16 +59,17 @@ pub(crate) async fn handle_ws_upgrade(
         }
     };
 
-    let nano_request = match NanoRequest::from_axum_parts(&method, &uri, &host, &headers_clone, None) {
-        Ok(r) => r,
-        Err(_) => {
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "text/plain")
-                .body(Body::from("Bad Request"))
-                .unwrap();
-        }
-    };
+    let nano_request =
+        match NanoRequest::from_axum_parts(&method, &uri, &host, &headers_clone, None) {
+            Ok(r) => r,
+            Err(_) => {
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "text/plain")
+                    .body(Body::from("Bad Request"))
+                    .unwrap();
+            }
+        };
 
     let (inbound_tx, inbound_rx) = std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
     let (outbound_tx, outbound_rx) = std::sync::mpsc::sync_channel::<tungstenite::Message>(128);
@@ -70,7 +77,10 @@ pub(crate) async fn handle_ws_upgrade(
     let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
     let cpu_time_limit_ms = state.get_cpu_time_limit_ms(&host);
     let request_id = format!("ws_{}", &Uuid::new_v4().to_string()[..8]);
-    let ws_channels = WsChannels { inbound_rx, outbound_tx };
+    let ws_channels = WsChannels {
+        inbound_rx,
+        outbound_tx,
+    };
     let task = HandlerTask {
         entrypoint,
         request: nano_request,
@@ -216,16 +226,15 @@ fn tungstenite_to_axum(msg: tungstenite::Message) -> AxumWsMessage {
     match msg {
         tungstenite::Message::Text(s) => AxumWsMessage::Text(s.into()),
         tungstenite::Message::Binary(b) => AxumWsMessage::Binary(bytes::Bytes::from(b)),
-        tungstenite::Message::Close(Some(frame)) => AxumWsMessage::Close(Some(
-            axum::extract::ws::CloseFrame {
+        tungstenite::Message::Close(Some(frame)) => {
+            AxumWsMessage::Close(Some(axum::extract::ws::CloseFrame {
                 code: u16::from(frame.code),
                 reason: frame.reason.as_ref().into(),
-            },
-        )),
+            }))
+        }
         tungstenite::Message::Close(None) => AxumWsMessage::Close(None),
         tungstenite::Message::Ping(p) => AxumWsMessage::Ping(bytes::Bytes::from(p)),
         tungstenite::Message::Pong(p) => AxumWsMessage::Pong(bytes::Bytes::from(p)),
         tungstenite::Message::Frame(_) => AxumWsMessage::Close(None),
     }
 }
-

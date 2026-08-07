@@ -62,8 +62,8 @@ pub fn execute_script(isolate: &mut crate::v8::isolate::NanoIsolate, code: &str)
         let nested_scope = std::pin::pin!(v8::HandleScope::new(&mut context_scope));
         let nested_scope = nested_scope.init();
 
-        let code_string =
-            v8::String::new(&nested_scope, code).ok_or_else(|| anyhow!("Failed to create code string"))?;
+        let code_string = v8::String::new(&nested_scope, code)
+            .ok_or_else(|| anyhow!("Failed to create code string"))?;
         let script = v8::Script::compile(&nested_scope, code_string, None)
             .ok_or_else(|| anyhow!("Script compilation failed"))?;
 

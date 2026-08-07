@@ -18,10 +18,7 @@ pub enum CliError {
 
     /// Invalid sliver name
     #[error("✗ Invalid sliver name: '{name}'\n\nReason: {reason}\n\nSliver names must:\n  • Use only letters, numbers, hyphens, and underscores\n  • Be 1-64 characters long\n  • Start with a letter or number")]
-    InvalidSliverName {
-        name: String,
-        reason: String,
-    },
+    InvalidSliverName { name: String, reason: String },
 
     /// Generic operation error with suggestion
     #[error("✗ {operation} failed\n\nReason: {reason}\n\n{}", 

@@ -313,7 +313,8 @@ function fetch(request) {
 
     let pool = WorkerPool::new("test.example.com".to_string(), 1, 0);
 
-    let url = NanoUrl::parse("http://test.example.com:8080/path/to/resource?foo=bar&baz=qux").unwrap();
+    let url =
+        NanoUrl::parse("http://test.example.com:8080/path/to/resource?foo=bar&baz=qux").unwrap();
     let request = NanoRequest::new("PUT".to_string(), url, NanoHeaders::new(), None);
 
     let (tx, rx) = oneshot::channel();
@@ -327,7 +328,10 @@ function fetch(request) {
     let body = String::from_utf8_lossy(response.body().unwrap());
     let data: serde_json::Value = serde_json::from_str(&body).unwrap();
 
-    assert!(data["url"].as_str().unwrap().contains("test.example.com:8080"));
+    assert!(data["url"]
+        .as_str()
+        .unwrap()
+        .contains("test.example.com:8080"));
     assert!(data["url"].as_str().unwrap().contains("/path/to/resource"));
     assert!(data["url"].as_str().unwrap().contains("?foo=bar"));
     assert_eq!(data["method"].as_str().unwrap(), "PUT");

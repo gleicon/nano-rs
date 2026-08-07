@@ -31,13 +31,13 @@ enum Commands {
         /// Number of workers when using --sliver
         #[arg(short, long, default_value = "4")]
         workers: usize,
-        
+
         /// Serve static files to any hostname (disables strict multi-tenancy)
         /// By default, NANO returns 404 for requests with wrong Host header.
         /// Use --static for local development to serve VFS files regardless of Host.
         #[arg(long)]
         static_files: bool,
-        
+
         /// Override the hostname from the sliver metadata
         /// Useful when running behind a proxy or with different DNS
         #[arg(long, value_name = "HOST")]
@@ -58,9 +58,15 @@ async fn main() -> Result<()> {
     nano::logging::init_logging();
 
     let cli = Cli::parse();
-    
+
     match cli.command {
-        Some(Commands::Run { config, sliver, workers, static_files, hostname }) => {
+        Some(Commands::Run {
+            config,
+            sliver,
+            workers,
+            static_files,
+            hostname,
+        }) => {
             if let Some(sliver_path) = sliver {
                 // Run from sliver file
                 run_from_sliver(sliver_path, workers, static_files, hostname).await
@@ -85,15 +91,14 @@ async fn main() -> Result<()> {
             let platform = v8::new_default_platform(0, false).make_shared();
             v8::V8::initialize_platform(platform);
             v8::V8::initialize();
-            
+
             let v8_engine_version = v8::V8::get_version();
             let v8_crate_version = "147.4.0"; // From Cargo.lock
             let app_version = env!("CARGO_PKG_VERSION");
-            
-            println!("nano-rs {} (v8: {}, v8-crate: {})", 
-                app_version, 
-                v8_engine_version,
-                v8_crate_version
+
+            println!(
+                "nano-rs {} (v8: {}, v8-crate: {})",
+                app_version, v8_engine_version, v8_crate_version
             );
             Ok(())
         }
@@ -105,25 +110,23 @@ async fn run_server() -> Result<()> {
     tracing::info!("NANO Edge Runtime starting...");
 
     // Initialize V8 platform (once per process)
-    nano::v8::platform::initialize_platform()
-        .context("Failed to initialize V8 platform")?;
+    nano::v8::platform::initialize_platform().context("Failed to initialize V8 platform")?;
     tracing::info!("V8 platform initialized");
 
     // Set up graceful shutdown with signal handling
     let drain = nano::app::drain::RequestDrain::new();
-    let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(
-        nano::signal::ShutdownConfig::default(),
-        drain,
+    let (shutdown, mut shutdown_rx) =
+        nano::signal::setup_shutdown(nano::signal::ShutdownConfig::default(), drain);
+    tracing::info!(
+        "Graceful shutdown initialized (timeout: {}s)",
+        shutdown.state().drain().active_count()
     );
-    tracing::info!("Graceful shutdown initialized (timeout: {}s)", shutdown.state().drain().active_count());
 
     // Shared registry (metadata) and HTTP router (live routing table).
     // Both admin API and HTTP server hold a clone of the same Arc so admin
     // API writes are immediately visible to the HTTP server.
     let registry = Arc::new(RwLock::new(nano::app::registry::AppRegistry::default()));
-    let shared_router = Arc::new(RwLock::new(
-        nano::http::router::VirtualHostRouter::default(),
-    ));
+    let shared_router = Arc::new(RwLock::new(nano::http::router::VirtualHostRouter::default()));
 
     // Start HTTP server with the shared router.
     let config = nano::http::ServerConfig::default();
@@ -141,7 +144,8 @@ async fn run_server() -> Result<()> {
 
     let admin_handle = if !admin_api_key.is_empty() {
         let admin_config = nano::admin::server::AdminConfig::new(admin_api_key);
-        let admin_state = nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
+        let admin_state =
+            nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
 
         match nano::admin::server::start_admin_server(admin_config, admin_state).await {
             Ok(admin_server) => {
@@ -161,12 +165,19 @@ async fn run_server() -> Result<()> {
     // Start Unix socket admin server (optional)
     let unix_socket_handle = if let Some(socket_path) = unix_socket_path {
         let unix_config = nano::admin::unix_socket::UnixSocketConfig::new(socket_path);
-        let unix_auth = std::sync::Arc::new(nano::admin::auth::AdminAuth::new("unix-socket-unused"));
-        let unix_state = nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
+        let unix_auth =
+            std::sync::Arc::new(nano::admin::auth::AdminAuth::new("unix-socket-unused"));
+        let unix_state =
+            nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
 
-        match nano::admin::unix_socket::start_unix_socket_server(unix_config, unix_state, unix_auth).await {
+        match nano::admin::unix_socket::start_unix_socket_server(unix_config, unix_state, unix_auth)
+            .await
+        {
             Ok(unix_server) => {
-                tracing::info!("Unix socket admin server started at {}", unix_server.socket_path().display());
+                tracing::info!(
+                    "Unix socket admin server started at {}",
+                    unix_server.socket_path().display()
+                );
                 Some(unix_server)
             }
             Err(e) => {
@@ -218,17 +229,17 @@ async fn run_server() -> Result<()> {
 ///
 /// Loads the sliver, extracts the hostname and snapshot, creates a
 /// SliverWorkerPool, and starts the HTTP server.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `sliver_path` - Path to the sliver file
 /// * `workers` - Number of worker threads
 /// * `static_files` - If true, serve VFS to any hostname (dev mode).
 ///                    If false, only serve to exact hostname match (strict multi-tenancy).
 /// * `hostname_override` - Optional override for the hostname from sliver metadata
 async fn run_from_sliver(
-    sliver_path: PathBuf, 
-    workers: usize, 
+    sliver_path: PathBuf,
+    workers: usize,
     static_files: bool,
     hostname_override: Option<String>,
 ) -> Result<()> {
@@ -240,17 +251,16 @@ async fn run_from_sliver(
     }
 
     // Initialize V8 platform
-    nano::v8::platform::initialize_platform()
-        .context("Failed to initialize V8 platform")?;
+    nano::v8::platform::initialize_platform().context("Failed to initialize V8 platform")?;
     tracing::info!("V8 platform initialized");
 
     // Read and unpack sliver
     let sliver_data = std::fs::read(&sliver_path)
         .with_context(|| format!("Failed to read sliver file: {}", sliver_path.display()))?;
-    
+
     let unpacked = nano::sliver::unpack_sliver(&sliver_data)
         .with_context(|| format!("Failed to unpack sliver: {}", sliver_path.display()))?;
-    
+
     tracing::info!(
         "Unpacked sliver for {}: {} VFS entries, bytecode: {}",
         unpacked.metadata.hostname,
@@ -277,7 +287,8 @@ async fn run_from_sliver(
 
     // Create app registry with sliver data
     let mut registry = nano::app::registry::AppRegistry::default();
-    let registered_hostname = registry.register_from_sliver(&sliver_path, None)
+    let registered_hostname = registry
+        .register_from_sliver(&sliver_path, None)
         .with_context(|| format!("Failed to register sliver: {}", sliver_path.display()))?;
 
     // Use our hostname (override or original) instead of registry's
@@ -293,20 +304,22 @@ async fn run_from_sliver(
         unpacked,
     ));
 
-    tracing::info!("Created SliverWorkerPool with {} workers for {}", workers, hostname);
+    tracing::info!(
+        "Created SliverWorkerPool with {} workers for {}",
+        workers,
+        hostname
+    );
 
     // Set up graceful shutdown
     let drain = nano::app::drain::RequestDrain::new();
-    let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(
-        nano::signal::ShutdownConfig::default(),
-        drain,
-    );
+    let (shutdown, mut shutdown_rx) =
+        nano::signal::setup_shutdown(nano::signal::ShutdownConfig::default(), drain);
     tracing::info!("Graceful shutdown initialized");
 
     // Get server address
     let config = nano::http::ServerConfig::default();
     let socket_addr = config.socket_addr()?;
-    
+
     // Print startup banner to console (not just tracing)
     println!("");
     println!("╔════════════════════════════════════════════════════════════╗");
@@ -335,8 +348,12 @@ async fn run_from_sliver(
     println!("  Ready to accept connections...");
     println!("  Press Ctrl+C to stop");
     println!("");
-    
-    tracing::info!("Starting HTTP server on {} for sliver app {}", socket_addr, hostname);
+
+    tracing::info!(
+        "Starting HTTP server on {} for sliver app {}",
+        socket_addr,
+        hostname
+    );
 
     // Subscribe to shutdown signal for the server
     let mut server_shutdown_rx = shutdown.subscribe();
@@ -350,27 +367,26 @@ async fn run_from_sliver(
             async move {
                 let _ = server_shutdown_rx.recv().await;
             },
-        ).await
+        )
+        .await
     });
 
     // Wait for shutdown signal
     let _ = shutdown_rx.recv().await;
-    
+
     println!("");
     println!("  Shutdown signal received, stopping server...");
     println!("");
-    
+
     tracing::info!("Shutdown signal received, initiating graceful shutdown...");
 
     // Signal server to stop first
     shutdown.shutdown().await;
 
     // Wait for server with timeout (3s allows graceful shutdown while being responsive for tests)
-    let shutdown_result = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        server_handle
-    ).await;
-    
+    let shutdown_result =
+        tokio::time::timeout(std::time::Duration::from_secs(3), server_handle).await;
+
     match shutdown_result {
         Ok(Ok(Ok(()))) => {
             tracing::info!("Server stopped successfully");
@@ -437,7 +453,10 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 
     // Check for sliver-based apps in config
     let has_sliver_apps = config.apps.iter().any(|app| app.sliver.is_some());
-    let has_entrypoint_apps = config.apps.iter().any(|app| app.sliver.is_none() && !app.entrypoint.is_empty());
+    let has_entrypoint_apps = config
+        .apps
+        .iter()
+        .any(|app| app.sliver.is_none() && !app.entrypoint.is_empty());
 
     if has_sliver_apps {
         tracing::info!("Configuration contains sliver-based apps");
@@ -447,27 +466,25 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     }
 
     // Initialize V8 platform (once per process)
-    nano::v8::platform::initialize_platform()
-        .context("Failed to initialize V8 platform")?;
+    nano::v8::platform::initialize_platform().context("Failed to initialize V8 platform")?;
     tracing::info!("V8 platform initialized");
 
     // Create app registry from config
     let _registry = Arc::new(tokio::sync::RwLock::new(
-        nano::app::registry::AppRegistry::from_config(config.clone())
+        nano::app::registry::AppRegistry::from_config(config.clone()),
     ));
     tracing::info!("Created AppRegistry");
 
     // Set up graceful shutdown
     let drain = nano::app::drain::RequestDrain::new();
-    let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(
-        nano::signal::ShutdownConfig::default(),
-        drain,
-    );
+    let (shutdown, mut shutdown_rx) =
+        nano::signal::setup_shutdown(nano::signal::ShutdownConfig::default(), drain);
     tracing::info!("Graceful shutdown initialized");
 
     // Convert server config section to ServerConfig
     let server_bind_config = nano::http::ServerConfig::from(config.server.clone());
-    let addr = server_bind_config.socket_addr()
+    let addr = server_bind_config
+        .socket_addr()
         .context("Failed to parse server address")?;
 
     tracing::info!("Starting HTTP server on {}", addr);
@@ -485,12 +502,15 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 
     // Display app information
     for app in &config.apps {
-        let app_type = if app.sliver.is_some() { "sliver" } else { "entrypoint" };
+        let app_type = if app.sliver.is_some() {
+            "sliver"
+        } else {
+            "entrypoint"
+        };
         println!("  - {} ({})", app.hostname, app_type);
-        println!("    Workers: {}, Memory: {}MB, Timeout: {}s",
-            app.limits.workers,
-            app.limits.memory_mb,
-            app.limits.timeout_secs
+        println!(
+            "    Workers: {}, Memory: {}MB, Timeout: {}s",
+            app.limits.workers, app.limits.memory_mb, app.limits.timeout_secs
         );
     }
 
@@ -501,9 +521,10 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 
     // Start server with config
     let shutdown_state = shutdown.state().clone();
-    let server_handle = tokio::spawn(async move {
-        nano::http::start_server_with_config(config, shutdown_state).await
-    });
+    let server_handle =
+        tokio::spawn(
+            async move { nano::http::start_server_with_config(config, shutdown_state).await },
+        );
 
     // Wait for shutdown signal
     let _ = shutdown_rx.recv().await;
@@ -518,10 +539,8 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     shutdown.shutdown().await;
 
     // Wait for server with timeout (3s allows graceful shutdown while being responsive for tests)
-    let shutdown_result = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        server_handle
-    ).await;
+    let shutdown_result =
+        tokio::time::timeout(std::time::Duration::from_secs(3), server_handle).await;
 
     match shutdown_result {
         Ok(Ok(Ok(()))) => {
@@ -545,44 +564,42 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 
 /// Handle sliver management commands
 async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
-    use nano::sliver::{SliverMetadata, unpack_sliver, validate_sliver};
-    use nano::sliver::packager::create_sliver_from_directory;
     use cli::validation::{validate_hostname, validate_sliver_name, validate_tag};
-    
+    use nano::sliver::packager::create_sliver_from_directory;
+    use nano::sliver::{unpack_sliver, validate_sliver, SliverMetadata};
+
     // Initialize V8 platform if not already done (required for snapshot operations)
     if !nano::v8::platform::is_initialized() {
         nano::v8::platform::initialize_platform()
             .context("Failed to initialize V8 platform for sliver command")?;
         tracing::info!("V8 platform initialized for sliver command");
     }
-    
+
     match cmd {
         cli::SliverCommand::Create(args) => {
             // Check if we're creating from a directory
             if let Some(from_dir) = args.from_dir {
                 tracing::info!("Creating sliver from directory: {}", from_dir.display());
-                
+
                 // Get name - required for directory-based slivers
-                let name = args.name.ok_or_else(|| {
-                    anyhow::anyhow!("--name is required when using --from-dir")
-                })?;
-                
+                let name = args
+                    .name
+                    .ok_or_else(|| anyhow::anyhow!("--name is required when using --from-dir"))?;
+
                 // Validate name
-                validate_sliver_name(&name)
-                    .map_err(|e| anyhow::anyhow!("{}", e))?;
-                
+                validate_sliver_name(&name).map_err(|e| anyhow::anyhow!("{}", e))?;
+
                 // Validate tag if provided
                 if let Some(ref tag) = args.tag {
-                    validate_tag(tag)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?;
+                    validate_tag(tag).map_err(|e| anyhow::anyhow!("{}", e))?;
                 }
-                
+
                 // Get hostname from args or use name as default
                 let hostname = args.hostname.or_else(|| Some(name.clone()));
-                
+
                 // Create output path
                 let output = args.output.map(|p| p.to_string_lossy().to_string());
-                
+
                 // Create the sliver from directory
                 create_sliver_from_directory(
                     from_dir.to_str().unwrap_or("."),
@@ -591,56 +608,61 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                     output,
                     hostname,
                     args.source_only,
-                ).await?;
-                
+                )
+                .await?;
+
                 return Ok(());
             }
-            
+
             // Original hostname-based sliver creation
             let hostname = args.hostname.ok_or_else(|| {
                 anyhow::anyhow!("Either hostname or --from-dir must be specified")
             })?;
-            
+
             tracing::info!("Creating sliver for hostname: {}", hostname);
-            
+
             // Validate hostname
-            validate_hostname(&hostname)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
-            
+            validate_hostname(&hostname).map_err(|e| anyhow::anyhow!("{}", e))?;
+
             // Validate optional name
             if let Some(ref name) = args.name {
-                validate_sliver_name(name)
-                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                validate_sliver_name(name).map_err(|e| anyhow::anyhow!("{}", e))?;
             }
-            
+
             // Validate optional tag
             if let Some(ref tag) = args.tag {
-                validate_tag(tag)
-                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                validate_tag(tag).map_err(|e| anyhow::anyhow!("{}", e))?;
             }
-            
+
             // Determine output path
             let output = args.output.unwrap_or_else(|| {
                 let name = args.name.as_ref().unwrap_or(&hostname);
-                let tag = args.tag.as_ref().map(|t| format!("-{}", t)).unwrap_or_default();
+                let tag = args
+                    .tag
+                    .as_ref()
+                    .map(|t| format!("-{}", t))
+                    .unwrap_or_default();
                 PathBuf::from(format!("{}{}.sliver", name, tag))
             });
-            
+
             // Validate output path doesn't already exist
             if output.exists() {
-                anyhow::bail!("Sliver file already exists: {}. Use --output to specify a different path.", output.display());
+                anyhow::bail!(
+                    "Sliver file already exists: {}. Use --output to specify a different path.",
+                    output.display()
+                );
             }
-            
+
             let sliver_name = args.name.clone();
             let sliver_tag = args.tag.clone();
-            
+
             // Create metadata
             let mut metadata = SliverMetadata::new(&hostname, env!("CARGO_PKG_VERSION"));
             metadata.name = sliver_name.clone();
             if let Some(tag) = sliver_tag {
                 metadata.description = Some(format!("Tag: {}", tag));
             }
-            
+
             let source_only = args.source_only;
 
             nano::sliver::packager::create_sliver_from_directory(
@@ -650,111 +672,106 @@ async fn handle_sliver_command(cmd: cli::SliverCommand) -> Result<()> {
                 Some(output.to_string_lossy().to_string()),
                 Some(hostname.clone()),
                 source_only,
-            ).await.context("Failed to create sliver")?;
+            )
+            .await
+            .context("Failed to create sliver")?;
 
             // Validate the created sliver
             let archive_data = std::fs::read(&output)
                 .with_context(|| format!("Failed to read created sliver: {}", output.display()))?;
-            validate_sliver(&archive_data)
-                .context("Created sliver failed validation")?;
+            validate_sliver(&archive_data).context("Created sliver failed validation")?;
 
             tracing::info!("Sliver created successfully: {}", output.display());
-            
+
             Ok(())
         }
         cli::SliverCommand::List(args) => {
             tracing::info!("Listing slivers");
-            
+
             // Find all .sliver files in current directory
             let mut found = false;
-            let entries = std::fs::read_dir(".")
-                .context("Failed to read current directory")?;
-            
+            let entries = std::fs::read_dir(".").context("Failed to read current directory")?;
+
             println!("Slivers:");
             for entry in entries {
                 let entry = entry?;
                 let path = entry.path();
-                
+
                 if path.extension().and_then(|e| e.to_str()) == Some("sliver") {
                     found = true;
-                    let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
-                    
+                    let name = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown");
+
                     if args.verbose {
                         // Try to read metadata from the sliver
                         match std::fs::read(&path) {
-                            Ok(data) => {
-                                match unpack_sliver(&data) {
-                                    Ok(unpacked) => {
-                                        println!("  {} ({} bytes)", name, data.len());
-                                        for line in unpacked.metadata.summary().lines() {
-                                            println!("    {}", line);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        println!("  {} ({} bytes) [invalid: {}]", name, data.len(), e);
+                            Ok(data) => match unpack_sliver(&data) {
+                                Ok(unpacked) => {
+                                    println!("  {} ({} bytes)", name, data.len());
+                                    for line in unpacked.metadata.summary().lines() {
+                                        println!("    {}", line);
                                     }
                                 }
-                            }
+                                Err(e) => {
+                                    println!("  {} ({} bytes) [invalid: {}]", name, data.len(), e);
+                                }
+                            },
                             Err(e) => {
                                 println!("  {} [error reading: {}]", name, e);
                             }
                         }
                     } else {
-                        let size = std::fs::metadata(&path)
-                            .map(|m| m.len())
-                            .unwrap_or(0);
+                        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                         println!("  {} ({} bytes)", name, size);
                     }
                 }
             }
-            
+
             if !found {
                 println!("  (none found in current directory)");
             }
-            
+
             Ok(())
         }
         cli::SliverCommand::Delete(args) => {
             tracing::info!("Deleting sliver: {}", args.name);
-            
+
             // Validate sliver name
-            validate_sliver_name(&args.name)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
-            
+            validate_sliver_name(&args.name).map_err(|e| anyhow::anyhow!("{}", e))?;
+
             // Look for sliver file with the given name
             let sliver_path = PathBuf::from(format!("{}.sliver", args.name));
-            
+
             if !sliver_path.exists() {
                 anyhow::bail!("Sliver not found: {}", args.name);
             }
-            
+
             if !args.force {
                 print!("Delete sliver '{}'? [y/N] ", args.name);
                 use std::io::Write;
                 std::io::stdout().flush()?;
-                
+
                 let mut input = String::new();
                 std::io::stdin().read_line(&mut input)?;
-                
+
                 if !input.trim().eq_ignore_ascii_case("y") {
                     println!("Deletion cancelled.");
                     return Ok(());
                 }
             }
-            
+
             std::fs::remove_file(&sliver_path)
                 .with_context(|| format!("Failed to delete sliver: {}", args.name))?;
-            
+
             println!("Deleted sliver: {}", args.name);
             tracing::info!("Sliver deleted: {}", sliver_path.display());
-            
+
             Ok(())
         }
     }
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -764,8 +781,11 @@ mod tests {
     fn test_cli_parse_run() {
         let cli = Cli::try_parse_from(["nano-rs", "run"]);
         assert!(cli.is_ok());
-        
-        if let Ok(Cli { command: Some(Commands::Run { .. }) }) = cli {
+
+        if let Ok(Cli {
+            command: Some(Commands::Run { .. }),
+        }) = cli
+        {
             // Parsed correctly
         } else {
             panic!("Expected Run command");
@@ -775,12 +795,19 @@ mod tests {
     #[test]
     fn test_cli_parse_sliver_create() {
         let cli = Cli::try_parse_from([
-            "nano-rs", "sliver", "create", "api.example.com",
-            "--output", "./test.sliver"
+            "nano-rs",
+            "sliver",
+            "create",
+            "api.example.com",
+            "--output",
+            "./test.sliver",
         ]);
         assert!(cli.is_ok());
-        
-        if let Ok(Cli { command: Some(Commands::Sliver(cmd)) }) = cli {
+
+        if let Ok(Cli {
+            command: Some(Commands::Sliver(cmd)),
+        }) = cli
+        {
             match cmd {
                 cli::SliverCommand::Create(args) => {
                     assert_eq!(args.hostname, Some("api.example.com".to_string()));
@@ -797,8 +824,11 @@ mod tests {
     fn test_cli_parse_sliver_list() {
         let cli = Cli::try_parse_from(["nano-rs", "sliver", "list"]);
         assert!(cli.is_ok());
-        
-        if let Ok(Cli { command: Some(Commands::Sliver(cmd)) }) = cli {
+
+        if let Ok(Cli {
+            command: Some(Commands::Sliver(cmd)),
+        }) = cli
+        {
             match cmd {
                 cli::SliverCommand::List(args) => {
                     assert!(!args.verbose);
@@ -814,8 +844,11 @@ mod tests {
     fn test_cli_parse_sliver_delete() {
         let cli = Cli::try_parse_from(["nano-rs", "sliver", "delete", "test-sliver"]);
         assert!(cli.is_ok());
-        
-        if let Ok(Cli { command: Some(Commands::Sliver(cmd)) }) = cli {
+
+        if let Ok(Cli {
+            command: Some(Commands::Sliver(cmd)),
+        }) = cli
+        {
             match cmd {
                 cli::SliverCommand::Delete(args) => {
                     assert_eq!(args.name, "test-sliver");

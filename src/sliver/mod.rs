@@ -22,8 +22,8 @@ mod error;
 pub mod extractor;
 mod format;
 mod metadata;
-mod packer;
 pub mod packager;
+mod packer;
 pub mod restore;
 mod unpacker;
 pub mod validation;
@@ -31,14 +31,21 @@ pub mod vfs_capture;
 
 pub use error::{SliverError, SliverResult};
 pub use extractor::SliverExtractor;
-pub use format::{SliverFormat, FORMAT_VERSION, BYTECODE_FILENAME, MANIFEST_FILENAME, METADATA_FILENAME, VFS_PREFIX, SLIVER_EXTENSION};
+pub use format::{
+    SliverFormat, BYTECODE_FILENAME, FORMAT_VERSION, MANIFEST_FILENAME, METADATA_FILENAME,
+    SLIVER_EXTENSION, VFS_PREFIX,
+};
 pub use metadata::SliverMetadata;
 pub use packer::{pack_sliver, SliverPacker};
 pub use unpacker::{unpack_sliver, SliverUnpacker, UnpackedSliver};
-pub use validation::{validate_sliver_integrity, find_sliver_file, check_version_compatibility, CorruptionType};
+pub use validation::{
+    check_version_compatibility, find_sliver_file, validate_sliver_integrity, CorruptionType,
+};
 
 /// Walk a VFS backend and collect all entries for serialization.
-pub async fn walk_vfs_for_sliver<B>(backend: &B) -> crate::vfs::VfsResult<Vec<(crate::vfs::VfsPath, crate::vfs::VfsFile)>>
+pub async fn walk_vfs_for_sliver<B>(
+    backend: &B,
+) -> crate::vfs::VfsResult<Vec<(crate::vfs::VfsPath, crate::vfs::VfsFile)>>
 where
     B: crate::vfs::VfsBackend,
 {

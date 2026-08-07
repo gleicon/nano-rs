@@ -109,5 +109,4 @@ mod tests {
         let _scope = scope_storage.init();
         // Test that we can create a scope without crashing
     }
-
 }

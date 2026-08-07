@@ -14,10 +14,10 @@
 //! implementation handles those calls. The global_wasm_cache() is wired to the Rust-side
 //! compile_module() path (used by sliver pre-compilation and direct Rust callers).
 
-use nano::worker::pool::WorkerPool;
-use nano::http::{NanoRequest, NanoHeaders, NanoUrl};
-use nano::worker::HandlerTask;
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::vfs::VfsBackendEnum;
+use nano::worker::pool::WorkerPool;
+use nano::worker::HandlerTask;
 use std::sync::Arc;
 
 fn init_v8() {
@@ -79,8 +79,12 @@ async function __nano_user_fetch(req) {{
 
     for i in 0..10 {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        pool.dispatch(HandlerTask::new(entrypoint.clone(), make_get("http://wasm.test/"), tx))
-            .unwrap();
+        pool.dispatch(HandlerTask::new(
+            entrypoint.clone(),
+            make_get("http://wasm.test/"),
+            tx,
+        ))
+        .unwrap();
         let result = rx.blocking_recv().expect("channel ok");
         assert!(
             result.is_ok(),
@@ -164,8 +168,7 @@ async function __nano_user_fetch(req) {{
         }
     }
     assert_eq!(
-        errors,
-        0,
+        errors, 0,
         "[WASM-CACHE-02] {} errors across 4 workers",
         errors
     );
@@ -184,21 +187,26 @@ fn wasm_cache_03_global_cache_accessible() {
 
     // Verify SHA-256 hash stability for the add WASM bytes
     let add_wasm: Vec<u8> = vec![
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
-        0x03, 0x02, 0x01, 0x00,
-        0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00,
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f,
+        0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00,
         0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
     ];
     let h1 = nano::wasm::compute_hash(&add_wasm);
     let h2 = nano::wasm::compute_hash(&add_wasm);
     assert_eq!(h1, h2, "[WASM-CACHE-03] SHA-256 hash must be deterministic");
-    assert_eq!(h1.len(), 64, "[WASM-CACHE-03] SHA-256 hash must be 64 hex chars");
+    assert_eq!(
+        h1.len(),
+        64,
+        "[WASM-CACHE-03] SHA-256 hash must be 64 hex chars"
+    );
 
     // Different bytes -> different hash
     let minimal: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     let h3 = nano::wasm::compute_hash(&minimal);
-    assert_ne!(h1, h3, "[WASM-CACHE-03] Different bytes must produce different hash");
+    assert_ne!(
+        h1, h3,
+        "[WASM-CACHE-03] Different bytes must produce different hash"
+    );
 
     println!(
         "[WASM-CACHE-03] global_wasm_cache accessible, len={}, hash stable (64 chars)",
@@ -214,14 +222,17 @@ fn wasm_cache_04_js_polyfill_caches_within_worker() {
     init_v8();
 
     // Handler re-compiles from inline bytes every call — polyfill should cache
-    let js = format!(r#"
+    let js = format!(
+        r#"
 async function __nano_user_fetch(req) {{
     const bytes = {};
     const mod = await WebAssembly.compile(bytes);
     const inst = await WebAssembly.instantiate(mod);
     return {{ status: 200, headers: {{}}, body: String(inst.exports.add(21, 21)) }};
 }}
-"#, WASM_ADD_BYTES_JS);
+"#,
+        WASM_ADD_BYTES_JS
+    );
 
     let entrypoint = write_js("wasm_cache04.js", &js);
     let pool = WorkerPool::with_backend("wasm.test".into(), 1, 0, make_backend());
@@ -229,21 +240,42 @@ async function __nano_user_fetch(req) {{
     let mut errors = 0;
     for i in 0..10 {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        pool.dispatch(HandlerTask::new(entrypoint.clone(), make_get("http://wasm.test/"), tx)).unwrap();
+        pool.dispatch(HandlerTask::new(
+            entrypoint.clone(),
+            make_get("http://wasm.test/"),
+            tx,
+        ))
+        .unwrap();
         match rx.blocking_recv() {
             Ok(Ok(r)) if r.status() == 200 => {
-                let body = r.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
+                let body = r
+                    .body()
+                    .map(|b| String::from_utf8_lossy(b).to_string())
+                    .unwrap_or_default();
                 if body.trim() != "42" {
                     errors += 1;
                     eprintln!("[WASM-CACHE-04] req {} expected 42, got: {}", i, body);
                 }
             }
-            Ok(Ok(r)) => { errors += 1; eprintln!("[WASM-CACHE-04] req {} status={}", i, r.status()); }
-            Ok(Err(e)) => { errors += 1; eprintln!("[WASM-CACHE-04] req {} error: {}", i, e); }
-            Err(_) => { errors += 1; eprintln!("[WASM-CACHE-04] req {} channel closed", i); }
+            Ok(Ok(r)) => {
+                errors += 1;
+                eprintln!("[WASM-CACHE-04] req {} status={}", i, r.status());
+            }
+            Ok(Err(e)) => {
+                errors += 1;
+                eprintln!("[WASM-CACHE-04] req {} error: {}", i, e);
+            }
+            Err(_) => {
+                errors += 1;
+                eprintln!("[WASM-CACHE-04] req {} channel closed", i);
+            }
         }
     }
-    assert_eq!(errors, 0, "[WASM-CACHE-04] {} errors in 10 requests", errors);
+    assert_eq!(
+        errors, 0,
+        "[WASM-CACHE-04] {} errors in 10 requests",
+        errors
+    );
 }
 
 // [WASM-CACHE-05] WebAssembly.instantiate(bytes) path also uses polyfill cache
@@ -252,24 +284,52 @@ fn wasm_cache_05_instantiate_bytes_path_cached() {
     init_v8();
 
     // Single-call pattern: instantiate(bytes) — most common user pattern
-    let js = format!(r#"
+    let js = format!(
+        r#"
 async function __nano_user_fetch(req) {{
     const result = await WebAssembly.instantiate({});
     return {{ status: 200, headers: {{}}, body: String(result.instance.exports.add(100, 23)) }};
 }}
-"#, WASM_ADD_BYTES_JS);
+"#,
+        WASM_ADD_BYTES_JS
+    );
 
     let entrypoint = write_js("wasm_cache05.js", &js);
     let pool = WorkerPool::with_backend("wasm.test".into(), 1, 0, make_backend());
 
     for i in 0..5 {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        pool.dispatch(HandlerTask::new(entrypoint.clone(), make_get("http://wasm.test/"), tx)).unwrap();
+        pool.dispatch(HandlerTask::new(
+            entrypoint.clone(),
+            make_get("http://wasm.test/"),
+            tx,
+        ))
+        .unwrap();
         let result = rx.blocking_recv().expect("channel");
-        assert!(result.is_ok(), "[WASM-CACHE-05] req {} error: {:?}", i, result.err());
+        assert!(
+            result.is_ok(),
+            "[WASM-CACHE-05] req {} error: {:?}",
+            i,
+            result.err()
+        );
         let r = result.unwrap();
-        assert_eq!(r.status(), 200, "[WASM-CACHE-05] req {} status={}", i, r.status());
-        let body = r.body().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default();
-        assert_eq!(body.trim(), "123", "[WASM-CACHE-05] req {} expected 123, got {}", i, body);
+        assert_eq!(
+            r.status(),
+            200,
+            "[WASM-CACHE-05] req {} status={}",
+            i,
+            r.status()
+        );
+        let body = r
+            .body()
+            .map(|b| String::from_utf8_lossy(b).to_string())
+            .unwrap_or_default();
+        assert_eq!(
+            body.trim(),
+            "123",
+            "[WASM-CACHE-05] req {} expected 123, got {}",
+            i,
+            body
+        );
     }
 }

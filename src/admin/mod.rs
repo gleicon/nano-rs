@@ -16,8 +16,10 @@ pub mod server;
 pub mod unix_socket;
 
 pub use auth::{api_key_middleware, api_key_middleware_forbidden, AdminAuth, AuthError};
-pub use diagnostics::{DiagnosticsCollector, IsolateInfo, AppStats, SystemDiagnostics};
+pub use diagnostics::{AppStats, DiagnosticsCollector, IsolateInfo, SystemDiagnostics};
 pub use handlers::*;
 pub use metrics::metrics_handler;
-pub use server::{AdminConfig, AdminServer, create_admin_router};
-pub use unix_socket::{UnixSocketConfig, UnixSocketServer, create_unix_socket, start_unix_socket_server};
+pub use server::{create_admin_router, AdminConfig, AdminServer};
+pub use unix_socket::{
+    create_unix_socket, start_unix_socket_server, UnixSocketConfig, UnixSocketServer,
+};

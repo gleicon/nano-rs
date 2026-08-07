@@ -26,9 +26,7 @@ pub fn with_worker_runtime<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&tokio::runtime::Handle) -> R,
 {
-    WORKER_RUNTIME.with(|runtime| {
-        runtime.borrow().as_ref().map(f)
-    })
+    WORKER_RUNTIME.with(|runtime| runtime.borrow().as_ref().map(f))
 }
 
 /// Set the worker runtime handle for the current thread.
@@ -62,9 +60,12 @@ fn bytecode_map_read() -> std::sync::RwLockReadGuard<'static, Option<HashMap<Str
     BYTECODE_CACHE.read().unwrap()
 }
 
-fn bytecode_map_write() -> std::sync::RwLockWriteGuard<'static, Option<HashMap<String, Arc<[u8]>>>> {
+fn bytecode_map_write() -> std::sync::RwLockWriteGuard<'static, Option<HashMap<String, Arc<[u8]>>>>
+{
     let mut w = BYTECODE_CACHE.write().unwrap();
-    if w.is_none() { *w = Some(HashMap::new()); }
+    if w.is_none() {
+        *w = Some(HashMap::new());
+    }
     w
 }
 
@@ -75,7 +76,10 @@ pub fn get_bytecode_cache(entrypoint: &str) -> Option<Arc<[u8]>> {
 
 /// Store compiled bytecode for an entrypoint.
 pub fn set_bytecode_cache(entrypoint: &str, bytes: Arc<[u8]>) {
-    bytecode_map_write().as_mut().unwrap().insert(entrypoint.to_string(), bytes);
+    bytecode_map_write()
+        .as_mut()
+        .unwrap()
+        .insert(entrypoint.to_string(), bytes);
 }
 
 /// Invalidate bytecode cache for an entrypoint (called when source changes).
@@ -133,10 +137,13 @@ pub fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
             *cache_write = Some(HashMap::new());
         }
         if let Some(cache) = cache_write.as_mut() {
-            cache.insert(entrypoint.to_string(), CodeCacheEntry {
-                code: code_arc.clone(),
-                modified,
-            });
+            cache.insert(
+                entrypoint.to_string(),
+                CodeCacheEntry {
+                    code: code_arc.clone(),
+                    modified,
+                },
+            );
         }
     }
     invalidate_bytecode_cache(entrypoint);
@@ -337,7 +344,10 @@ mod tests {
             "timer should exit within 2 ms of abort; took {:?}",
             start.elapsed()
         );
-        assert!(!fired.load(Ordering::SeqCst), "on_expire must not fire on abort");
+        assert!(
+            !fired.load(Ordering::SeqCst),
+            "on_expire must not fire on abort"
+        );
     }
 
     #[test]
@@ -382,9 +392,11 @@ mod tests {
         });
 
         std::thread::sleep(std::time::Duration::from_millis(limit_ms as u64 + 15));
-        assert!(fired.load(Ordering::SeqCst), "must fire after limit_ms of CPU time");
+        assert!(
+            fired.load(Ordering::SeqCst),
+            "must fire after limit_ms of CPU time"
+        );
 
         handle.join().unwrap();
     }
 }
-

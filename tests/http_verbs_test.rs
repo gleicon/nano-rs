@@ -17,7 +17,9 @@ use tokio::sync::oneshot;
 // Helper to decode base64 in tests
 fn base64_decode(input: &str) -> Vec<u8> {
     use base64::Engine;
-    base64::engine::general_purpose::STANDARD.decode(input).unwrap()
+    base64::engine::general_purpose::STANDARD
+        .decode(input)
+        .unwrap()
 }
 
 fn init_platform() {
@@ -85,7 +87,10 @@ fn test_http_get_without_body() {
     assert!(data["url"].as_str().unwrap().contains("/api/resource"));
     assert!(data["url"].as_str().unwrap().contains("?filter=active"));
     // Headers are stored in internal __headers__ property of Headers object
-    assert!(data["headers"]["__headers__"]["authorization"].as_str().unwrap().contains("Bearer"));
+    assert!(data["headers"]["__headers__"]["authorization"]
+        .as_str()
+        .unwrap()
+        .contains("Bearer"));
     assert!(!data["hasBody"].as_bool().unwrap());
     assert!(data["body"].is_null());
 
@@ -140,7 +145,9 @@ fn test_http_post_with_json_body() {
     let mut headers = NanoHeaders::new();
     headers.set("Content-Type", "application/json");
     headers.set("X-Request-ID", "req-12345");
-    let body = Some(bytes::Bytes::from(r#"{"name":"John","email":"john@example.com"}"#));
+    let body = Some(bytes::Bytes::from(
+        r#"{"name":"John","email":"john@example.com"}"#,
+    ));
     let request = NanoRequest::new("POST".to_string(), url, headers, body);
 
     let (tx, rx) = oneshot::channel();
@@ -160,7 +167,12 @@ fn test_http_post_with_json_body() {
     let body_b64 = data["body"].as_str().unwrap();
     let body_decoded = String::from_utf8(base64_decode(body_b64)).unwrap();
     assert!(body_decoded.contains("John"));
-    assert_eq!(data["headers"]["__headers__"]["x-request-id"].as_str().unwrap(), "req-12345");
+    assert_eq!(
+        data["headers"]["__headers__"]["x-request-id"]
+            .as_str()
+            .unwrap(),
+        "req-12345"
+    );
 
     pool.shutdown().unwrap();
 }
@@ -309,7 +321,9 @@ fn test_http_patch_with_body() {
     let url = NanoUrl::parse("http://test.example.com/api/users/123").unwrap();
     let mut headers = NanoHeaders::new();
     headers.set("Content-Type", "application/merge-patch+json");
-    let body = Some(bytes::Bytes::from(r#"{"status":"inactive","lastModified":"2024-01-01"}"#));
+    let body = Some(bytes::Bytes::from(
+        r#"{"status":"inactive","lastModified":"2024-01-01"}"#,
+    ));
     let request = NanoRequest::new("PATCH".to_string(), url, headers, body);
 
     let (tx, rx) = oneshot::channel();
@@ -391,7 +405,10 @@ fn test_http_options_request() {
 
     assert_eq!(data["method"].as_str().unwrap(), "OPTIONS");
     assert!(!data["hasBody"].as_bool().unwrap());
-    assert_eq!(data["headers"]["__headers__"]["origin"].as_str().unwrap(), "https://example.com");
+    assert_eq!(
+        data["headers"]["__headers__"]["origin"].as_str().unwrap(),
+        "https://example.com"
+    );
 
     pool.shutdown().unwrap();
 }
@@ -455,16 +472,21 @@ function fetch(request) {
     let methods = vec!["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
 
     for method in methods {
-        let url = NanoUrl::parse(&format!("http://test.example.com/api/{}-test", method.to_lowercase())).unwrap();
+        let url = NanoUrl::parse(&format!(
+            "http://test.example.com/api/{}-test",
+            method.to_lowercase()
+        ))
+        .unwrap();
         let mut headers = NanoHeaders::new();
         headers.set("X-Custom-Header", &format!("value-for-{}", method));
         headers.set("X-Request-Method", method);
 
-        let body = if method == "GET" || method == "HEAD" || method == "DELETE" || method == "OPTIONS" {
-            None
-        } else {
-            Some(bytes::Bytes::from(format!(r#"{{"method":"{}"}}"#, method)))
-        };
+        let body =
+            if method == "GET" || method == "HEAD" || method == "DELETE" || method == "OPTIONS" {
+                None
+            } else {
+                Some(bytes::Bytes::from(format!(r#"{{"method":"{}"}}"#, method)))
+            };
 
         let request = NanoRequest::new(method.to_string(), url, headers, body);
 
@@ -480,7 +502,10 @@ function fetch(request) {
         let data: serde_json::Value = serde_json::from_str(&body_str).unwrap();
 
         assert_eq!(data["method"].as_str().unwrap(), method);
-        assert!(data["headers"]["__headers__"]["x-custom-header"].as_str().unwrap().contains(method));
+        assert!(data["headers"]["__headers__"]["x-custom-header"]
+            .as_str()
+            .unwrap()
+            .contains(method));
     }
 
     pool.shutdown().unwrap();

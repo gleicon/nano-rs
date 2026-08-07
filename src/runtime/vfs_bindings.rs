@@ -84,7 +84,10 @@ where
 ///
 /// This creates the `Nano` global object with an `fs` property containing
 /// all VFS methods. Each method returns a Promise for async operations.
-pub fn bind_nano_fs(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+pub fn bind_nano_fs(
+    scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+    context: v8::Local<v8::Context>,
+) {
     let global = context.global(scope);
 
     // Enter context scope for V8 APIs that require HandleScope<Context>
@@ -171,8 +174,7 @@ fn extract_string_arg(
         return None;
     }
     let arg = args.get(index);
-    arg.to_string(scope)
-        .map(|s| s.to_rust_string_lossy(scope))
+    arg.to_string(scope).map(|s| s.to_rust_string_lossy(scope))
 }
 
 /// Helper to extract bytes from V8 argument (string, Uint8Array, or ArrayBuffer)
@@ -261,14 +263,19 @@ fn nano_fs_read_file_sync(
 
     // Check for optional encoding parameter
     let encoding = extract_string_arg(scope, &args, 1);
-    let return_string = encoding.as_ref().map(|e| e == "utf8" || e == "utf-8").unwrap_or(false);
+    let return_string = encoding
+        .as_ref()
+        .map(|e| e == "utf8" || e == "utf-8")
+        .unwrap_or(false);
 
     // Perform synchronous read using block_on
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
             vfs_block_on(|| async { vfs.read(&path).await })
         } else {
-            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+            Err(VfsError::IoError(
+                "No VFS available for this isolate".to_string(),
+            ))
         }
     });
 
@@ -341,7 +348,9 @@ fn nano_fs_write_file_sync(
         if let Some(vfs) = vfs_opt {
             vfs_block_on(|| async { vfs.write(&path, &data).await })
         } else {
-            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+            Err(VfsError::IoError(
+                "No VFS available for this isolate".to_string(),
+            ))
         }
     });
 
@@ -373,7 +382,9 @@ fn nano_fs_exists_sync(
         if let Some(vfs) = vfs_opt {
             vfs_block_on(|| async { vfs.exists(&path).await })
         } else {
-            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+            Err(VfsError::IoError(
+                "No VFS available for this isolate".to_string(),
+            ))
         }
     });
 
@@ -410,7 +421,9 @@ fn nano_fs_delete_sync(
         if let Some(vfs) = vfs_opt {
             vfs_block_on(|| async { vfs.delete(&path).await })
         } else {
-            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+            Err(VfsError::IoError(
+                "No VFS available for this isolate".to_string(),
+            ))
         }
     });
 
@@ -439,14 +452,19 @@ fn nano_fs_read_file(
 
     // Check for optional encoding parameter
     let encoding = extract_string_arg(scope, &args, 1);
-    let return_string = encoding.as_ref().map(|e| e == "utf8" || e == "utf-8").unwrap_or(false);
+    let return_string = encoding
+        .as_ref()
+        .map(|e| e == "utf8" || e == "utf-8")
+        .unwrap_or(false);
 
     // Perform read synchronously
     let result = with_current_vfs(|vfs_opt| {
         if let Some(vfs) = vfs_opt {
             vfs_block_on(|| async { vfs.read(&path).await })
         } else {
-            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+            Err(VfsError::IoError(
+                "No VFS available for this isolate".to_string(),
+            ))
         }
     });
 
@@ -483,13 +501,15 @@ fn nano_fs_read_file(
             let global = scope.get_current_context().global(scope);
             let promise_key = v8::String::new(scope, "Promise").unwrap();
             let resolve_key = v8::String::new(scope, "resolve").unwrap();
-            
+
             if let Some(promise_ctor) = global.get(scope, promise_key.into()) {
                 if let Some(promise_obj) = promise_ctor.to_object(scope) {
                     if let Some(resolve_fn) = promise_obj.get(scope, resolve_key.into()) {
                         if resolve_fn.is_function() {
                             let resolve = resolve_fn.cast::<v8::Function>();
-                            if let Some(resolved_promise) = resolve.call(scope, promise_ctor, &[data]) {
+                            if let Some(resolved_promise) =
+                                resolve.call(scope, promise_ctor, &[data])
+                            {
                                 retval.set(resolved_promise);
                                 return;
                             }
@@ -497,7 +517,7 @@ fn nano_fs_read_file(
                     }
                 }
             }
-            
+
             // Fallback: return the data directly
             retval.set(data);
         }
@@ -540,7 +560,9 @@ fn nano_fs_write_file(
         if let Some(vfs) = vfs_opt {
             vfs_block_on(|| async { vfs.write(&path, &data).await })
         } else {
-            Err(VfsError::IoError("No VFS available for this isolate".to_string()))
+            Err(VfsError::IoError(
+                "No VFS available for this isolate".to_string(),
+            ))
         }
     });
 
@@ -551,14 +573,16 @@ fn nano_fs_write_file(
             let global = scope.get_current_context().global(scope);
             let promise_key = v8::String::new(scope, "Promise").unwrap();
             let resolve_key = v8::String::new(scope, "resolve").unwrap();
-            
+
             if let Some(promise_ctor) = global.get(scope, promise_key.into()) {
                 if let Some(promise_obj) = promise_ctor.to_object(scope) {
                     if let Some(resolve_fn) = promise_obj.get(scope, resolve_key.into()) {
                         if resolve_fn.is_function() {
                             let resolve = resolve_fn.cast::<v8::Function>();
                             let undefined_val = v8::undefined(scope);
-                            if let Some(resolved_promise) = resolve.call(scope, promise_ctor, &[undefined_val.into()]) {
+                            if let Some(resolved_promise) =
+                                resolve.call(scope, promise_ctor, &[undefined_val.into()])
+                            {
                                 retval.set(resolved_promise);
                                 return;
                             }
@@ -566,7 +590,7 @@ fn nano_fs_write_file(
                     }
                 }
             }
-            
+
             // Fallback: return undefined
             retval.set_undefined();
         }
@@ -579,8 +603,8 @@ fn nano_fs_write_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::{MemoryBackend, VfsNamespace};
     use crate::v8::platform;
+    use crate::vfs::{MemoryBackend, VfsNamespace};
 
     fn init_platform() {
         platform::initialize_platform().expect("Failed to initialize V8 platform");
@@ -607,34 +631,46 @@ mod tests {
         // Check Nano exists
         let global = context.global(ctx_scope);
         let nano_key = v8::String::new(ctx_scope, "Nano").unwrap();
-        let nano = global.get(ctx_scope, nano_key.into()).expect("Nano not found");
+        let nano = global
+            .get(ctx_scope, nano_key.into())
+            .expect("Nano not found");
         assert!(!nano.is_undefined());
 
         // Check Nano.fs exists
         let nano_obj = nano.to_object(ctx_scope).expect("Nano is not an object");
         let fs_key = v8::String::new(ctx_scope, "fs").unwrap();
-        let fs = nano_obj.get(ctx_scope, fs_key.into()).expect("fs not found");
+        let fs = nano_obj
+            .get(ctx_scope, fs_key.into())
+            .expect("fs not found");
         assert!(!fs.is_undefined());
 
         // Check readFileSync exists
         let fs_obj = fs.to_object(ctx_scope).expect("fs is not an object");
         let read_key = v8::String::new(ctx_scope, "readFileSync").unwrap();
-        let read_fn = fs_obj.get(ctx_scope, read_key.into()).expect("readFileSync not found");
+        let read_fn = fs_obj
+            .get(ctx_scope, read_key.into())
+            .expect("readFileSync not found");
         assert!(read_fn.is_function());
 
         // Check writeFileSync exists
         let write_key = v8::String::new(ctx_scope, "writeFileSync").unwrap();
-        let write_fn = fs_obj.get(ctx_scope, write_key.into()).expect("writeFileSync not found");
+        let write_fn = fs_obj
+            .get(ctx_scope, write_key.into())
+            .expect("writeFileSync not found");
         assert!(write_fn.is_function());
 
         // Check existsSync exists
         let exists_key = v8::String::new(ctx_scope, "existsSync").unwrap();
-        let exists_fn = fs_obj.get(ctx_scope, exists_key.into()).expect("existsSync not found");
+        let exists_fn = fs_obj
+            .get(ctx_scope, exists_key.into())
+            .expect("existsSync not found");
         assert!(exists_fn.is_function());
 
         // Check deleteSync exists
         let delete_key = v8::String::new(ctx_scope, "deleteSync").unwrap();
-        let delete_fn = fs_obj.get(ctx_scope, delete_key.into()).expect("deleteSync not found");
+        let delete_fn = fs_obj
+            .get(ctx_scope, delete_key.into())
+            .expect("deleteSync not found");
         assert!(delete_fn.is_function());
     }
 }

@@ -201,7 +201,9 @@ impl TimeoutWatchdog {
 
     /// Get elapsed time since creation in milliseconds
     pub fn elapsed_ms(&self) -> u64 {
-        let elapsed = self.timeout_duration.saturating_sub(Duration::from_millis(self.remaining_ms()));
+        let elapsed = self
+            .timeout_duration
+            .saturating_sub(Duration::from_millis(self.remaining_ms()));
         elapsed.as_millis() as u64
     }
 

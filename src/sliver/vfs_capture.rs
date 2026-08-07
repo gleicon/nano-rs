@@ -28,36 +28,36 @@ impl VfsCapture {
             total_bytes: 0,
         }
     }
-    
+
     /// Add a file to the capture
     pub fn add_file(&mut self, path: VfsPath, file: VfsFile) {
         self.total_bytes += file.content.len();
         self.file_count += 1;
         self.files.insert(path.as_str().to_string(), file);
     }
-    
+
     /// Get all captured files
     pub fn files(&self) -> &HashMap<String, VfsFile> {
         &self.files
     }
-    
+
     /// Get the number of files captured
     pub fn file_count(&self) -> usize {
         self.file_count
     }
-    
+
     /// Get total bytes captured
     pub fn total_bytes(&self) -> usize {
         self.total_bytes
     }
-    
+
     /// Convert to a vector of (path, file) tuples
     ///
     /// This format is suitable for the sliver packer.
     pub fn into_vec(self) -> Vec<(String, VfsFile)> {
         self.files.into_iter().collect()
     }
-    
+
     /// Check if a path exists in the capture
     pub fn has_path(&self, path: &str) -> bool {
         self.files.contains_key(path)
@@ -155,11 +155,7 @@ async fn capture_all_files_recursive(
 ///
 /// Note: The backend-agnostic `capture_vfs()` is preferred for general use.
 /// This function is available for direct backend access when needed.
-pub async fn walk_and_capture<B>(
-    backend: &B,
-    path: &str,
-    capture: &mut VfsCapture,
-) -> VfsResult<()>
+pub async fn walk_and_capture<B>(backend: &B, path: &str, capture: &mut VfsCapture) -> VfsResult<()>
 where
     B: VfsBackend,
 {
@@ -195,8 +191,7 @@ where
 mod tests {
     use super::*;
     use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-    
-    
+
     #[test]
     fn test_vfs_capture_new() {
         let capture = VfsCapture::new();
@@ -204,49 +199,49 @@ mod tests {
         assert_eq!(capture.total_bytes(), 0);
         assert!(capture.files().is_empty());
     }
-    
+
     #[test]
     fn test_vfs_capture_add_file() {
         let mut capture = VfsCapture::new();
-        
+
         // VfsPath normalizes paths - leading slashes are stripped
         let path = VfsPath::new("test.txt").unwrap();
         let file = VfsFile::new(b"Hello, World!".to_vec());
-        
+
         capture.add_file(path.clone(), file);
-        
+
         assert_eq!(capture.file_count(), 1);
         assert_eq!(capture.total_bytes(), 13);
         assert!(capture.has_path(path.as_str()));
     }
-    
+
     #[test]
     fn test_vfs_capture_into_vec() {
         let mut capture = VfsCapture::new();
-        
+
         let path1 = VfsPath::new("/file1.txt").unwrap();
         let file1 = VfsFile::new(b"content1".to_vec());
         capture.add_file(path1, file1);
-        
+
         let path2 = VfsPath::new("/file2.txt").unwrap();
         let file2 = VfsFile::new(b"content2".to_vec());
         capture.add_file(path2, file2);
-        
+
         let vec = capture.into_vec();
         assert_eq!(vec.len(), 2);
     }
-    
+
     #[tokio::test]
     async fn test_capture_vfs_empty() {
         let vfs = IsolateVfs::new(
             VfsNamespace::from_hostname("test.example.com"),
             crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
         );
-        
+
         let capture = capture_vfs(&vfs).await.unwrap();
         assert_eq!(capture.file_count(), 0);
     }
-    
+
     #[tokio::test]
     async fn test_capture_vfs_with_files() {
         // Create a shared backend that we'll use for both VFS operations
@@ -255,14 +250,16 @@ mod tests {
             VfsNamespace::from_hostname("test.example.com"),
             shared_backend.clone(),
         );
-        
+
         // Write some files
-        vfs.write("/config.json", b"{\"key\": \"value\"}").await.unwrap();
+        vfs.write("/config.json", b"{\"key\": \"value\"}")
+            .await
+            .unwrap();
         vfs.write("/data.txt", b"some data").await.unwrap();
-        
+
         // Capture VFS
         let capture = capture_vfs(&vfs).await.unwrap();
-        
+
         // Note: Without list_dir(), we can't actually capture the files yet
         // This test documents the expected behavior once list_dir is implemented
         assert_eq!(capture.file_count(), 0); // Currently returns 0

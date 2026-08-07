@@ -14,7 +14,7 @@ use std::time::Duration;
 /// Helper to create a minimal valid config for testing
 fn create_test_config() -> nano::config::NanoConfig {
     let mut apps = Vec::new();
-    
+
     // Add a test app with entrypoint
     apps.push(nano::config::AppConfig {
         hostname: "test.example.com".to_string(),
@@ -26,7 +26,7 @@ fn create_test_config() -> nano::config::NanoConfig {
         vfs_disk: None,
         vfs_s3: None,
     });
-    
+
     nano::config::NanoConfig {
         apps,
         server: nano::config::ServerConfigSection::default(),
@@ -36,12 +36,14 @@ fn create_test_config() -> nano::config::NanoConfig {
 /// Helper to create a multi-app config
 fn create_multi_app_config() -> nano::config::NanoConfig {
     let mut apps = Vec::new();
-    
+
     apps.push(nano::config::AppConfig {
         hostname: "api.example.com".to_string(),
         entrypoint: "/apps/api.js".to_string(),
         sliver: None,
-        env_vars: [("API_KEY".to_string(), "secret".to_string())].into_iter().collect(),
+        env_vars: [("API_KEY".to_string(), "secret".to_string())]
+            .into_iter()
+            .collect(),
         limits: nano::config::AppLimits {
             memory_mb: 256,
             timeout_secs: 60,
@@ -53,7 +55,7 @@ fn create_multi_app_config() -> nano::config::NanoConfig {
         vfs_disk: None,
         vfs_s3: None,
     });
-    
+
     apps.push(nano::config::AppConfig {
         hostname: "blog.example.com".to_string(),
         entrypoint: "/apps/blog.js".to_string(),
@@ -70,7 +72,7 @@ fn create_multi_app_config() -> nano::config::NanoConfig {
         vfs_disk: None,
         vfs_s3: None,
     });
-    
+
     nano::config::NanoConfig {
         apps,
         server: nano::config::ServerConfigSection::default(),
@@ -80,7 +82,7 @@ fn create_multi_app_config() -> nano::config::NanoConfig {
 /// Helper to create a config with custom server settings
 fn create_config_with_server(port: u16, host: &str) -> nano::config::NanoConfig {
     let mut apps = Vec::new();
-    
+
     apps.push(nano::config::AppConfig {
         hostname: "app.example.com".to_string(),
         entrypoint: "/tmp/app.js".to_string(),
@@ -91,7 +93,7 @@ fn create_config_with_server(port: u16, host: &str) -> nano::config::NanoConfig 
         vfs_disk: None,
         vfs_s3: None,
     });
-    
+
     nano::config::NanoConfig {
         apps,
         server: nano::config::ServerConfigSection {
@@ -114,9 +116,9 @@ fn test_config_loading_basic() {
         ],
         "server": {"port": 8080, "host": "0.0.0.0"}
     }"#;
-    
+
     let config = nano::config::load_config_from_str(json).expect("Failed to load config");
-    
+
     assert_eq!(config.apps.len(), 1);
     assert_eq!(config.apps[0].hostname, "api.example.com");
     assert_eq!(config.apps[0].entrypoint, "/apps/api.js");
@@ -131,10 +133,12 @@ fn test_config_loading_basic() {
 fn test_config_port_applied() {
     let config = create_config_with_server(9999, "0.0.0.0");
     let server_config = nano::http::ServerConfig::from(config.server);
-    
+
     assert_eq!(server_config.port, 9999);
-    
-    let addr = server_config.socket_addr().expect("Failed to parse address");
+
+    let addr = server_config
+        .socket_addr()
+        .expect("Failed to parse address");
     assert_eq!(addr.port(), 9999);
 }
 
@@ -142,10 +146,12 @@ fn test_config_port_applied() {
 fn test_config_host_applied() {
     let config = create_config_with_server(8080, "127.0.0.1");
     let server_config = nano::http::ServerConfig::from(config.server);
-    
+
     assert_eq!(server_config.host, "127.0.0.1");
-    
-    let addr = server_config.socket_addr().expect("Failed to parse address");
+
+    let addr = server_config
+        .socket_addr()
+        .expect("Failed to parse address");
     assert!(addr.is_ipv4());
     assert_eq!(addr.to_string(), "127.0.0.1:8080");
 }
@@ -153,14 +159,14 @@ fn test_config_host_applied() {
 #[test]
 fn test_multiple_apps_config() {
     let config = create_multi_app_config();
-    
+
     assert_eq!(config.apps.len(), 2);
-    
+
     // First app
     assert_eq!(config.apps[0].hostname, "api.example.com");
     assert_eq!(config.apps[0].limits.memory_mb, 256);
     assert_eq!(config.apps[0].limits.workers, 8);
-    
+
     // Second app
     assert_eq!(config.apps[1].hostname, "blog.example.com");
     assert_eq!(config.apps[1].limits.memory_mb, 128);
@@ -171,7 +177,7 @@ fn test_multiple_apps_config() {
 fn test_app_registry_from_config() {
     let config = create_multi_app_config();
     let registry = nano::app::registry::AppRegistry::from_config(config);
-    
+
     assert_eq!(registry.count(), 2);
     assert!(registry.contains("api.example.com"));
     assert!(registry.contains("blog.example.com"));
@@ -181,12 +187,12 @@ fn test_app_registry_from_config() {
 #[test]
 fn test_per_app_limits_enforced() {
     let config = create_multi_app_config();
-    
+
     // API app has higher limits
     assert_eq!(config.apps[0].limits.memory_mb, 256);
     assert_eq!(config.apps[0].limits.timeout_secs, 60);
     assert_eq!(config.apps[0].limits.workers, 8);
-    
+
     // Blog app has lower limits
     assert_eq!(config.apps[1].limits.memory_mb, 128);
     assert_eq!(config.apps[1].limits.timeout_secs, 30);
@@ -206,9 +212,9 @@ fn test_config_with_sliver_app() {
         ],
         "server": {"port": 3000, "host": "127.0.0.1"}
     }"#;
-    
+
     let config = nano::config::load_config_from_str(json).expect("Failed to load config");
-    
+
     assert_eq!(config.apps.len(), 1);
     assert_eq!(config.apps[0].hostname, "sliver.example.com");
     assert!(config.apps[0].sliver.is_some());
@@ -223,7 +229,7 @@ fn test_config_validation_rejects_empty_apps() {
         "apps": [],
         "server": {"port": 8080, "host": "0.0.0.0"}
     }"#;
-    
+
     let result = nano::config::load_config_from_str(json);
     assert!(result.is_err());
 }
@@ -243,7 +249,7 @@ fn test_config_validation_rejects_duplicate_hostnames() {
         ],
         "server": {"port": 8080, "host": "0.0.0.0"}
     }"#;
-    
+
     let result = nano::config::load_config_from_str(json);
     assert!(result.is_err());
 }
@@ -258,13 +264,13 @@ fn test_config_defaults() {
             }
         ]
     }"#;
-    
+
     let config = nano::config::load_config_from_str(json).expect("Failed to load config");
-    
+
     // Server defaults
     assert_eq!(config.server.port, 8080);
     assert_eq!(config.server.host, "0.0.0.0");
-    
+
     // App limits defaults
     assert_eq!(config.apps[0].limits.memory_mb, 128);
     assert_eq!(config.apps[0].limits.timeout_secs, 30);
@@ -277,9 +283,9 @@ fn test_server_config_section_conversion() {
         port: 9090,
         host: "192.168.1.100".to_string(),
     };
-    
+
     let server_config = nano::http::ServerConfig::from(section);
-    
+
     assert_eq!(server_config.port, 9090);
     assert_eq!(server_config.host, "192.168.1.100");
 }
@@ -287,33 +293,31 @@ fn test_server_config_section_conversion() {
 #[test]
 fn test_virtual_host_router_from_config() {
     let config = create_multi_app_config();
-    
+
     let default_target = nano::http::router::RouteTarget {
         hostname: "default".to_string(),
         handler_type: nano::http::router::HandlerType::StaticResponse(
-            "NANO Runtime - No app configured for this host".to_string()
+            "NANO Runtime - No app configured for this host".to_string(),
         ),
     };
-    
+
     let mut router = nano::http::router::VirtualHostRouter::new(default_target);
-    
+
     // Register routes for each app
     for app in &config.apps {
         let target = nano::http::router::RouteTarget {
             hostname: app.hostname.clone(),
-            handler_type: nano::http::router::HandlerType::WinterTCHandler(
-                app.entrypoint.clone()
-            ),
+            handler_type: nano::http::router::HandlerType::WinterTCHandler(app.entrypoint.clone()),
         };
         router.register(app.hostname.clone(), target);
     }
-    
+
     assert_eq!(router.route_count(), 2);
-    
+
     // Verify routing
     let api_target = router.resolve("api.example.com");
     assert_eq!(api_target.hostname, "api.example.com");
-    
+
     let blog_target = router.resolve("blog.example.com");
     assert_eq!(blog_target.hostname, "blog.example.com");
 }
@@ -334,11 +338,14 @@ fn test_env_vars_in_config() {
         ],
         "server": {"port": 8080, "host": "0.0.0.0"}
     }"#;
-    
+
     let config = nano::config::load_config_from_str(json).expect("Failed to load config");
-    
+
     let env_vars = &config.apps[0].env_vars;
-    assert_eq!(env_vars.get("DATABASE_URL"), Some(&"postgres://localhost/db".to_string()));
+    assert_eq!(
+        env_vars.get("DATABASE_URL"),
+        Some(&"postgres://localhost/db".to_string())
+    );
     assert_eq!(env_vars.get("API_KEY"), Some(&"secret123".to_string()));
     assert_eq!(env_vars.get("DEBUG"), Some(&"true".to_string()));
 }

@@ -82,8 +82,7 @@ fn extract_string_arg(
         return None;
     }
     let arg = args.get(index);
-    arg.to_string(scope)
-        .map(|s| s.to_rust_string_lossy(scope))
+    arg.to_string(scope).map(|s| s.to_rust_string_lossy(scope))
 }
 
 /// Helper to extract bytes from V8 argument
@@ -153,7 +152,7 @@ fn throw_fs_error(scope: &mut v8::PinnedRef<v8::HandleScope>, error: &VfsError) 
 }
 
 /// Create error object properties for callbacks
-/// 
+///
 /// Note: This macro-like pattern avoids lifetime issues with returning Local handles
 macro_rules! create_error_obj {
     ($scope:expr, $error:expr) => {{
@@ -187,7 +186,9 @@ fn normalize_path(path: &str) -> String {
     for component in path.split('/') {
         match component {
             "" | "." => {}
-            ".." => { parts.pop(); }
+            ".." => {
+                parts.pop();
+            }
             c => parts.push(c),
         }
     }
@@ -337,7 +338,9 @@ fn buffer_from(
     {
         let store = ab.get_backing_store();
         for (i, &byte) in bytes.iter().enumerate() {
-            if let Some(cell) = store.get(i) { cell.set(byte); }
+            if let Some(cell) = store.get(i) {
+                cell.set(byte);
+            }
         }
     }
     if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
@@ -350,7 +353,11 @@ fn buffer_alloc(
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    let size = args.get(0).to_integer(scope).map(|n| n.value() as usize).unwrap_or(0);
+    let size = args
+        .get(0)
+        .to_integer(scope)
+        .map(|n| n.value() as usize)
+        .unwrap_or(0);
     let ab = v8::ArrayBuffer::new(scope, size);
     if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, size) {
         retval.set(arr.into());
@@ -395,7 +402,9 @@ fn buffer_concat(
     {
         let store = ab.get_backing_store();
         for (i, &byte) in all_bytes.iter().enumerate() {
-            if let Some(cell) = store.get(i) { cell.set(byte); }
+            if let Some(cell) = store.get(i) {
+                cell.set(byte);
+            }
         }
     }
     if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, all_bytes.len()) {
@@ -415,12 +424,18 @@ fn assert_ok(
         // Truthy check: reject null, undefined, false, 0, ""
         !val.is_null_or_undefined()
             && !val.is_false()
-            && val.to_string(scope).map(|s| !s.to_rust_string_lossy(scope).is_empty()).unwrap_or(true)
-            && val.to_number(scope).map(|n| n.value() != 0.0).unwrap_or(true)
+            && val
+                .to_string(scope)
+                .map(|s| !s.to_rust_string_lossy(scope).is_empty())
+                .unwrap_or(true)
+            && val
+                .to_number(scope)
+                .map(|n| n.value() != 0.0)
+                .unwrap_or(true)
     };
     if !passed {
-        let msg = extract_string_arg(scope, &args, 1)
-            .unwrap_or_else(|| "Assertion failed".to_string());
+        let msg =
+            extract_string_arg(scope, &args, 1).unwrap_or_else(|| "Assertion failed".to_string());
         if let Some(msg_str) = v8::String::new(scope, &msg) {
             let error = v8::Exception::error(scope, msg_str);
             scope.throw_exception(error);
@@ -433,12 +448,21 @@ fn assert_equal(
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    if args.length() < 2 { return; }
-    let a = args.get(0).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
-    let b = args.get(1).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
+    if args.length() < 2 {
+        return;
+    }
+    let a = args
+        .get(0)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    let b = args
+        .get(1)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
     if a != b {
-        let msg = extract_string_arg(scope, &args, 2)
-            .unwrap_or_else(|| format!("{} != {}", a, b));
+        let msg = extract_string_arg(scope, &args, 2).unwrap_or_else(|| format!("{} != {}", a, b));
         if let Some(msg_str) = v8::String::new(scope, &msg) {
             let error = v8::Exception::error(scope, msg_str);
             scope.throw_exception(error);
@@ -451,7 +475,9 @@ fn assert_strict_equal(
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    if args.length() < 2 { return; }
+    if args.length() < 2 {
+        return;
+    }
     if !args.get(0).strict_equals(args.get(1)) {
         let msg = extract_string_arg(scope, &args, 2)
             .unwrap_or_else(|| "Strict equality assertion failed".to_string());
@@ -467,12 +493,21 @@ fn assert_not_equal(
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    if args.length() < 2 { return; }
-    let a = args.get(0).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
-    let b = args.get(1).to_string(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
+    if args.length() < 2 {
+        return;
+    }
+    let a = args
+        .get(0)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    let b = args
+        .get(1)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
     if a == b {
-        let msg = extract_string_arg(scope, &args, 2)
-            .unwrap_or_else(|| format!("{} == {}", a, b));
+        let msg = extract_string_arg(scope, &args, 2).unwrap_or_else(|| format!("{} == {}", a, b));
         if let Some(msg_str) = v8::String::new(scope, &msg) {
             let error = v8::Exception::error(scope, msg_str);
             scope.throw_exception(error);
@@ -486,7 +521,10 @@ fn assert_not_equal(
 /// and binds it to the global scope as both:
 /// - A global `require` function that can resolve 'fs'
 /// - Direct access via global._nano_fs for internal use
-pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context: v8::Local<v8::Context>) {
+pub fn bind_fs_polyfill(
+    scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+    context: v8::Local<v8::Context>,
+) {
     let global = context.global(scope);
 
     // Enter context scope for V8 APIs that require HandleScope<Context>
@@ -569,7 +607,10 @@ pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context:
         let obj = v8::Object::new(&mut ctx_scope);
         macro_rules! path_fn {
             ($name:expr, $cb:expr) => {
-                if let (Some(f), Some(k)) = (v8::Function::new(&mut ctx_scope, $cb), v8::String::new(&mut ctx_scope, $name)) {
+                if let (Some(f), Some(k)) = (
+                    v8::Function::new(&mut ctx_scope, $cb),
+                    v8::String::new(&mut ctx_scope, $name),
+                ) {
                     obj.set(&mut ctx_scope, k.into(), f.into());
                 }
             };
@@ -581,10 +622,16 @@ pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context:
         path_fn!("resolve", path_resolve);
         path_fn!("isAbsolute", path_is_absolute);
         path_fn!("normalize", path_normalize_fn);
-        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "sep"), v8::String::new(&mut ctx_scope, "/")) {
+        if let (Some(k), Some(v)) = (
+            v8::String::new(&mut ctx_scope, "sep"),
+            v8::String::new(&mut ctx_scope, "/"),
+        ) {
             obj.set(&mut ctx_scope, k.into(), v.into());
         }
-        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "delimiter"), v8::String::new(&mut ctx_scope, ":")) {
+        if let (Some(k), Some(v)) = (
+            v8::String::new(&mut ctx_scope, "delimiter"),
+            v8::String::new(&mut ctx_scope, ":"),
+        ) {
             obj.set(&mut ctx_scope, k.into(), v.into());
         }
         v8::Global::new(&mut ctx_scope, obj)
@@ -596,7 +643,10 @@ pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context:
         let obj = v8::Object::new(&mut ctx_scope);
         macro_rules! buf_fn {
             ($name:expr, $cb:expr) => {
-                if let (Some(f), Some(k)) = (v8::Function::new(&mut ctx_scope, $cb), v8::String::new(&mut ctx_scope, $name)) {
+                if let (Some(f), Some(k)) = (
+                    v8::Function::new(&mut ctx_scope, $cb),
+                    v8::String::new(&mut ctx_scope, $name),
+                ) {
                     obj.set(&mut ctx_scope, k.into(), f.into());
                 }
             };
@@ -615,7 +665,10 @@ pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context:
         let obj = v8::Object::new(&mut ctx_scope);
         macro_rules! assert_fn {
             ($name:expr, $cb:expr) => {
-                if let (Some(f), Some(k)) = (v8::Function::new(&mut ctx_scope, $cb), v8::String::new(&mut ctx_scope, $name)) {
+                if let (Some(f), Some(k)) = (
+                    v8::Function::new(&mut ctx_scope, $cb),
+                    v8::String::new(&mut ctx_scope, $name),
+                ) {
                     obj.set(&mut ctx_scope, k.into(), f.into());
                 }
             };
@@ -650,10 +703,16 @@ pub fn bind_fs_polyfill(scope: &mut v8::PinnedRef<v8::HandleScope<()>>, context:
         }
 
         // process.version (mock Node.js compat version)
-        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "version"), v8::String::new(&mut ctx_scope, "v18.0.0")) {
+        if let (Some(k), Some(v)) = (
+            v8::String::new(&mut ctx_scope, "version"),
+            v8::String::new(&mut ctx_scope, "v18.0.0"),
+        ) {
             process.set(&mut ctx_scope, k.into(), v.into());
         }
-        if let (Some(k), Some(v)) = (v8::String::new(&mut ctx_scope, "platform"), v8::String::new(&mut ctx_scope, "linux")) {
+        if let (Some(k), Some(v)) = (
+            v8::String::new(&mut ctx_scope, "platform"),
+            v8::String::new(&mut ctx_scope, "linux"),
+        ) {
             process.set(&mut ctx_scope, k.into(), v.into());
         }
 
@@ -733,7 +792,8 @@ fn require_callback(
             });
         }
         _ => {
-            let msg = v8::String::new(scope, &format!("Module '{}' not found", module_name)).unwrap();
+            let msg =
+                v8::String::new(scope, &format!("Module '{}' not found", module_name)).unwrap();
             let error = v8::Exception::error(scope, msg);
             scope.throw_exception(error);
         }
@@ -763,16 +823,15 @@ fn fs_read_file_sync(
 
     // Check for encoding option (second argument)
     let encoding = if args.length() > 1 {
-        extract_string_arg(scope, &args, 1)
-            .or_else(|| {
-                // Try to get encoding from options object
-                args.get(1).to_object(scope).and_then(|obj| {
-                    let enc_key = v8::String::new(scope, "encoding").unwrap();
-                    obj.get(scope, enc_key.into())
-                        .and_then(|v| v.to_string(scope))
-                        .map(|s| s.to_rust_string_lossy(scope))
-                })
+        extract_string_arg(scope, &args, 1).or_else(|| {
+            // Try to get encoding from options object
+            args.get(1).to_object(scope).and_then(|obj| {
+                let enc_key = v8::String::new(scope, "encoding").unwrap();
+                obj.get(scope, enc_key.into())
+                    .and_then(|v| v.to_string(scope))
+                    .map(|s| s.to_rust_string_lossy(scope))
             })
+        })
     } else {
         None
     };
@@ -979,7 +1038,8 @@ fn fs_read_file(
                         cell.set(*byte);
                     }
                 }
-                let data = if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
+                let data = if let Some(uint8array) = v8::Uint8Array::new(scope, ab, 0, bytes.len())
+                {
                     uint8array.into()
                 } else {
                     ab.into()
@@ -1167,8 +1227,8 @@ fn fs_unlink(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::{MemoryBackend, VfsNamespace};
     use crate::v8::platform;
+    use crate::vfs::{MemoryBackend, VfsNamespace};
 
     fn init_platform() {
         platform::initialize_platform().expect("Failed to initialize V8 platform");
@@ -1195,27 +1255,37 @@ mod tests {
         // Check require function exists
         let global = context.global(ctx_scope);
         let require_key = v8::String::new(ctx_scope, "require").unwrap();
-        let require_fn = global.get(ctx_scope, require_key.into()).expect("require not found");
+        let require_fn = global
+            .get(ctx_scope, require_key.into())
+            .expect("require not found");
         assert!(require_fn.is_function());
 
         // Check _nano_fs exists
         let fs_key = v8::String::new(ctx_scope, "_nano_fs").unwrap();
-        let fs_module = global.get(ctx_scope, fs_key.into()).expect("_nano_fs not found");
+        let fs_module = global
+            .get(ctx_scope, fs_key.into())
+            .expect("_nano_fs not found");
         assert!(!fs_module.is_undefined());
 
         // Check fs module has expected methods
         let fs_obj = fs_module.to_object(ctx_scope).expect("fs is not an object");
 
         let read_sync_key = v8::String::new(ctx_scope, "readFileSync").unwrap();
-        let read_sync_fn = fs_obj.get(ctx_scope, read_sync_key.into()).expect("readFileSync not found");
+        let read_sync_fn = fs_obj
+            .get(ctx_scope, read_sync_key.into())
+            .expect("readFileSync not found");
         assert!(read_sync_fn.is_function());
 
         let write_sync_key = v8::String::new(ctx_scope, "writeFileSync").unwrap();
-        let write_sync_fn = fs_obj.get(ctx_scope, write_sync_key.into()).expect("writeFileSync not found");
+        let write_sync_fn = fs_obj
+            .get(ctx_scope, write_sync_key.into())
+            .expect("writeFileSync not found");
         assert!(write_sync_fn.is_function());
 
         let exists_sync_key = v8::String::new(ctx_scope, "existsSync").unwrap();
-        let exists_sync_fn = fs_obj.get(ctx_scope, exists_sync_key.into()).expect("existsSync not found");
+        let exists_sync_fn = fs_obj
+            .get(ctx_scope, exists_sync_key.into())
+            .expect("existsSync not found");
         assert!(exists_sync_fn.is_function());
     }
 }

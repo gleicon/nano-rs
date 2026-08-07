@@ -14,9 +14,9 @@
 //! - ContextScope implements Deref/DerefMut to PinnedRef<HandleScope>
 //! - When passing scope to V8 APIs, use `&**scope` to dereference through the ContextScope
 
-use crate::http::NanoResponse;
 use crate::http::v8_bridge::serialize_request_to_json;
-use crate::runtime::{HandlerContext, async_support};
+use crate::http::NanoResponse;
+use crate::runtime::{async_support, HandlerContext};
 use crate::vfs::IsolateVfs;
 use anyhow::{anyhow, Result};
 use std::cell::RefCell;
@@ -72,14 +72,22 @@ pub fn detect_module_type(code: &str) -> ModuleType {
     for line in code.lines() {
         let trimmed = line.trim();
         if in_block_comment {
-            if trimmed.contains("*/") { in_block_comment = false; }
+            if trimmed.contains("*/") {
+                in_block_comment = false;
+            }
             continue;
         }
-        if trimmed.starts_with("//") { continue; }
-        if trimmed.contains("/*") { in_block_comment = true; }
-        if trimmed.starts_with("export ") || trimmed.starts_with("export{")
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if trimmed.contains("/*") {
+            in_block_comment = true;
+        }
+        if trimmed.starts_with("export ")
+            || trimmed.starts_with("export{")
             || trimmed.starts_with("export default")
-            || trimmed.starts_with("import ") || trimmed.starts_with("import{")
+            || trimmed.starts_with("import ")
+            || trimmed.starts_with("import{")
             || trimmed.starts_with("import(")
         {
             return ModuleType::ESM;
@@ -158,12 +166,13 @@ impl ModuleLoader {
         if !specifier.starts_with('.') {
             // Try VFS /node_modules first
             let vfs_nm = format!("/node_modules/{}/index.js", specifier);
-            let vfs_check = crate::data_plane::with_worker_runtime(|h| {
-                h.block_on(self.vfs.exists(&vfs_nm))
-            }).unwrap_or_else(|| {
-                let rt = tokio::runtime::Runtime::new().expect("rt");
-                rt.block_on(self.vfs.exists(&vfs_nm))
-            }).unwrap_or(false);
+            let vfs_check =
+                crate::data_plane::with_worker_runtime(|h| h.block_on(self.vfs.exists(&vfs_nm)))
+                    .unwrap_or_else(|| {
+                        let rt = tokio::runtime::Runtime::new().expect("rt");
+                        rt.block_on(self.vfs.exists(&vfs_nm))
+                    })
+                    .unwrap_or(false);
             if vfs_check {
                 return Ok(vfs_nm);
             }
@@ -229,12 +238,14 @@ impl ModuleLoader {
                 let vfs = &self.vfs;
                 match tokio::runtime::Handle::try_current() {
                     Ok(handle) => handle.block_on(vfs.exists(&p)).unwrap_or(false),
-                    Err(_) => crate::data_plane::with_worker_runtime(|h| h.block_on(vfs.exists(&p)))
-                        .unwrap_or_else(|| {
-                            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                            rt.block_on(vfs.exists(&p))
-                        })
-                        .unwrap_or(false),
+                    Err(_) => {
+                        crate::data_plane::with_worker_runtime(|h| h.block_on(vfs.exists(&p)))
+                            .unwrap_or_else(|| {
+                                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                                rt.block_on(vfs.exists(&p))
+                            })
+                            .unwrap_or(false)
+                    }
                 }
             };
             let with_js = format!("{}.js", resolved);
@@ -322,7 +333,7 @@ pub fn execute_esm_or_script<'a>(
 /// # V147 API Note
 /// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
 /// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
-/// 
+///
 /// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
 /// to `HandleScope<'a, Context>`.
 pub fn execute_classic_script<'a>(
@@ -368,17 +379,21 @@ pub fn execute_classic_script<'a>(
 
     // Parse JSON to create proper JS object
     let json_key = v8::String::new(&**scope, "JSON").unwrap();
-    let json_val = global.get(&**scope, json_key.into())
+    let json_val = global
+        .get(&**scope, json_key.into())
         .ok_or_else(|| anyhow!("JSON not found"))?;
-    let json_obj = json_val.to_object(&**scope)
+    let json_obj = json_val
+        .to_object(&**scope)
         .ok_or_else(|| anyhow!("JSON is not an object"))?;
     let parse_key = v8::String::new(&**scope, "parse").unwrap();
-    let parse_val = json_obj.get(&**scope, parse_key.into())
+    let parse_val = json_obj
+        .get(&**scope, parse_key.into())
         .filter(|v| v.is_function())
         .ok_or_else(|| anyhow!("JSON.parse not found or not a function"))?;
     let parse_fn = parse_val.cast::<v8::Function>();
 
-    let js_request = parse_fn.call(&**scope, json_val.into(), &[request_str.into()])
+    let js_request = parse_fn
+        .call(&**scope, json_val.into(), &[request_str.into()])
         .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
 
     // Call fetch function with parsed JS object
@@ -405,9 +420,7 @@ pub fn execute_classic_script<'a>(
 
     // Extract response
     match resolved {
-        Some(response) => {
-            extract_js_response(scope, response)
-        }
+        Some(response) => extract_js_response(scope, response),
         None => Err(anyhow!("Handler returned None")),
     }
 }
@@ -437,7 +450,7 @@ pub fn transform_module_code(code: &str) -> String {
 /// # V147 API Note
 /// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
 /// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
-/// 
+///
 /// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
 /// to `HandleScope<'a, Context>`.
 fn extract_js_response<'s>(
@@ -479,7 +492,8 @@ fn extract_js_response<'s>(
                 .and_then(|v| v.to_object(&**scope))
                 .unwrap_or(headers_obj);
 
-            if let Some(names) = headers_source.get_own_property_names(&**scope, Default::default()) {
+            if let Some(names) = headers_source.get_own_property_names(&**scope, Default::default())
+            {
                 let len = names.length();
                 for i in 0..len {
                     if let Some(key) = names.get_index(&**scope, i) {
@@ -530,7 +544,7 @@ fn extract_js_response<'s>(
 /// # V147 API Note
 /// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
 /// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
-/// 
+///
 /// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
 /// to `HandleScope<'a, Context>`.
 fn execute_esm_module<'a>(
@@ -549,20 +563,20 @@ fn execute_esm_module<'a>(
     let origin = v8::ScriptOrigin::new(
         &**scope,
         resource_name.into(),
-        0,      // line offset
-        0,      // column offset
-        true,   // is cross origin
-        -1,     // script id
+        0,    // line offset
+        0,    // column offset
+        true, // is cross origin
+        -1,   // script id
         source_map_url,
-        false,  // resource_is_opaque
-        false,  // is_wasm
-        true,   // is_module
-        None,   // host_defined_options
+        false, // resource_is_opaque
+        false, // is_wasm
+        true,  // is_module
+        None,  // host_defined_options
     );
 
     // Create source
-    let code_str = v8::String::new(&**scope, code)
-        .ok_or_else(|| anyhow!("Failed to create code string"))?;
+    let code_str =
+        v8::String::new(&**scope, code).ok_or_else(|| anyhow!("Failed to create code string"))?;
     let mut source = v8::script_compiler::Source::new(code_str, Some(&origin));
 
     // Compile module
@@ -733,9 +747,7 @@ pub(crate) fn module_resolve_callback<'a>(
     _referrer: v8::Local<'a, v8::Module>,
 ) -> Option<v8::Local<'a, v8::Module>> {
     // Get the module loader from thread-local storage
-    let loader_option = with_current_loader(|loader| {
-        loader.map(|l| l as *mut ModuleLoader)
-    });
+    let loader_option = with_current_loader(|loader| loader.map(|l| l as *mut ModuleLoader));
 
     let loader_ptr = loader_option?;
     let loader = unsafe { &mut *loader_ptr };
@@ -776,11 +788,20 @@ pub(crate) fn module_resolve_callback<'a>(
         use crate::runtime::kv::get_nano_module_code;
         let code = get_nano_module_code(&resolved_path)?;
         let resource_name = v8::String::new(&*callback_scope, &resolved_path)?;
-        let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(&*callback_scope).into());
+        let source_map_url: Option<v8::Local<v8::Value>> =
+            Some(v8::undefined(&*callback_scope).into());
         let origin = v8::ScriptOrigin::new(
             &*callback_scope,
             resource_name.into(),
-            0, 0, true, -1, source_map_url, false, false, true, None,
+            0,
+            0,
+            true,
+            -1,
+            source_map_url,
+            false,
+            false,
+            true,
+            None,
         );
         let code_str = v8::String::new(&*callback_scope, code)?;
         let mut source = v8::script_compiler::Source::new(code_str, Some(&origin));
@@ -854,7 +875,7 @@ pub(crate) fn module_resolve_callback<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::{VfsNamespace, MemoryBackend};
+    use crate::vfs::{MemoryBackend, VfsNamespace};
 
     #[test]
     fn test_module_loader_creation() {
@@ -877,25 +898,35 @@ mod tests {
 
         // Test relative path resolution
         assert_eq!(
-            loader.resolve_import_path("/app/handler.js", "./utils").unwrap(),
+            loader
+                .resolve_import_path("/app/handler.js", "./utils")
+                .unwrap(),
             "/app/utils"
         );
         assert_eq!(
-            loader.resolve_import_path("/app/handler.js", "../helpers").unwrap(),
+            loader
+                .resolve_import_path("/app/handler.js", "../helpers")
+                .unwrap(),
             "/helpers"
         );
         assert_eq!(
-            loader.resolve_import_path("/app/handler.js", "./lib/helper").unwrap(),
+            loader
+                .resolve_import_path("/app/handler.js", "./lib/helper")
+                .unwrap(),
             "/app/lib/helper"
         );
         assert_eq!(
-            loader.resolve_import_path("/handler.js", "./utils.js").unwrap(),
+            loader
+                .resolve_import_path("/handler.js", "./utils.js")
+                .unwrap(),
             "/utils.js"
         );
 
         // Test absolute paths
         assert_eq!(
-            loader.resolve_import_path("/app/handler.js", "/absolute").unwrap(),
+            loader
+                .resolve_import_path("/app/handler.js", "/absolute")
+                .unwrap(),
             "/absolute"
         );
     }
@@ -928,22 +959,40 @@ mod tests {
 
     #[test]
     fn test_detect_module_type_esm() {
-        assert_eq!(detect_module_type("export default { fetch(req) {} }"), ModuleType::ESM);
-        assert_eq!(detect_module_type("export function fetch(req) {}"), ModuleType::ESM);
-        assert_eq!(detect_module_type("import { x } from './mod.js';\nconst y = 1;"), ModuleType::ESM);
+        assert_eq!(
+            detect_module_type("export default { fetch(req) {} }"),
+            ModuleType::ESM
+        );
+        assert_eq!(
+            detect_module_type("export function fetch(req) {}"),
+            ModuleType::ESM
+        );
+        assert_eq!(
+            detect_module_type("import { x } from './mod.js';\nconst y = 1;"),
+            ModuleType::ESM
+        );
     }
 
     #[test]
     fn test_detect_module_type_classic() {
-        assert_eq!(detect_module_type("function fetch(req) { return { status: 200 }; }"), ModuleType::Script);
+        assert_eq!(
+            detect_module_type("function fetch(req) { return { status: 200 }; }"),
+            ModuleType::Script
+        );
         // string literal containing "export " must not trigger ESM detection
-        assert_eq!(detect_module_type("const msg = \"please export your config\";"), ModuleType::Script);
+        assert_eq!(
+            detect_module_type("const msg = \"please export your config\";"),
+            ModuleType::Script
+        );
         assert_eq!(detect_module_type("var x = 1;"), ModuleType::Script);
     }
 
     #[test]
     fn test_detect_module_type_comment_skip() {
         // export in a comment should not trigger ESM
-        assert_eq!(detect_module_type("// export function fetch() {}\nfunction fetch(req) {}"), ModuleType::Script);
+        assert_eq!(
+            detect_module_type("// export function fetch() {}\nfunction fetch(req) {}"),
+            ModuleType::Script
+        );
     }
 }

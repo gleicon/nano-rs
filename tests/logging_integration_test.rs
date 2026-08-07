@@ -208,9 +208,6 @@ fn test_timestamp_rfc3339_format() {
 /// Test JsonVisitor handles various field types correctly
 #[test]
 fn test_json_visitor_field_types() {
-    
-    
-
     let mut fields = BTreeMap::new();
     let _visitor = JsonVisitor(&mut fields);
 

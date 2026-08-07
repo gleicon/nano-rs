@@ -3,11 +3,11 @@
 //! Tests that are redundant with unified_worker_pool_test.rs have been removed.
 //! `test_round_robin_dispatch` remains embedded in pool.rs (needs private field access).
 
-use nano::worker::pool::{SliverWorkerPool, WorkerPool};
-use nano::vfs::VfsNamespace;
 use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
-use nano::worker::HandlerTask;
 use nano::sliver::{pack_sliver, SliverMetadata, UnpackedSliver};
+use nano::vfs::VfsNamespace;
+use nano::worker::pool::{SliverWorkerPool, WorkerPool};
+use nano::worker::HandlerTask;
 use std::fs;
 use std::io::Write;
 use tempfile::TempDir;
@@ -180,7 +180,11 @@ function fetch(request) {
     assert_eq!(resp.status(), 200);
 
     let body_text = String::from_utf8_lossy(resp.body().unwrap());
-    assert!(body_text.contains("POST"), "Method not found: {}", body_text);
+    assert!(
+        body_text.contains("POST"),
+        "Method not found: {}",
+        body_text
+    );
     assert!(
         body_text.contains("http://test.example.com/api/items/123"),
         "URL not found: {}",
@@ -311,8 +315,7 @@ fn test_worker_pool_vfs_isolation() {
     let pool2 = WorkerPool::new("app2.example.com".to_string(), 1, 0);
 
     let namespace1 = VfsNamespace::from_hostname("app1.example.com");
-    let path1 =
-        nano::vfs::VfsPath::new(&format!("{}::secret.txt", namespace1.as_str())).unwrap();
+    let path1 = nano::vfs::VfsPath::new(&format!("{}::secret.txt", namespace1.as_str())).unwrap();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
@@ -329,8 +332,7 @@ fn test_worker_pool_vfs_isolation() {
     assert!(exists_in_pool1, "File should exist in pool1's VFS");
 
     let namespace2 = VfsNamespace::from_hostname("app2.example.com");
-    let path2 =
-        nano::vfs::VfsPath::new(&format!("{}::secret.txt", namespace2.as_str())).unwrap();
+    let path2 = nano::vfs::VfsPath::new(&format!("{}::secret.txt", namespace2.as_str())).unwrap();
 
     let exists_in_pool2: bool = tokio::runtime::Runtime::new()
         .unwrap()
@@ -351,12 +353,7 @@ fn test_sliver_worker_pool_creation() {
     init_platform();
     let unpacked = create_test_sliver_for_pool("sliver-test.example.com");
 
-    let pool = SliverWorkerPool::new(
-        "sliver-test.example.com".to_string(),
-        2,
-        0,
-        unpacked,
-    );
+    let pool = SliverWorkerPool::new("sliver-test.example.com".to_string(), 2, 0, unpacked);
 
     assert_eq!(pool.worker_count(), 2);
     pool.shutdown().expect("Shutdown failed");
@@ -387,12 +384,7 @@ fn test_sliver_worker_pool_dispatch() {
     let entrypoint = create_test_handler(&temp_dir, "test.js", &js_code);
 
     let unpacked = create_test_sliver_for_pool("dispatch.example.com");
-    let pool = SliverWorkerPool::new(
-        "dispatch.example.com".to_string(),
-        1,
-        0,
-        unpacked,
-    );
+    let pool = SliverWorkerPool::new("dispatch.example.com".to_string(), 1, 0, unpacked);
 
     let url = NanoUrl::parse("http://test/").unwrap();
     let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
@@ -428,12 +420,7 @@ fn test_sliver_worker_pool_accessors() {
     let unpacked = create_test_sliver_for_pool("accessors.example.com");
     let sliver_hostname = unpacked.metadata.hostname.clone();
 
-    let pool = SliverWorkerPool::new(
-        "accessors.example.com".to_string(),
-        1,
-        0,
-        unpacked,
-    );
+    let pool = SliverWorkerPool::new("accessors.example.com".to_string(), 1, 0, unpacked);
 
     let sliver_data = pool.sliver_data();
     assert_eq!(sliver_data.metadata.hostname, sliver_hostname);
@@ -458,12 +445,7 @@ fn test_sliver_worker_pool_with_temp_vfs() {
 
     let unpacked = create_test_sliver_for_pool("temp-vfs.example.com");
 
-    let pool = SliverWorkerPool::new(
-        "temp-vfs.example.com".to_string(),
-        1,
-        0,
-        unpacked,
-    );
+    let pool = SliverWorkerPool::new("temp-vfs.example.com".to_string(), 1, 0, unpacked);
 
     let url = NanoUrl::parse("http://test/").unwrap();
     let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);

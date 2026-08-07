@@ -26,11 +26,17 @@ impl UnpackedSliver {
         bytecode: Option<Vec<u8>>,
         vfs_entries: Vec<(VfsPath, VfsFile)>,
     ) -> Self {
-        Self { metadata, bytecode, vfs_entries }
+        Self {
+            metadata,
+            bytecode,
+            vfs_entries,
+        }
     }
 
     pub fn total_size(&self) -> usize {
-        let meta_size = serde_json::to_vec(&self.metadata).map(|v| v.len()).unwrap_or(0);
+        let meta_size = serde_json::to_vec(&self.metadata)
+            .map(|v| v.len())
+            .unwrap_or(0);
         let bc_size = self.bytecode.as_ref().map(|b| b.len()).unwrap_or(0);
         let vfs_size: usize = self.vfs_entries.iter().map(|(_, f)| f.content.len()).sum();
         meta_size + bc_size + vfs_size
@@ -50,19 +56,28 @@ impl UnpackedSliver {
     /// Populate an IsolateVfs with all bundled files.
     pub async fn restore_to_vfs(&self, vfs: &crate::vfs::IsolateVfs) -> SliverResult<()> {
         for (path, file) in &self.vfs_entries {
-            vfs.write(path, &file.content).await.map_err(|e| SliverError::VfsRestore {
-                path: path.to_string(),
-                reason: e.to_string(),
-            })?;
+            vfs.write(path, &file.content)
+                .await
+                .map_err(|e| SliverError::VfsRestore {
+                    path: path.to_string(),
+                    reason: e.to_string(),
+                })?;
         }
         Ok(())
     }
 
     /// Entrypoint VFS path from metadata custom field, defaulting to /index.js.
     pub fn entrypoint(&self) -> String {
-        self.metadata.custom
+        self.metadata
+            .custom
             .get("entrypoint")
-            .map(|e| if e.starts_with('/') { e.clone() } else { format!("/{}", e) })
+            .map(|e| {
+                if e.starts_with('/') {
+                    e.clone()
+                } else {
+                    format!("/{}", e)
+                }
+            })
             .unwrap_or_else(|| "/index.js".to_string())
     }
 
@@ -193,8 +208,14 @@ mod tests {
     fn test_unpack_with_vfs() {
         let metadata = SliverMetadata::new("app.example.com", "1.1.0");
         let vfs_entries = vec![
-            (VfsPath::new("index.js").unwrap(), VfsFile::new(b"const x=1".to_vec())),
-            (VfsPath::new("data/config.json").unwrap(), VfsFile::new(b"{\"k\":\"v\"}".to_vec())),
+            (
+                VfsPath::new("index.js").unwrap(),
+                VfsFile::new(b"const x=1".to_vec()),
+            ),
+            (
+                VfsPath::new("data/config.json").unwrap(),
+                VfsFile::new(b"{\"k\":\"v\"}".to_vec()),
+            ),
         ];
         let archive = pack_sliver(&metadata, None, Some(&vfs_entries)).unwrap();
         let unpacked = unpack_sliver(&archive).unwrap();
@@ -212,7 +233,10 @@ mod tests {
         builder.append(&header, &b"data"[..]).unwrap();
         builder.finish().unwrap();
         let archive = builder.into_inner().unwrap();
-        assert!(matches!(unpack_sliver(&archive), Err(SliverError::MissingMetadata { .. })));
+        assert!(matches!(
+            unpack_sliver(&archive),
+            Err(SliverError::MissingMetadata { .. })
+        ));
     }
 
     #[test]
@@ -252,7 +276,10 @@ mod tests {
         let mut metadata = SliverMetadata::new("test.example.com", "1.0");
         metadata.v8_cache_version = Some(0); // deliberately wrong version
         let sliver = UnpackedSliver::new(metadata, Some(vec![0xDE, 0xAD]), vec![]);
-        assert!(!sliver.bytecode_matches_v8(), "wrong v8_cache_version → no match");
+        assert!(
+            !sliver.bytecode_matches_v8(),
+            "wrong v8_cache_version → no match"
+        );
     }
 
     #[test]
@@ -264,7 +291,10 @@ mod tests {
         let mut metadata = SliverMetadata::new("test.example.com", "1.0");
         metadata.v8_cache_version = Some(current_tag);
         let sliver = UnpackedSliver::new(metadata, Some(vec![0xDE, 0xAD]), vec![]);
-        assert!(sliver.bytecode_matches_v8(), "matching v8_cache_version → match");
+        assert!(
+            sliver.bytecode_matches_v8(),
+            "matching v8_cache_version → match"
+        );
     }
 
     #[test]
@@ -291,7 +321,10 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            sliver.restore_to_vfs(&vfs).await.expect("restore should succeed");
+            sliver
+                .restore_to_vfs(&vfs)
+                .await
+                .expect("restore should succeed");
             let content = vfs.read("/index.js").await.expect("read should succeed");
             assert_eq!(content, b"const x = 1");
         });
@@ -300,7 +333,9 @@ mod tests {
     #[test]
     fn test_entrypoint_from_metadata() {
         let mut metadata = SliverMetadata::new("app.example.com", "1.1.0");
-        metadata.custom.insert("entrypoint".to_string(), "index.js".to_string());
+        metadata
+            .custom
+            .insert("entrypoint".to_string(), "index.js".to_string());
         let sliver = UnpackedSliver::new(metadata, None, vec![]);
         assert_eq!(sliver.entrypoint(), "/index.js");
     }

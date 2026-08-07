@@ -231,13 +231,13 @@ pub mod stats {
     ///
     /// This provides a predictable baseline for capacity planning.
     pub const fn total_static_allocation_bytes() -> u64 {
-        let isolate_memory = (isolate::POOL_SIZE_MAX as u64)
-            * (isolate::HEAP_SIZE_BYTES_PER_ISOLATE as u64);
+        let isolate_memory =
+            (isolate::POOL_SIZE_MAX as u64) * (isolate::HEAP_SIZE_BYTES_PER_ISOLATE as u64);
 
         let queue_memory = (queue::DEPTH_MAX as u64) * std::mem::size_of::<usize>() as u64;
 
-        let buffer_memory = (buffer::REQUEST_POOL_SIZE as u64)
-            * (buffer::REQUEST_SIZE_BYTES_MAX as u64);
+        let buffer_memory =
+            (buffer::REQUEST_POOL_SIZE as u64) * (buffer::REQUEST_SIZE_BYTES_MAX as u64);
 
         isolate_memory + queue_memory + buffer_memory
     }
@@ -295,10 +295,10 @@ mod tests {
         assert_eq!(total_mb, total_bytes / (1024 * 1024));
 
         // Verify individual components
-        let expected_isolate_bytes = (isolate::POOL_SIZE_MAX as u64)
-            * (isolate::HEAP_SIZE_BYTES_PER_ISOLATE as u64);
-        let expected_buffer_bytes = (buffer::REQUEST_POOL_SIZE as u64)
-            * (buffer::REQUEST_SIZE_BYTES_MAX as u64);
+        let expected_isolate_bytes =
+            (isolate::POOL_SIZE_MAX as u64) * (isolate::HEAP_SIZE_BYTES_PER_ISOLATE as u64);
+        let expected_buffer_bytes =
+            (buffer::REQUEST_POOL_SIZE as u64) * (buffer::REQUEST_SIZE_BYTES_MAX as u64);
 
         // Total should equal isolate memory + queue memory + buffer memory
         assert!(

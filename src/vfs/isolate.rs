@@ -21,10 +21,7 @@ impl VfsNamespace {
     /// - Replacing '.' with '_'
     /// - Replacing '-' with '_'
     pub fn from_hostname(hostname: &str) -> Self {
-        let sanitized = hostname
-            .to_lowercase()
-            .replace('.', "_")
-            .replace('-', "_");
+        let sanitized = hostname.to_lowercase().replace('.', "_").replace('-', "_");
         Self(sanitized)
     }
 
@@ -55,10 +52,7 @@ pub struct IsolateVfs {
 impl IsolateVfs {
     /// Create a new IsolateVfs with the given namespace and backend
     pub fn new(namespace: VfsNamespace, backend: crate::vfs::VfsBackendEnum) -> Self {
-        Self {
-            namespace,
-            backend,
-        }
+        Self { namespace, backend }
     }
 
     /// Get the namespace
@@ -131,13 +125,12 @@ mod tests {
     #[tokio::test]
     async fn test_isolate_vfs_basic() {
         let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
-        let vfs = IsolateVfs::new(
-            VfsNamespace::from_hostname("test.example.com"),
-            backend
-        );
+        let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
         // Write
-        vfs.write("/config.json", b"{\"key\": \"value\"}").await.unwrap();
+        vfs.write("/config.json", b"{\"key\": \"value\"}")
+            .await
+            .unwrap();
 
         // Read
         let content = vfs.read("/config.json").await.unwrap();
@@ -155,12 +148,12 @@ mod tests {
         // Two isolates with different namespaces sharing the same backend
         let vfs_a = IsolateVfs::new(
             VfsNamespace::from_hostname("app-a.example.com"),
-            shared_backend.clone()
+            shared_backend.clone(),
         );
 
         let vfs_b = IsolateVfs::new(
             VfsNamespace::from_hostname("app-b.example.com"),
-            shared_backend.clone()
+            shared_backend.clone(),
         );
 
         // Write in app A
@@ -168,7 +161,10 @@ mod tests {
 
         // App B cannot read
         let result = vfs_b.read("/secret.txt").await;
-        assert!(matches!(result, Err(crate::vfs::types::VfsError::NotFound { .. })));
+        assert!(matches!(
+            result,
+            Err(crate::vfs::types::VfsError::NotFound { .. })
+        ));
 
         // App A can read
         let content = vfs_a.read("/secret.txt").await.unwrap();
@@ -178,10 +174,7 @@ mod tests {
     #[tokio::test]
     async fn test_isolate_vfs_path_traversal_blocked() {
         let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
-        let vfs = IsolateVfs::new(
-            VfsNamespace::from_hostname("test.example.com"),
-            backend
-        );
+        let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
         // Create a file
         vfs.write("/data/file.txt", b"content").await.unwrap();
@@ -199,10 +192,7 @@ mod tests {
     #[tokio::test]
     async fn test_isolate_vfs_unicode_paths() {
         let backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
-        let vfs = IsolateVfs::new(
-            VfsNamespace::from_hostname("test.example.com"),
-            backend
-        );
+        let vfs = IsolateVfs::new(VfsNamespace::from_hostname("test.example.com"), backend);
 
         // Unicode paths should work
         vfs.write("/文件.txt", b"content").await.unwrap();
@@ -219,17 +209,17 @@ mod tests {
         let disk = DiskBackend::new(temp_dir.path()).await.unwrap();
         let backend = crate::vfs::VfsBackendEnum::disk(disk);
 
-        let vfs = IsolateVfs::new(
-            VfsNamespace::from_hostname("localhost"),
-            backend,
-        );
+        let vfs = IsolateVfs::new(VfsNamespace::from_hostname("localhost"), backend);
 
         // Write via IsolateVfs — should land at base_path/test.txt, not base_path/localhost/test.txt
         vfs.write("/test.txt", b"hello vfs").await.unwrap();
 
         // File must exist directly under base_path (no namespace subdir)
         let direct_path = temp_dir.path().join("test.txt");
-        assert!(direct_path.exists(), "file should be at base_path/test.txt, not in a namespace subdir");
+        assert!(
+            direct_path.exists(),
+            "file should be at base_path/test.txt, not in a namespace subdir"
+        );
 
         // Read back via API
         let content = vfs.read("/test.txt").await.unwrap();

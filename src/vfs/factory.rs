@@ -54,15 +54,11 @@ impl BackendFactory {
         s3_config: Option<&VfsS3Config>,
     ) -> VfsResult<VfsBackendEnum> {
         match backend_type {
-            VfsBackendType::Memory => {
-                Ok(VfsBackendEnum::memory(MemoryBackend::default()))
-            }
+            VfsBackendType::Memory => Ok(VfsBackendEnum::memory(MemoryBackend::default())),
             VfsBackendType::Disk => {
-                let config = disk_config.ok_or_else(|| {
-                    VfsError::InvalidPath {
-                        path: "vfs_disk".to_string(),
-                        reason: "Disk backend requires vfs_disk configuration".to_string(),
-                    }
+                let config = disk_config.ok_or_else(|| VfsError::InvalidPath {
+                    path: "vfs_disk".to_string(),
+                    reason: "Disk backend requires vfs_disk configuration".to_string(),
                 })?;
 
                 let backend = DiskBackend::new(&config.base_path).await?;
@@ -71,11 +67,9 @@ impl BackendFactory {
             VfsBackendType::S3 => {
                 #[cfg(feature = "vfs-s3")]
                 {
-                    let config = s3_config.ok_or_else(|| {
-                        VfsError::InvalidPath {
-                            path: "vfs_s3".to_string(),
-                            reason: "S3 backend requires vfs_s3 configuration".to_string(),
-                        }
+                    let config = s3_config.ok_or_else(|| VfsError::InvalidPath {
+                        path: "vfs_s3".to_string(),
+                        reason: "S3 backend requires vfs_s3 configuration".to_string(),
                     })?;
 
                     let s3_config = crate::vfs::s3::S3Config {
@@ -116,11 +110,9 @@ impl BackendFactory {
                 Ok(VfsBackendEnum::memory(MemoryBackend::with_limits(limits)))
             }
             VfsBackendType::Disk => {
-                let config = disk_config.ok_or_else(|| {
-                    VfsError::InvalidPath {
-                        path: "vfs_disk".to_string(),
-                        reason: "Disk backend requires vfs_disk configuration".to_string(),
-                    }
+                let config = disk_config.ok_or_else(|| VfsError::InvalidPath {
+                    path: "vfs_disk".to_string(),
+                    reason: "Disk backend requires vfs_disk configuration".to_string(),
                 })?;
 
                 let backend = DiskBackend::with_limits(&config.base_path, limits).await?;
@@ -129,11 +121,9 @@ impl BackendFactory {
             VfsBackendType::S3 => {
                 #[cfg(feature = "vfs-s3")]
                 {
-                    let config = s3_config.ok_or_else(|| {
-                        VfsError::InvalidPath {
-                            path: "vfs_s3".to_string(),
-                            reason: "S3 backend requires vfs_s3 configuration".to_string(),
-                        }
+                    let config = s3_config.ok_or_else(|| VfsError::InvalidPath {
+                        path: "vfs_s3".to_string(),
+                        reason: "S3 backend requires vfs_s3 configuration".to_string(),
                     })?;
 
                     let s3_config = crate::vfs::s3::S3Config {
@@ -218,7 +208,11 @@ mod tests {
             .await;
 
         match result {
-            Err(e) => assert!(e.to_string().contains("vfs_disk"), "Error should mention vfs_disk: {}", e),
+            Err(e) => assert!(
+                e.to_string().contains("vfs_disk"),
+                "Error should mention vfs_disk: {}",
+                e
+            ),
             Ok(_) => panic!("Expected error for missing disk config"),
         }
     }

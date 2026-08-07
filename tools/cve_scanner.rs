@@ -13,12 +13,10 @@ use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
-    
+
     // Check if cargo-audit is available
-    let audit_check = Command::new("cargo")
-        .args(&["audit", "--version"])
-        .output();
-    
+    let audit_check = Command::new("cargo").args(&["audit", "--version"]).output();
+
     match audit_check {
         Ok(output) if output.status.success() => {
             // cargo-audit is available
@@ -29,18 +27,18 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     }
-    
+
     // Default command: run audit
     let mut cmd = Command::new("cargo");
     cmd.arg("audit");
-    
+
     // Parse arguments
     let mut format = "human"; // human, json, toml
     let mut severity = None;
     let mut offline = false;
     let mut update_db = false;
     let mut deny_warnings = false;
-    
+
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -85,14 +83,12 @@ fn main() -> ExitCode {
             }
         }
     }
-    
+
     // Update database if requested
     if update_db {
         println!("Updating cargo-audit database...");
-        let update_result = Command::new("cargo")
-            .args(&["audit", "--update"])
-            .status();
-        
+        let update_result = Command::new("cargo").args(&["audit", "--update"]).status();
+
         match update_result {
             Ok(status) if status.success() => {
                 println!("Database updated successfully.");
@@ -102,27 +98,27 @@ fn main() -> ExitCode {
             }
         }
     }
-    
+
     // Build audit command
     if offline {
         cmd.arg("--no-update");
     }
-    
+
     if deny_warnings {
         cmd.arg("--deny").arg("warnings");
     }
-    
+
     // Apply format
     match format {
         "json" => cmd.arg("--json"),
         _ => &mut cmd, // human format is default
     };
-    
+
     // Apply severity filter if specified
     if let Some(sev) = severity {
         cmd.arg("--severity").arg(&sev);
     }
-    
+
     // Run audit
     println!("Running CVE scan...");
     match cmd.status() {

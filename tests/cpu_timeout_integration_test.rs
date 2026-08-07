@@ -18,12 +18,12 @@ fn test_cpu_limit_config_parsing() {
             "cpu_time_enabled": true
         }
     }"#;
-    
+
     // Verify JSON is valid
     let parsed: serde_json::Value = serde_json::from_str(config_json).expect("Valid JSON");
     assert_eq!(parsed["limits"]["cpu_time_ms"], 50);
     assert_eq!(parsed["limits"]["cpu_time_enabled"], true);
-    
+
     // Test with custom limits
     let custom_config = r#"{
         "hostname": "low-cpu.local",
@@ -32,7 +32,7 @@ fn test_cpu_limit_config_parsing() {
             "cpu_time_enabled": true
         }
     }"#;
-    
+
     let parsed: serde_json::Value = serde_json::from_str(custom_config).expect("Valid JSON");
     assert_eq!(parsed["limits"]["cpu_time_ms"], 10);
 }
@@ -42,17 +42,21 @@ fn test_cpu_limit_config_parsing() {
 fn test_cpu_limit_validation() {
     // CPU time must be 1-1000ms
     let test_cases = vec![
-        (1, true),    // Minimum valid
-        (50, true),   // Default valid
-        (500, true),  // High but valid
-        (1000, true), // Maximum valid
-        (0, false),   // Too low
+        (1, true),     // Minimum valid
+        (50, true),    // Default valid
+        (500, true),   // High but valid
+        (1000, true),  // Maximum valid
+        (0, false),    // Too low
         (1001, false), // Too high
     ];
-    
+
     for (ms, should_be_valid) in test_cases {
         let is_valid = ms >= 1 && ms <= 1000;
-        assert_eq!(is_valid, should_be_valid, "CPU time {} should be valid: {}", ms, should_be_valid);
+        assert_eq!(
+            is_valid, should_be_valid,
+            "CPU time {} should be valid: {}",
+            ms, should_be_valid
+        );
     }
 }
 
@@ -70,7 +74,7 @@ async fn test_cpu_time_within_limit() {
         }
         handler();
     "#;
-    
+
     // With 50ms CPU limit, this should complete easily
     // Actual execution time: ~0.1ms CPU time
     assert!(!script.is_empty());
@@ -89,7 +93,7 @@ async fn test_cpu_timeout_infinite_loop() {
         }
         handler();
     "#;
-    
+
     // This would be tested with a running NANO server
     // Expected behavior with 10ms CPU limit:
     // 1. Request starts
@@ -110,7 +114,7 @@ async fn test_wall_clock_timeout() {
         }
         handler();
     "#;
-    
+
     // Wall-clock timeout (30s default) should catch this
     // Unlike CPU timeout, this measures real time, not CPU time
     assert!(!script.is_empty());
@@ -133,7 +137,7 @@ async fn test_cpu_time_accumulation() {
         }
         handler();
     "#;
-    
+
     // Should track cumulative CPU time across all operations
     // With 50ms limit, this would likely timeout
     assert!(!script.is_empty());
@@ -144,11 +148,11 @@ async fn test_cpu_time_accumulation() {
 fn test_per_app_cpu_limits() {
     // Different apps should have different CPU limits
     let configs = vec![
-        ("low.example.com", 10),   // 10ms - quick API
+        ("low.example.com", 10),    // 10ms - quick API
         ("medium.example.com", 50), // 50ms - default
         ("high.example.com", 500),  // 500ms - heavy compute
     ];
-    
+
     for (hostname, limit_ms) in configs {
         assert!(!hostname.is_empty());
         assert!(limit_ms >= 1 && limit_ms <= 1000);
@@ -217,7 +221,7 @@ fn test_cpu_timeout_manual_integration() {
         "Verify timeout error response",
         "Check Prometheus metrics",
     ];
-    
+
     assert_eq!(steps.len(), 7);
 }
 
@@ -228,16 +232,16 @@ fn test_cpu_timer_platforms() {
     // - Linux: clock_gettime(CLOCK_THREAD_CPUTIME_ID)
     // - macOS: getrusage(RUSAGE_THREAD)
     // - Windows: QueryThreadCycleTime (planned)
-    
+
     #[cfg(target_os = "linux")]
     let expected_platform = "linux";
-    
+
     #[cfg(target_os = "macos")]
     let expected_platform = "macos";
-    
+
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let expected_platform = "other";
-    
+
     assert!(!expected_platform.is_empty());
 }
 
@@ -249,7 +253,7 @@ fn test_cpu_metrics_documentation() {
         "nano_tenant_cpu_seconds_total",
         "nano_tenant_cpu_time_per_request_seconds",
     ];
-    
+
     for metric in expected_metrics {
         assert!(!metric.is_empty());
     }

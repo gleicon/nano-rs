@@ -159,8 +159,8 @@ pub mod limits;
 pub mod memory_monitor;
 pub mod oom;
 pub mod pool;
-pub mod sliver_pool;
 pub mod queue;
+pub mod sliver_pool;
 pub mod tenant_pool;
 pub mod timeout;
 pub mod r#trait;
@@ -171,12 +171,16 @@ pub use context::ContextManager;
 pub use cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
 pub use eviction::{EvictionAction, EvictionManager, EvictionPolicy, IsolateMetadata};
 pub use limits::{HeapStatistics, MemoryLimiter, OomError, RequestMemoryTracker};
-pub use memory_monitor::{MemoryMonitor, MemoryMonitorConfig, MemoryPressureLevel, MemorySnapshot, MemoryTrend};
+pub use memory_monitor::{
+    MemoryMonitor, MemoryMonitorConfig, MemoryPressureLevel, MemorySnapshot, MemoryTrend,
+};
 pub use oom::{OomMonitor, OomMonitorBuilder};
 pub use pool::{WorkerHandle, WorkerPool};
-pub use sliver_pool::SliverWorkerPool;
-pub use queue::{hash_hostname, EntrypointWorkerPool, QueueError, QueueStats, StatsSnapshot, WorkQueue};
+pub use queue::{
+    hash_hostname, EntrypointWorkerPool, QueueError, QueueStats, StatsSnapshot, WorkQueue,
+};
 pub use r#trait::{BoxedWorkerPool, WorkerPool as WorkerPoolTrait, WorkerPoolConfig};
+pub use sliver_pool::SliverWorkerPool;
 pub use timeout::{ExecutionTimer, TimeoutConfig, TimeoutError};
 
 use crate::http::{NanoRequest, NanoResponse};

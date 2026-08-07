@@ -15,9 +15,9 @@
 #[path = "common.rs"]
 mod common;
 
-use std::sync::Once;
 use nano::runtime::apis::RuntimeAPIs;
 use nano::v8::initialize_platform;
+use std::sync::Once;
 
 static INIT_V8: Once = Once::new();
 
@@ -76,7 +76,10 @@ fn settimeout_returns_valid_id() {
         typeof id === 'number' && id > 0
         "#,
     );
-    assert_eq!(result, "true", "[REGR-TIMER-01] setTimeout must return a positive numeric ID");
+    assert_eq!(
+        result, "true",
+        "[REGR-TIMER-01] setTimeout must return a positive numeric ID"
+    );
 }
 
 /// Verify setTimeout does NOT block the calling thread (regression guard).
@@ -112,7 +115,10 @@ fn settimeout_ids_are_unique() {
         id1 !== id2
         "#,
     );
-    assert_eq!(result, "true", "[REGR-TIMER-01] setTimeout must return unique IDs");
+    assert_eq!(
+        result, "true",
+        "[REGR-TIMER-01] setTimeout must return unique IDs"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -345,13 +351,15 @@ async function fetch(_request) {
 #[tokio::test]
 #[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn settimeout_fires_via_pump_loop() {
-    if !timer_tests_enabled() { return; }
+    if !timer_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
-    use std::sync::Arc;
     use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
-    use nano::http::server::{AppStateWithShutdown, create_app_with_shutdown};
+    use nano::http::server::{create_app_with_shutdown, AppStateWithShutdown};
     use nano::signal::ShutdownState;
+    use std::sync::Arc;
 
     let js = r#"
     async function fetch(_request) {
@@ -367,22 +375,37 @@ async fn settimeout_fires_via_pump_loop() {
         hostname: "localhost".to_string(),
         handler_type: HandlerType::WinterTCHandler(entrypoint.clone()),
     });
-    vhr.register("localhost".to_string(), RouteTarget {
-        hostname: "localhost".to_string(),
-        handler_type: HandlerType::WinterTCHandler(entrypoint),
-    });
+    vhr.register(
+        "localhost".to_string(),
+        RouteTarget {
+            hostname: "localhost".to_string(),
+            handler_type: HandlerType::WinterTCHandler(entrypoint),
+        },
+    );
     let state = Arc::new(AppStateWithShutdown::new(
         AppState::new(vhr, 1),
         ShutdownState::default(),
     ));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, create_app_with_shutdown(state)).await.unwrap() });
+    tokio::spawn(async move {
+        axum::serve(listener, create_app_with_shutdown(state))
+            .await
+            .unwrap()
+    });
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     let body = reqwest::get(format!("http://127.0.0.1:{}/", addr.port()))
-        .await.expect("request").text().await.expect("body");
-    assert_eq!(body, "ok", "[REGR-TIMER-01] setTimeout pump-loop: expected delay ≥90ms, got '{}'", body);
+        .await
+        .expect("request")
+        .text()
+        .await
+        .expect("body");
+    assert_eq!(
+        body, "ok",
+        "[REGR-TIMER-01] setTimeout pump-loop: expected delay ≥90ms, got '{}'",
+        body
+    );
 }
 
 /// [REGR-TIMER-02] setInterval fires via pump loop — count reaches 3.
@@ -392,13 +415,15 @@ async fn settimeout_fires_via_pump_loop() {
 #[tokio::test]
 #[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn setinterval_fires_via_pump_loop() {
-    if !timer_tests_enabled() { return; }
+    if !timer_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
-    use std::sync::Arc;
     use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
-    use nano::http::server::{AppStateWithShutdown, create_app_with_shutdown};
+    use nano::http::server::{create_app_with_shutdown, AppStateWithShutdown};
     use nano::signal::ShutdownState;
+    use std::sync::Arc;
 
     let entrypoint = write_js(
         &format!("timer_test_{}.js", std::process::id()),
@@ -445,37 +470,50 @@ async fn setinterval_fires_via_pump_loop() {
 /// Helper: spin up a fresh in-process server with a JS handler, make one GET, return body.
 #[cfg(test)]
 async fn one_shot_request(js: &str) -> String {
-    use std::sync::Arc;
     use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
-    use nano::http::server::{AppStateWithShutdown, create_app_with_shutdown};
+    use nano::http::server::{create_app_with_shutdown, AppStateWithShutdown};
     use nano::signal::ShutdownState;
+    use std::sync::Arc;
 
     let entrypoint = write_js(&format!("oneshot_{}.js", uuid_fragment()), js);
     let mut vhr = VirtualHostRouter::new(RouteTarget {
         hostname: "localhost".to_string(),
         handler_type: HandlerType::WinterTCHandler(entrypoint.clone()),
     });
-    vhr.register("localhost".to_string(), RouteTarget {
-        hostname: "localhost".to_string(),
-        handler_type: HandlerType::WinterTCHandler(entrypoint),
-    });
+    vhr.register(
+        "localhost".to_string(),
+        RouteTarget {
+            hostname: "localhost".to_string(),
+            handler_type: HandlerType::WinterTCHandler(entrypoint),
+        },
+    );
     let state = Arc::new(AppStateWithShutdown::new(
         AppState::new(vhr, 1),
         ShutdownState::default(),
     ));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, create_app_with_shutdown(state)).await.unwrap() });
+    tokio::spawn(async move {
+        axum::serve(listener, create_app_with_shutdown(state))
+            .await
+            .unwrap()
+    });
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     reqwest::get(format!("http://127.0.0.1:{}/", addr.port()))
-        .await.expect("request")
-        .text().await.expect("body")
+        .await
+        .expect("request")
+        .text()
+        .await
+        .expect("body")
 }
 
 fn uuid_fragment() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .subsec_nanos();
     format!("{}_{}", std::process::id(), nanos)
 }
 
@@ -486,7 +524,9 @@ fn uuid_fragment() -> String {
 #[tokio::test]
 #[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn cleartimeout_cancels_callback() {
-    if !timer_tests_enabled() { return; }
+    if !timer_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let js = r#"
@@ -517,7 +557,9 @@ async fn cleartimeout_cancels_callback() {
 #[tokio::test]
 #[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn clearinterval_from_within_callback_fires_once() {
-    if !timer_tests_enabled() { return; }
+    if !timer_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let js = r#"
@@ -552,7 +594,9 @@ async fn clearinterval_from_within_callback_fires_once() {
 #[tokio::test]
 #[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn promise_chain_sequential_timers() {
-    if !timer_tests_enabled() { return; }
+    if !timer_tests_enabled() {
+        return;
+    }
     init_v8_once();
 
     let js = r#"

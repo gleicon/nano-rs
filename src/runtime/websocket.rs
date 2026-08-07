@@ -15,8 +15,8 @@
 //! the same worker thread, so thread-local access is safe and lock-free.
 
 use crate::worker::tenant_pool::{
-    WS_ACCEPTED, WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS, WS_MESSAGE_HANDLERS, WS_OUTBOUND,
-    WS_SERVER_SOCKET, set_ws_readystate,
+    set_ws_readystate, WS_ACCEPTED, WS_CLOSE_HANDLERS, WS_ERROR_HANDLERS, WS_MESSAGE_HANDLERS,
+    WS_OUTBOUND, WS_SERVER_SOCKET,
 };
 
 // ---------------------------------------------------------------------------
@@ -407,7 +407,8 @@ fn ws_binary_type_setter_callback(
     _args: v8::PropertyCallbackArguments,
     _retval: v8::ReturnValue<()>,
 ) {
-    if let Some(msg) = v8::String::new(scope, "binaryType is read-only: only arraybuffer supported") {
+    if let Some(msg) = v8::String::new(scope, "binaryType is read-only: only arraybuffer supported")
+    {
         let error = v8::Exception::type_error(scope, msg);
         scope.throw_exception(error);
     }
@@ -438,8 +439,14 @@ mod tests {
         let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script = v8::Script::compile(ctx_scope, code_string, None).expect("compile");
         let result = script.run(ctx_scope).expect("run");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
-        assert_eq!(result_str, "true", "WebSocket stub: readyState=3, url set from arg, send callable");
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
+        assert_eq!(
+            result_str, "true",
+            "WebSocket stub: readyState=3, url set from arg, send callable"
+        );
     }
 
     #[test]
@@ -464,8 +471,14 @@ mod tests {
         let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script = v8::Script::compile(ctx_scope, code_string, None).expect("compile");
         let result = script.run(ctx_scope).expect("run");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
-        assert_eq!(result_str, "true", "send() on CLOSED WebSocket stub must throw");
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
+        assert_eq!(
+            result_str, "true",
+            "send() on CLOSED WebSocket stub must throw"
+        );
     }
 
     #[test]
@@ -492,7 +505,13 @@ mod tests {
         let code_string = v8::String::new(ctx_scope, code).unwrap();
         let script = v8::Script::compile(ctx_scope, code_string, None).expect("compile");
         let result = script.run(ctx_scope).expect("run");
-        let result_str = result.to_string(ctx_scope).unwrap().to_rust_string_lossy(ctx_scope);
-        assert_eq!(result_str, "true", "close/addEventListener/removeEventListener on CLOSED stub must not throw");
+        let result_str = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
+        assert_eq!(
+            result_str, "true",
+            "close/addEventListener/removeEventListener on CLOSED stub must not throw"
+        );
     }
 }

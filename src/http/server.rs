@@ -18,38 +18,37 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tower_http::{
-    compression::CompressionLayer,
-    timeout::TimeoutLayer,
-    trace::TraceLayer,
-};
+use tower_http::{compression::CompressionLayer, timeout::TimeoutLayer, trace::TraceLayer};
 
 use crate::admin::metrics::metrics_handler;
 use crate::app::registry::AppRegistry;
 use crate::config::NanoConfig;
 use crate::http::config::ServerConfig;
-use crate::http::router::{dispatch_to_worker_pool, AppState, HandlerType, RouteTarget, VirtualHostRouter};
 use crate::http::content_type_from_ext;
+use crate::http::router::{
+    dispatch_to_worker_pool, AppState, HandlerType, RouteTarget, VirtualHostRouter,
+};
 use crate::signal::ShutdownState;
-use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, loader::load_directory_to_vfs};
+use crate::vfs::{loader::load_directory_to_vfs, IsolateVfs, MemoryBackend, VfsNamespace};
 
 /// Create a TCP listener with SO_REUSEADDR enabled for quick port reuse
 ///
 /// This allows the server to be restarted immediately after shutdown,
 /// preventing "Address already in use" errors during development and testing.
 async fn create_reuse_listener(addr: &std::net::SocketAddr) -> Result<TcpListener> {
-    let socket = tokio::net::TcpSocket::new_v4()
-        .context("Failed to create TCP socket")?;
-    
+    let socket = tokio::net::TcpSocket::new_v4().context("Failed to create TCP socket")?;
+
     // Enable SO_REUSEADDR to allow immediate port reuse after shutdown
-    socket.set_reuseaddr(true)
+    socket
+        .set_reuseaddr(true)
         .context("Failed to set SO_REUSEADDR on socket")?;
-    
+
     // Also enable SO_REUSEPORT on Unix systems for better load balancing
     #[cfg(unix)]
-    socket.set_reuseport(true)
+    socket
+        .set_reuseport(true)
         .context("Failed to set SO_REUSEPORT on socket")?;
-    
+
     if addr.ip().is_unspecified() {
         tracing::warn!(
             "Binding to {} — all network interfaces exposed. \
@@ -58,11 +57,11 @@ async fn create_reuse_listener(addr: &std::net::SocketAddr) -> Result<TcpListene
         );
     }
 
-    socket.bind(*addr)
+    socket
+        .bind(*addr)
         .with_context(|| format!("Failed to bind to {}", addr))?;
 
-    let listener = socket.listen(128)
-        .context("Failed to listen on socket")?;
+    let listener = socket.listen(128).context("Failed to listen on socket")?;
 
     Ok(listener)
 }
@@ -215,15 +214,21 @@ pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
         .route("/_admin/ready", get(ready_handler))
         .route("/_admin/metrics", get(metrics_handler))
         // Root path - dispatch to worker pool for JS execution
-        .route("/", any({
-            let state = app_state_clone.clone();
-            move |req| dispatch_to_worker_pool(AxumState(state), req)
-        }))
+        .route(
+            "/",
+            any({
+                let state = app_state_clone.clone();
+                move |req| dispatch_to_worker_pool(AxumState(state), req)
+            }),
+        )
         // Catch-all for virtual hosts - dispatch to worker pool
-        .route("/{*path}", any({
-            let state = app_state_clone;
-            move |req| dispatch_to_worker_pool(AxumState(state), req)
-        }))
+        .route(
+            "/{*path}",
+            any({
+                let state = app_state_clone;
+                move |req| dispatch_to_worker_pool(AxumState(state), req)
+            }),
+        )
         // Middleware stack (applied in reverse order)
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::with_status_code(
@@ -271,7 +276,7 @@ pub fn create_app() -> Router {
     );
 
     // Create state with the router and WorkQueue
-    let app_state = AppState::new(router, 4);  // 4 workers per hostname pool
+    let app_state = AppState::new(router, 4); // 4 workers per hostname pool
     let shutdown_state = ShutdownState::default();
     let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
@@ -315,9 +320,7 @@ pub async fn start_server(config: ServerConfig) -> Result<()> {
 
     let app = create_app();
 
-    axum::serve(listener, app)
-        .await
-        .context("Server error")?;
+    axum::serve(listener, app).await.context("Server error")?;
 
     Ok(())
 }
@@ -456,9 +459,7 @@ pub async fn start_server_with_state(
 
     let app = create_app_with_shutdown(state);
 
-    axum::serve(listener, app)
-        .await
-        .context("Server error")?;
+    axum::serve(listener, app).await.context("Server error")?;
 
     tracing::info!("HTTP server shut down gracefully");
 
@@ -524,9 +525,7 @@ pub async fn start_server_with_router(
 
     let app = create_app_with_shutdown(state);
 
-    axum::serve(listener, app)
-        .await
-        .context("Server error")?;
+    axum::serve(listener, app).await.context("Server error")?;
 
     tracing::info!("HTTP server with custom router shut down gracefully");
 
@@ -557,9 +556,9 @@ pub async fn start_server_with_sliver_pool<F>(
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
-    use axum::routing::{any, get};
     use crate::http::sliver_handler::{sliver_js_handler, SliverHandlerState};
-    
+    use axum::routing::{any, get};
+
     let addr = config
         .socket_addr()
         .context("Failed to parse server address")?;
@@ -584,14 +583,20 @@ where
         .route("/health", get(health_handler))
         .route("/_admin/health", get(admin_health_handler))
         // ALL requests go to JS execution (WinterTC style)
-        .route("/", any({
-            let state = handler_state.clone();
-            move |req| sliver_js_handler(axum::extract::State(state.clone()), req)
-        }))
-        .route("/{*path}", any({
-            let state = handler_state;
-            move |req| sliver_js_handler(axum::extract::State(state), req)
-        }))
+        .route(
+            "/",
+            any({
+                let state = handler_state.clone();
+                move |req| sliver_js_handler(axum::extract::State(state.clone()), req)
+            }),
+        )
+        .route(
+            "/{*path}",
+            any({
+                let state = handler_state;
+                move |req| sliver_js_handler(axum::extract::State(state), req)
+            }),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
@@ -651,7 +656,7 @@ pub async fn start_server_with_config(
             // Sliver-based app (entrypoint type detection for sliver entrypoint)
             use crate::http::router::detect_entrypoint_type;
             let entrypoint_type = detect_entrypoint_type(&app.entrypoint);
-            
+
             match entrypoint_type {
                 crate::http::router::EntrypointType::JavaScript(_) => {
                     // JavaScript entrypoint - use sliver handler
@@ -672,10 +677,7 @@ pub async fn start_server_with_config(
                     let content_type = content_type_from_ext(ext).to_string();
                     RouteTarget {
                         hostname: app.hostname.clone(),
-                        handler_type: HandlerType::StaticFile {
-                            path,
-                            content_type,
-                        },
+                        handler_type: HandlerType::StaticFile { path, content_type },
                     }
                 }
                 crate::http::router::EntrypointType::StaticDir(root) => {
@@ -685,22 +687,26 @@ pub async fn start_server_with_config(
                         VfsNamespace::from_hostname(&app.hostname),
                         crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
                     );
-                    
+
                     // Load directory contents into VFS
                     match load_directory_to_vfs(&vfs, &root, "/").await {
                         Ok(count) => {
                             tracing::info!(
                                 "Loaded {} files from '{}' into VFS for {}",
-                                count, root, app.hostname
+                                count,
+                                root,
+                                app.hostname
                             );
-                            
+
                             // Build files HashMap from VFS backend
                             let mut files = std::collections::HashMap::new();
                             let backend = vfs.backend();
-                            
+
                             // Get all entries from the VFS backend
                             // Note: We need to get the entries from the MemoryBackend
-                            if let Some(mem_backend) = backend.as_any().downcast_ref::<MemoryBackend>() {
+                            if let Some(mem_backend) =
+                                backend.as_any().downcast_ref::<MemoryBackend>()
+                            {
                                 for (path, file) in mem_backend.snapshot_entries() {
                                     // Determine content type from path
                                     let ext = std::path::Path::new(path.as_str())
@@ -708,11 +714,14 @@ pub async fn start_server_with_config(
                                         .and_then(|e| e.to_str())
                                         .unwrap_or("");
                                     let content_type = content_type_from_ext(ext).to_string();
-                                    
-                                    files.insert(path.as_str().to_string(), (file.content, content_type));
+
+                                    files.insert(
+                                        path.as_str().to_string(),
+                                        (file.content, content_type),
+                                    );
                                 }
                             }
-                            
+
                             RouteTarget {
                                 hostname: app.hostname.clone(),
                                 handler_type: HandlerType::VfsStaticFiles {
@@ -724,7 +733,9 @@ pub async fn start_server_with_config(
                         Err(e) => {
                             tracing::error!(
                                 "Failed to load directory '{}' into VFS for {}: {}",
-                                root, app.hostname, e
+                                root,
+                                app.hostname,
+                                e
                             );
                             // Fallback to filesystem-based StaticDir handler
                             RouteTarget {
@@ -742,7 +753,7 @@ pub async fn start_server_with_config(
             // Entrypoint-based app (non-sliver) - use entrypoint type detection
             use crate::http::router::detect_entrypoint_type;
             let entrypoint_type = detect_entrypoint_type(&app.entrypoint);
-            
+
             match entrypoint_type {
                 crate::http::router::EntrypointType::JavaScript(path) => {
                     // JavaScript entrypoint - execute as Worker
@@ -760,10 +771,7 @@ pub async fn start_server_with_config(
                     let content_type = content_type_from_ext(ext).to_string();
                     RouteTarget {
                         hostname: app.hostname.clone(),
-                        handler_type: HandlerType::StaticFile {
-                            path,
-                            content_type,
-                        },
+                        handler_type: HandlerType::StaticFile { path, content_type },
                     }
                 }
                 crate::http::router::EntrypointType::StaticDir(root) => {
@@ -778,7 +786,7 @@ pub async fn start_server_with_config(
                 }
             }
         };
-        
+
         // Log registration with handler type
         let handler_name = match &target.handler_type {
             HandlerType::WinterTCHandler(_) => "javascript",
@@ -788,7 +796,7 @@ pub async fn start_server_with_config(
             HandlerType::StaticResponse(_) => "static-response",
             HandlerType::VfsStaticFiles { .. } => "vfs-static",
         };
-        
+
         router.register(app.hostname.clone(), target);
         tracing::info!(
             "Registered app '{}' with {} handler (entrypoint: {})",
@@ -813,20 +821,27 @@ pub async fn start_server_with_config(
             None
         }
     });
-    
+
     // Wrap registry in Arc for sharing with AppState
     let registry_arc = Arc::new(registry);
 
     // Create app state with the router, optional disk VFS config, and app registry
     // Use the first app's worker limit, or default to 4 if not specified
-    let workers_per_pool = nano_config.apps.first()
+    let workers_per_pool = nano_config
+        .apps
+        .first()
         .map(|app| app.limits.workers)
         .filter(|&w| w > 0)
         .unwrap_or(4);
-    
+
     let app_state = if let Some(ref disk) = disk_config {
         tracing::info!("Using disk VFS backend with base_path: {}", disk.base_path);
-        AppState::with_vfs_config(router, workers_per_pool, Some(disk.clone()), Some(registry_arc))
+        AppState::with_vfs_config(
+            router,
+            workers_per_pool,
+            Some(disk.clone()),
+            Some(registry_arc),
+        )
     } else {
         AppState::with_vfs_config(router, workers_per_pool, None, Some(registry_arc))
     };
@@ -844,9 +859,7 @@ pub async fn start_server_with_config(
 
     let app = create_app_with_shutdown(state);
 
-    axum::serve(listener, app)
-        .await
-        .context("Server error")?;
+    axum::serve(listener, app).await.context("Server error")?;
 
     tracing::info!("Config-mode server shut down gracefully");
 
@@ -1060,19 +1073,22 @@ mod tests {
         // This verifies SO_REUSEADDR is working correctly
         let config = ServerConfig::default();
         let addr = config.socket_addr().unwrap();
-        
+
         // First bind
         let listener1 = create_reuse_listener(&addr).await;
         assert!(listener1.is_ok(), "First bind should succeed");
-        
+
         // Drop the first listener
         drop(listener1);
-        
+
         // Small delay to let the OS clean up (but with SO_REUSEADDR this should be instant)
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        
+
         // Second bind on same address should succeed with SO_REUSEADDR
         let listener2 = create_reuse_listener(&addr).await;
-        assert!(listener2.is_ok(), "Second bind should succeed with SO_REUSEADDR enabled");
+        assert!(
+            listener2.is_ok(),
+            "Second bind should succeed with SO_REUSEADDR enabled"
+        );
     }
 }

@@ -1,8 +1,8 @@
 //! SliverWorkerPool — thin wrapper around WorkerPool for sliver-based apps.
 
 use super::pool::WorkerPool;
-use crate::worker::HandlerTask;
 use crate::vfs::MemoryBackend;
+use crate::worker::HandlerTask;
 use anyhow::Result;
 use tracing::info;
 
@@ -34,12 +34,24 @@ impl SliverWorkerPool {
         let source = AppSource::sliver(unpacked_sliver.clone());
         let vfs_backend = crate::vfs::VfsBackendEnum::memory(MemoryBackend::default());
         let inner = WorkerPool::with_source_and_backend(
-            hostname.clone(), worker_count, memory_limit_mb, vfs_backend, source,
+            hostname.clone(),
+            worker_count,
+            memory_limit_mb,
+            vfs_backend,
+            source,
         );
 
-        info!("SliverWorkerPool for {} created with {} workers", hostname, worker_count);
+        info!(
+            "SliverWorkerPool for {} created with {} workers",
+            hostname, worker_count
+        );
 
-        Self { inner, hostname, worker_count, unpacked_sliver }
+        Self {
+            inner,
+            hostname,
+            worker_count,
+            unpacked_sliver,
+        }
     }
 
     pub fn dispatch(&self, task: HandlerTask) -> Result<()> {
@@ -51,15 +63,31 @@ impl SliverWorkerPool {
         self.inner.shutdown()
     }
 
-    pub fn worker_count(&self) -> u32 { self.worker_count }
-    pub fn hostname(&self) -> &str { &self.hostname }
-    pub fn sliver_data(&self) -> &crate::sliver::UnpackedSliver { &self.unpacked_sliver }
-    pub fn vfs_backend(&self) -> &crate::vfs::VfsBackendEnum { &self.inner.vfs_backend }
+    pub fn worker_count(&self) -> u32 {
+        self.worker_count
+    }
+    pub fn hostname(&self) -> &str {
+        &self.hostname
+    }
+    pub fn sliver_data(&self) -> &crate::sliver::UnpackedSliver {
+        &self.unpacked_sliver
+    }
+    pub fn vfs_backend(&self) -> &crate::vfs::VfsBackendEnum {
+        &self.inner.vfs_backend
+    }
 }
 
 impl crate::worker::r#trait::WorkerPool for SliverWorkerPool {
-    fn dispatch(&self, task: HandlerTask) -> Result<()> { self.inner.dispatch(task) }
-    fn shutdown(self) -> Result<()> { self.inner.shutdown() }
-    fn worker_count(&self) -> u32 { self.worker_count() }
-    fn hostname(&self) -> &str { self.hostname() }
+    fn dispatch(&self, task: HandlerTask) -> Result<()> {
+        self.inner.dispatch(task)
+    }
+    fn shutdown(self) -> Result<()> {
+        self.inner.shutdown()
+    }
+    fn worker_count(&self) -> u32 {
+        self.worker_count()
+    }
+    fn hostname(&self) -> &str {
+        self.hostname()
+    }
 }

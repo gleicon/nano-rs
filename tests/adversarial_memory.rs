@@ -8,11 +8,10 @@
 //! - Circular reference bombs
 //! - Typed array exhaustion
 
-
 #[path = "common.rs"]
 mod common;
-use std::time::Duration;
 use common::{find_available_port, NanoProcess};
+use std::time::Duration;
 
 /// Test large array allocation
 /// Attack: new Array(1e9) or repeated large allocations
@@ -45,10 +44,10 @@ async fn test_large_array_allocation() {
         "mem-array.local",
         "array_alloc.js",
         js_content,
-        100,   // 100ms CPU limit
-        128,   // 128MB — V8 needs ~50MB to init; JS still exhausts this
+        100, // 100ms CPU limit
+        128, // 128MB — V8 needs ~50MB to init; JS still exhausts this
     );
-    
+
     nano.wait_ready(port, "mem-array.local").await;
 
     let client = reqwest::Client::new();
@@ -106,10 +105,10 @@ async fn test_large_string_concatenation() {
         "mem-string.local",
         "string_concat.js",
         js_content,
-        100,   // 100ms CPU
-        16,    // 16MB memory
+        100, // 100ms CPU
+        16,  // 16MB memory
     );
-    
+
     nano.wait_ready(port, "mem-string.local").await;
 
     let client = reqwest::Client::new();
@@ -126,7 +125,10 @@ async fn test_large_string_concatenation() {
         Ok(response) => {
             let status = response.status();
             assert!(
-                status.is_success() || status.as_u16() == 500 || status.as_u16() == 503 || status.as_u16() == 507,
+                status.is_success()
+                    || status.as_u16() == 500
+                    || status.as_u16() == 503
+                    || status.as_u16() == 507,
                 "String concatenation should be memory-limited or error, got {}",
                 status
             );
@@ -160,10 +162,10 @@ async fn test_buffer_growth_attack() {
         "mem-buffer.local",
         "buffer_growth.js",
         js_content,
-        100,   // 100ms CPU
-        128,   // 128MB — V8 needs ~50MB to init; buffer growth still exhausts this
+        100, // 100ms CPU
+        128, // 128MB — V8 needs ~50MB to init; buffer growth still exhausts this
     );
-    
+
     nano.wait_ready(port, "mem-buffer.local").await;
 
     let client = reqwest::Client::new();
@@ -180,7 +182,10 @@ async fn test_buffer_growth_attack() {
         Ok(response) => {
             let status = response.status();
             assert!(
-                status.is_success() || status.as_u16() == 500 || status.as_u16() == 503 || status.as_u16() == 507,
+                status.is_success()
+                    || status.as_u16() == 500
+                    || status.as_u16() == 503
+                    || status.as_u16() == 507,
                 "Buffer growth should trigger memory limits, got {}",
                 status
             );
@@ -218,10 +223,10 @@ async fn test_closure_memory_leak() {
         "mem-closure.local",
         "closure_leak.js",
         js_content,
-        100,   // 100ms CPU
-        128,   // 128MB — V8 needs ~50MB to init; closure accumulation still exhausts this
+        100, // 100ms CPU
+        128, // 128MB — V8 needs ~50MB to init; closure accumulation still exhausts this
     );
-    
+
     nano.wait_ready(port, "mem-closure.local").await;
 
     let client = reqwest::Client::new();
@@ -238,7 +243,10 @@ async fn test_closure_memory_leak() {
         Ok(response) => {
             let status = response.status();
             assert!(
-                status.is_success() || status.as_u16() == 500 || status.as_u16() == 503 || status.as_u16() == 507,
+                status.is_success()
+                    || status.as_u16() == 500
+                    || status.as_u16() == 503
+                    || status.as_u16() == 507,
                 "Closure leak should be memory-limited, got {}",
                 status
             );
@@ -286,10 +294,10 @@ async fn test_circular_reference_bomb() {
         "mem-circular.local",
         "circular_ref.js",
         js_content,
-        100,   // 100ms CPU
-        128,   // 128MB — V8 needs ~50MB to init; circular ref accumulation still exhausts this
+        100, // 100ms CPU
+        128, // 128MB — V8 needs ~50MB to init; circular ref accumulation still exhausts this
     );
-    
+
     nano.wait_ready(port, "mem-circular.local").await;
 
     let client = reqwest::Client::new();
@@ -345,10 +353,10 @@ async fn test_typed_array_exhaustion() {
         "mem-typedarray.local",
         "typed_array.js",
         js_content,
-        100,   // 100ms CPU
-        16,    // 16MB memory
+        100, // 100ms CPU
+        16,  // 16MB memory
     );
-    
+
     nano.wait_ready(port, "mem-typedarray.local").await;
 
     let client = reqwest::Client::new();
@@ -399,16 +407,16 @@ async fn test_sequential_memory_buildup() {
         "mem-sequential.local",
         "sequential.js",
         js_content,
-        100,   // 100ms CPU per request
-        16,    // 16MB memory
+        100, // 100ms CPU per request
+        16,  // 16MB memory
     );
-    
+
     nano.wait_ready(port, "mem-sequential.local").await;
 
     let client = reqwest::Client::new();
     let mut success_count = 0;
     let mut memory_error_count = 0;
-    
+
     // Send 20 rapid requests
     for i in 0..20 {
         let result = client
@@ -417,7 +425,7 @@ async fn test_sequential_memory_buildup() {
             .timeout(Duration::from_secs(10))
             .send()
             .await;
-        
+
         match result {
             Ok(response) => {
                 let status = response.status();

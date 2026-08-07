@@ -80,32 +80,36 @@ impl SystemDiagnostics {
     /// Format as human-readable text (like `ps` output)
     pub fn format_ps(&self) -> String {
         let mut output = String::new();
-        
+
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let datetime = format!("{} (Unix timestamp: {})", 
-            humantime(timestamp), timestamp);
-        
+        let datetime = format!("{} (Unix timestamp: {})", humantime(timestamp), timestamp);
+
         output.push_str(&format!("NANO Multi-App Runtime - {}", datetime));
         output.push('\n');
-        output.push_str(&format!("Total isolates: {} | Total requests: {}",
-            self.total_isolates, self.total_requests));
+        output.push_str(&format!(
+            "Total isolates: {} | Total requests: {}",
+            self.total_isolates, self.total_requests
+        ));
         output.push('\n');
         output.push_str(&"-".repeat(100));
         output.push('\n');
-        
+
         // Header
-        output.push_str(&format!("{:<20} {:<8} {:<10} {:<15} {:<12} {:<10} {}\n",
-            "HOSTNAME", "WORKER", "STATUS", "UPTIME", "REQUESTS", "MEMORY", "ENV_KEYS"));
+        output.push_str(&format!(
+            "{:<20} {:<8} {:<10} {:<15} {:<12} {:<10} {}\n",
+            "HOSTNAME", "WORKER", "STATUS", "UPTIME", "REQUESTS", "MEMORY", "ENV_KEYS"
+        ));
         output.push_str(&"-".repeat(100));
         output.push('\n');
-        
+
         // Per-isolate info
         for isolate in &self.isolates {
             let status = if isolate.busy { "BUSY" } else { "IDLE" };
-            let memory = isolate.memory_bytes
+            let memory = isolate
+                .memory_bytes
                 .map(|b| format!("{:.1}MB", b as f64 / 1024.0 / 1024.0))
                 .unwrap_or_else(|| "-".to_string());
             let env_summary = if isolate.env_keys.is_empty() {
@@ -113,8 +117,9 @@ impl SystemDiagnostics {
             } else {
                 format!("{} vars", isolate.env_keys.len())
             };
-            
-            output.push_str(&format!("{:<20} {:<8} {:<10} {:<15} {:<12} {:<10} {}\n",
+
+            output.push_str(&format!(
+                "{:<20} {:<8} {:<10} {:<15} {:<12} {:<10} {}\n",
                 truncate(&isolate.hostname, 20),
                 isolate.worker_id,
                 status,
@@ -124,25 +129,28 @@ impl SystemDiagnostics {
                 env_summary
             ));
         }
-        
+
         output.push('\n');
-        
+
         // App-level summary
         output.push_str("App Summary:\n");
         output.push_str(&"-".repeat(80));
         output.push('\n');
-        output.push_str(&format!("{:<20} {:<8} {:<12} {:<15} {:<10}\n",
-            "HOSTNAME", "WORKERS", "REQUESTS", "UPTIME", "LIMITS"));
+        output.push_str(&format!(
+            "{:<20} {:<8} {:<12} {:<15} {:<10}\n",
+            "HOSTNAME", "WORKERS", "REQUESTS", "UPTIME", "LIMITS"
+        ));
         output.push_str(&"-".repeat(80));
         output.push('\n');
-        
+
         for app in &self.app_stats {
-            let limits = format!("{}MB/{}s/{}w",
-                app.config.memory_limit_mb,
-                app.config.timeout_secs,
-                app.config.workers);
-            
-            output.push_str(&format!("{:<20} {:<8} {:<12} {:<15} {:<10}\n",
+            let limits = format!(
+                "{}MB/{}s/{}w",
+                app.config.memory_limit_mb, app.config.timeout_secs, app.config.workers
+            );
+
+            output.push_str(&format!(
+                "{:<20} {:<8} {:<12} {:<15} {:<10}\n",
                 truncate(&app.hostname, 20),
                 app.worker_count,
                 app.total_requests,
@@ -150,10 +158,10 @@ impl SystemDiagnostics {
                 limits
             ));
         }
-        
+
         output
     }
-    
+
     /// Format as JSON for API consumption
     pub fn format_json(&self) -> String {
         // Manual JSON construction since we have non-serializable fields
@@ -163,14 +171,23 @@ impl SystemDiagnostics {
         json.push_str(&format!("  \"total_requests\": {},\n", self.total_requests));
         json.push_str(&format!("  \"app_count\": {},\n", self.app_stats.len()));
         json.push_str("  \"apps\": [\n");
-        
+
         for (i, app) in self.app_stats.iter().enumerate() {
             json.push_str("    {\n");
             json.push_str(&format!("      \"hostname\": \"{}\",\n", app.hostname));
             json.push_str(&format!("      \"workers\": {},\n", app.worker_count));
-            json.push_str(&format!("      \"total_requests\": {},\n", app.total_requests));
-            json.push_str(&format!("      \"memory_limit_mb\": {},\n", app.config.memory_limit_mb));
-            json.push_str(&format!("      \"timeout_secs\": {},\n", app.config.timeout_secs));
+            json.push_str(&format!(
+                "      \"total_requests\": {},\n",
+                app.total_requests
+            ));
+            json.push_str(&format!(
+                "      \"memory_limit_mb\": {},\n",
+                app.config.memory_limit_mb
+            ));
+            json.push_str(&format!(
+                "      \"timeout_secs\": {},\n",
+                app.config.timeout_secs
+            ));
             json.push_str(&format!("      \"uptime\": \"{}\"\n", app.uptime));
             if i < self.app_stats.len() - 1 {
                 json.push_str("    },\n");
@@ -178,7 +195,7 @@ impl SystemDiagnostics {
                 json.push_str("    }\n");
             }
         }
-        
+
         json.push_str("  ]\n");
         json.push('}');
         json
@@ -197,26 +214,26 @@ impl DiagnosticsCollector {
     pub fn new(registry: Arc<RwLock<AppRegistry>>) -> Self {
         Self { registry }
     }
-    
+
     /// Collect current system diagnostics
     pub async fn collect(&self) -> SystemDiagnostics {
         let registry = self.registry.read().await;
         let mut isolates = Vec::new();
         let mut app_stats = Vec::new();
-        
+
         // Collect per-app information
         for hostname in registry.all_hostnames() {
             if let Some(app_config) = registry.get(&hostname) {
                 // In real implementation, query worker pools here
                 // For test/demo, create simulated isolate info
                 let worker_count = app_config.limits.workers;
-                
+
                 for worker_id in 0..worker_count {
                     isolates.push(IsolateInfo {
                         hostname: hostname.clone(),
                         worker_id,
                         created_at: Instant::now() - Duration::from_secs(60), // Simulated
-                        request_count: 42 + (worker_id as u64 * 10), // Simulated
+                        request_count: 42 + (worker_id as u64 * 10),          // Simulated
                         memory_bytes: Some({
                             let mb = app_config.limits.memory_mb;
                             (mb as usize) * 1024 * 1024 / 4
@@ -225,11 +242,12 @@ impl DiagnosticsCollector {
                         env_keys: app_config.env_vars.keys().cloned().collect(),
                     });
                 }
-                
+
                 app_stats.push(AppStats {
                     hostname: hostname.clone(),
                     worker_count,
-                    total_requests: isolates.iter()
+                    total_requests: isolates
+                        .iter()
                         .filter(|i| i.hostname == hostname)
                         .map(|i| i.request_count)
                         .sum(),
@@ -243,10 +261,10 @@ impl DiagnosticsCollector {
                 });
             }
         }
-        
+
         let total_requests = app_stats.iter().map(|a| a.total_requests).sum();
         let total_isolates = isolates.len();
-        
+
         SystemDiagnostics {
             timestamp: Instant::now(),
             isolates,
@@ -288,14 +306,14 @@ fn humantime(unix_secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_format_duration() {
         assert_eq!(format_duration(Duration::from_secs(30)), "30s");
         assert_eq!(format_duration(Duration::from_secs(90)), "1m 30s");
         assert_eq!(format_duration(Duration::from_secs(3661)), "1h 1m");
     }
-    
+
     #[test]
     fn test_truncate() {
         assert_eq!(truncate("short", 10), "short");

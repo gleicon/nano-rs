@@ -11,14 +11,16 @@
 
 use thiserror::Error;
 
-pub mod crypto_key;
-pub mod subtle;
 pub mod aes_gcm;
+pub mod crypto_key;
+pub mod ecdsa;
 pub mod hmac;
 pub mod rsa;
-pub mod ecdsa;
+pub mod subtle;
 
-pub use crypto_key::{CryptoKey, CryptoKeyHandle, AlgorithmIdentifier, KeyUsage, HashAlgorithm, JwkObject};
+pub use crypto_key::{
+    AlgorithmIdentifier, CryptoKey, CryptoKeyHandle, HashAlgorithm, JwkObject, KeyUsage,
+};
 pub use subtle::SubtleCrypto;
 
 /// Errors that can occur during cryptographic operations
@@ -26,22 +28,22 @@ pub use subtle::SubtleCrypto;
 pub enum CryptoError {
     #[error("Invalid algorithm: {0}")]
     InvalidAlgorithm(String),
-    
+
     #[error("Invalid key")]
     InvalidKey,
-    
+
     #[error("Operation failed")]
     OperationFailed,
-    
+
     #[error("Not supported")]
     NotSupported,
-    
+
     #[error("Invalid access")]
     InvalidAccess,
-    
+
     #[error("Data error: {0}")]
     DataError(String),
-    
+
     #[error("Syntax error: {0}")]
     SyntaxError(String),
 }

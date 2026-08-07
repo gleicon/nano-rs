@@ -8,16 +8,18 @@
 //!
 //! Target: <10ms per request steady-state (handler already cached).
 
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::v8::{initialize_platform, NanoIsolate};
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackendEnum};
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsBackendEnum, VfsNamespace};
 use nano::worker::pool::WorkerPool;
-use nano::http::{NanoRequest, NanoHeaders, NanoUrl};
 use nano::worker::HandlerTask;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn init_v8() { let _ = initialize_platform(); }
+fn init_v8() {
+    let _ = initialize_platform();
+}
 
 fn make_vfs() -> IsolateVfs {
     IsolateVfs::new(
@@ -57,8 +59,12 @@ fn perf_isolate_creation_10x() {
     let avg = times.iter().sum::<Duration>() / times.len() as u32;
     let min = *times.iter().min().unwrap();
     let max = *times.iter().max().unwrap();
-    println!("\n[PERF] isolate_creation (10x): avg={:.1}ms  min={:.1}ms  max={:.1}ms",
-        avg.as_secs_f64()*1e3, min.as_secs_f64()*1e3, max.as_secs_f64()*1e3);
+    println!(
+        "\n[PERF] isolate_creation (10x): avg={:.1}ms  min={:.1}ms  max={:.1}ms",
+        avg.as_secs_f64() * 1e3,
+        min.as_secs_f64() * 1e3,
+        max.as_secs_f64() * 1e3
+    );
     // Just report — creation is one-time on recycle, not per-request
 }
 
@@ -85,7 +91,10 @@ fn perf_script_compile_in_persistent_scope() {
     script.run(&ctx_scope).expect("run failed");
     let run_ms = t_run.elapsed().as_secs_f64() * 1e3;
 
-    println!("\n[PERF] script_phases: compile={:.2}ms  first_run={:.2}ms", compile_ms, run_ms);
+    println!(
+        "\n[PERF] script_phases: compile={:.2}ms  first_run={:.2}ms",
+        compile_ms, run_ms
+    );
 }
 
 // ─── Phase 3: Handler call via cached Global<Function> — the hot path ─────────
@@ -104,7 +113,10 @@ fn perf_handler_call_100x() {
 
     // Compile once
     let code_v8 = v8::String::new(&mut ctx_scope, code).unwrap();
-    v8::Script::compile(&ctx_scope, code_v8, None).unwrap().run(&ctx_scope).unwrap();
+    v8::Script::compile(&ctx_scope, code_v8, None)
+        .unwrap()
+        .run(&ctx_scope)
+        .unwrap();
 
     // Cache handler as Global<Function>
     let global_obj = context.global(&mut ctx_scope);
@@ -121,7 +133,10 @@ fn perf_handler_call_100x() {
         let h = v8::Local::new(&mut ctx_scope, &handler_g);
         let recv = context.global(&mut ctx_scope);
         let result = h.call(&mut ctx_scope, recv.into(), &[dummy.into()]);
-        assert!(result.is_some(), "warm-up call returned None (JS exception)");
+        assert!(
+            result.is_some(),
+            "warm-up call returned None (JS exception)"
+        );
     }
 
     // Measure 100 calls
@@ -137,7 +152,8 @@ fn perf_handler_call_100x() {
 
     let avg = times.iter().sum::<Duration>() / times.len() as u32;
     let min = *times.iter().min().unwrap();
-    let mut sorted = times.clone(); sorted.sort();
+    let mut sorted = times.clone();
+    sorted.sort();
     let p95 = sorted[94];
     let max = *times.iter().max().unwrap();
 
@@ -145,8 +161,11 @@ fn perf_handler_call_100x() {
         avg.as_secs_f64()*1e3, min.as_secs_f64()*1e3,
         p95.as_secs_f64()*1e3, max.as_secs_f64()*1e3);
 
-    assert!(avg.as_millis() < 10,
-        "Hot-path handler call too slow: avg={:?} (target <10ms)", avg);
+    assert!(
+        avg.as_millis() < 10,
+        "Hot-path handler call too slow: avg={:?} (target <10ms)",
+        avg
+    );
 }
 
 // ─── Phase 4: WorkerPool end-to-end latency (includes channel + JS response) ──
@@ -157,13 +176,15 @@ fn perf_workerpool_e2e_50x() {
     nano::data_plane::init_code_cache();
 
     // Sync (non-async) handler — avoids Promise resolution overhead
-    let entrypoint = write_js(r#"
+    let entrypoint = write_js(
+        r#"
 export default {
     fetch(request) {
         return new Response("hello", { status: 200 });
     }
 };
-"#);
+"#,
+    );
 
     let pool = WorkerPool::with_backend("perf.test".to_string(), 2, 0, make_backend());
 
@@ -202,17 +223,26 @@ export default {
 
     let avg = times.iter().sum::<Duration>() / times.len() as u32;
     let min = *times.iter().min().unwrap();
-    let mut sorted = times.clone(); sorted.sort();
+    let mut sorted = times.clone();
+    sorted.sort();
     let p50 = sorted[24];
     let p95 = sorted[47];
     let max = *times.iter().max().unwrap();
 
     println!("\n[PERF] WorkerPool e2e (50 requests, 2 workers, handler cached):");
-    println!("  avg={:.2}ms  min={:.2}ms  p50={:.2}ms  p95={:.2}ms  max={:.2}ms",
-        avg.as_secs_f64()*1e3, min.as_secs_f64()*1e3,
-        p50.as_secs_f64()*1e3, p95.as_secs_f64()*1e3, max.as_secs_f64()*1e3);
+    println!(
+        "  avg={:.2}ms  min={:.2}ms  p50={:.2}ms  p95={:.2}ms  max={:.2}ms",
+        avg.as_secs_f64() * 1e3,
+        min.as_secs_f64() * 1e3,
+        p50.as_secs_f64() * 1e3,
+        p95.as_secs_f64() * 1e3,
+        max.as_secs_f64() * 1e3
+    );
 
     // Steady-state: skip first 3 (compilation) already done in warmup
     let ss_avg = times.iter().sum::<Duration>() / times.len() as u32;
-    println!("  steady-state avg: {:.2}ms  [target: <10ms]", ss_avg.as_secs_f64()*1e3);
+    println!(
+        "  steady-state avg: {:.2}ms  [target: <10ms]",
+        ss_avg.as_secs_f64() * 1e3
+    );
 }

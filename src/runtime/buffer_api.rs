@@ -288,7 +288,9 @@ pub(crate) fn bind_buffer(
         let proto_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
         if let Some(proto) = ctor_obj.get(&mut ctx_scope, proto_key.into()) {
             if let Some(proto_obj) = proto.to_object(&mut ctx_scope) {
-                if let Some(tostring_fn) = v8::Function::new(&mut ctx_scope, buffer_tostring_callback) {
+                if let Some(tostring_fn) =
+                    v8::Function::new(&mut ctx_scope, buffer_tostring_callback)
+                {
                     let tostring_key = v8::String::new(&mut ctx_scope, "toString").unwrap();
                     proto_obj.set(&mut ctx_scope, tostring_key.into(), tostring_fn.into());
                 }

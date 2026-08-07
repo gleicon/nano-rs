@@ -39,24 +39,30 @@ pub fn bind_request_api(
     if let Some(request_obj) = request_ctor.to_object(&mut ctx_scope) {
         let prototype_key = v8::String::new(&mut ctx_scope, "prototype").unwrap();
         // Get or create prototype
-        let prototype = if let Some(existing_proto) = request_obj.get(&mut ctx_scope, prototype_key.into()) {
-            if existing_proto.is_object() || existing_proto.is_function() {
-                existing_proto
+        let prototype =
+            if let Some(existing_proto) = request_obj.get(&mut ctx_scope, prototype_key.into()) {
+                if existing_proto.is_object() || existing_proto.is_function() {
+                    existing_proto
+                } else {
+                    let new_proto = v8::Object::new(&mut ctx_scope);
+                    request_obj.set(&mut ctx_scope, prototype_key.into(), new_proto.into());
+                    new_proto.into()
+                }
             } else {
                 let new_proto = v8::Object::new(&mut ctx_scope);
                 request_obj.set(&mut ctx_scope, prototype_key.into(), new_proto.into());
                 new_proto.into()
-            }
-        } else {
-            let new_proto = v8::Object::new(&mut ctx_scope);
-            request_obj.set(&mut ctx_scope, prototype_key.into(), new_proto.into());
-            new_proto.into()
-        };
+            };
 
         if let Some(proto_obj) = prototype.to_object(&mut ctx_scope) {
             bind_request_method(&mut ctx_scope, proto_obj, "text", request_text_callback);
             bind_request_method(&mut ctx_scope, proto_obj, "json", request_json_callback);
-            bind_request_method(&mut ctx_scope, proto_obj, "arrayBuffer", request_arraybuffer_callback);
+            bind_request_method(
+                &mut ctx_scope,
+                proto_obj,
+                "arrayBuffer",
+                request_arraybuffer_callback,
+            );
         }
     }
 }
@@ -75,7 +81,7 @@ fn request_constructor_callback(
     } else {
         v8::Object::new(scope)
     };
-    
+
     // Extract URL from first argument
     let url = if args.length() > 0 {
         let arg = args.get(0);
@@ -87,12 +93,12 @@ fn request_constructor_callback(
     } else {
         String::new()
     };
-    
+
     // Set url property
     let url_key = v8::String::new(scope, "url").unwrap();
     let url_val = v8::String::new(scope, &url).unwrap();
     instance.set(scope, url_key.into(), url_val.into());
-    
+
     // Extract properties from init object
     let (method, body_val) = if args.length() > 1 {
         let init = args.get(1);
@@ -108,11 +114,11 @@ fn request_constructor_callback(
             } else {
                 "GET".to_string()
             };
-            
+
             // Get body
             let body_key = v8::String::new(scope, "body").unwrap();
             let body_val = obj.get(scope, body_key.into());
-            
+
             (method, body_val)
         } else {
             ("GET".to_string(), None)
@@ -120,11 +126,11 @@ fn request_constructor_callback(
     } else {
         ("GET".to_string(), None)
     };
-    
+
     let method_key = v8::String::new(scope, "method").unwrap();
     let method_val_str = v8::String::new(scope, &method).unwrap();
     instance.set(scope, method_key.into(), method_val_str.into());
-    
+
     // Set headers property - use headers from init if provided, otherwise create new
     let headers_key = v8::String::new(scope, "headers").unwrap();
     if args.length() > 1 {
@@ -155,7 +161,7 @@ fn request_constructor_callback(
         let headers_obj = v8::Object::new(scope);
         instance.set(scope, headers_key.into(), headers_obj.into());
     }
-    
+
     // Set body and bodyUsed
     let body_key = v8::String::new(scope, "body").unwrap();
     // Check if body_val exists AND is not undefined/null
@@ -170,11 +176,11 @@ fn request_constructor_callback(
         let null_val = v8::null(scope);
         instance.set(scope, body_key.into(), null_val.into());
     }
-    
+
     let body_used_key = v8::String::new(scope, "bodyUsed").unwrap();
     let body_used_val = v8::Boolean::new(scope, false);
     instance.set(scope, body_used_key.into(), body_used_val.into());
-    
+
     retval.set(instance.into());
 }
 
@@ -249,7 +255,9 @@ fn request_json_callback(
                                 if parse_fn.is_function() {
                                     let parse = parse_fn.cast::<v8::Function>();
                                     let text_str = v8::String::new(scope, &text).unwrap();
-                                    if let Some(result) = parse.call(scope, json_val.into(), &[text_str.into()]) {
+                                    if let Some(result) =
+                                        parse.call(scope, json_val.into(), &[text_str.into()])
+                                    {
                                         retval.set(result);
                                         return;
                                     }
@@ -284,14 +292,14 @@ fn request_arraybuffer_callback(
                     // Create ArrayBuffer from decoded bytes
                     let buffer = v8::ArrayBuffer::new(scope, decoded.len());
                     let store = buffer.get_backing_store();
-                    
+
                     // Copy bytes into ArrayBuffer
                     for (i, byte) in decoded.iter().enumerate() {
                         if let Some(cell) = store.get(i) {
                             cell.set(*byte);
                         }
                     }
-                    
+
                     retval.set(buffer.into());
                     return;
                 }

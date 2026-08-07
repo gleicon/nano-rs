@@ -23,16 +23,18 @@
 //!   [SCOPE-07] Async (Promise) handler resolves correctly in persistent scope
 //!   [SCOPE-08] ESM module transform + persistent scope: handler found and callable
 
+use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::v8::{initialize_platform, NanoIsolate};
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace, VfsBackendEnum};
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsBackendEnum, VfsNamespace};
 use nano::worker::pool::WorkerPool;
-use nano::http::{NanoRequest, NanoHeaders, NanoUrl};
 use nano::worker::HandlerTask;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn init_v8() { let _ = initialize_platform(); }
+fn init_v8() {
+    let _ = initialize_platform();
+}
 
 fn make_vfs() -> IsolateVfs {
     IsolateVfs::new(
@@ -80,7 +82,10 @@ function __nano_user_fetch(req) {
     let mut cs = v8::ContextScope::new(&mut scope, ctx);
 
     let cv = v8::String::new(&mut cs, code).unwrap();
-    v8::Script::compile(&cs, cv, None).unwrap().run(&cs).unwrap();
+    v8::Script::compile(&cs, cv, None)
+        .unwrap()
+        .run(&cs)
+        .unwrap();
 
     let global = ctx.global(&mut cs);
     let key = v8::String::new(&mut cs, "__nano_user_fetch").unwrap();
@@ -103,9 +108,11 @@ function __nano_user_fetch(req) {
         }
     }
 
-    assert_eq!(none_count, 0,
+    assert_eq!(
+        none_count, 0,
         "[SCOPE-01] Handler returned None {} times out of 1000 — persistent scope broken",
-        none_count);
+        none_count
+    );
 }
 
 // ─── [SCOPE-02] Response content correct every call ──────────────────────────
@@ -128,7 +135,10 @@ function __nano_user_fetch(req) {
     let mut cs = v8::ContextScope::new(&mut scope, ctx);
 
     let cv = v8::String::new(&mut cs, code).unwrap();
-    v8::Script::compile(&cs, cv, None).unwrap().run(&cs).unwrap();
+    v8::Script::compile(&cs, cv, None)
+        .unwrap()
+        .run(&cs)
+        .unwrap();
 
     let global = ctx.global(&mut cs);
     let key = v8::String::new(&mut cs, "__nano_user_fetch").unwrap();
@@ -139,22 +149,36 @@ function __nano_user_fetch(req) {
     for i in 1..=50 {
         let h = v8::Local::new(&mut cs, &handler_g);
         let recv = ctx.global(&mut cs);
-        let result = h.call(&mut cs, recv.into(), &[dummy.into()])
+        let result = h
+            .call(&mut cs, recv.into(), &[dummy.into()])
             .unwrap_or_else(|| panic!("[SCOPE-02] call {} returned None", i));
 
-        let obj = result.to_object(&mut cs)
+        let obj = result
+            .to_object(&mut cs)
             .unwrap_or_else(|| panic!("[SCOPE-02] call {} result not object", i));
         let sk = v8::String::new(&mut cs, "status").unwrap();
-        let status = obj.get(&mut cs, sk.into()).unwrap()
-            .to_integer(&mut cs).unwrap().value();
+        let status = obj
+            .get(&mut cs, sk.into())
+            .unwrap()
+            .to_integer(&mut cs)
+            .unwrap()
+            .value();
         assert_eq!(status, 200, "[SCOPE-02] call {} wrong status", i);
 
         let bk = v8::String::new(&mut cs, "body").unwrap();
-        let body = obj.get(&mut cs, bk.into()).unwrap()
-            .to_string(&mut cs).unwrap()
+        let body = obj
+            .get(&mut cs, bk.into())
+            .unwrap()
+            .to_string(&mut cs)
+            .unwrap()
             .to_rust_string_lossy(&mut cs);
-        assert_eq!(body, format!("call:{}", i),
-            "[SCOPE-02] call {} wrong body: got {:?}", i, body);
+        assert_eq!(
+            body,
+            format!("call:{}", i),
+            "[SCOPE-02] call {} wrong body: got {:?}",
+            i,
+            body
+        );
     }
 }
 
@@ -182,7 +206,10 @@ fn scope03_documents_fresh_scope_bug() {
         let mut cs = v8::ContextScope::new(&mut scope, ctx);
 
         let cv = v8::String::new(&mut cs, code).unwrap();
-        v8::Script::compile(&cs, cv, None).unwrap().run(&cs).unwrap();
+        v8::Script::compile(&cs, cv, None)
+            .unwrap()
+            .run(&cs)
+            .unwrap();
 
         let global = ctx.global(&mut cs);
         let key = v8::String::new(&mut cs, "__nano_user_fetch").unwrap();
@@ -204,8 +231,14 @@ fn scope03_documents_fresh_scope_bug() {
     let result = h.call(&mut cs2, recv.into(), &[dummy.into()]);
 
     // Document what actually happens — this is the bug the investigation found
-    eprintln!("[SCOPE-03] Fresh scope call result: {}",
-        if result.is_some() { "Some (V8 version may allow this)" } else { "None (old bug confirmed)" });
+    eprintln!(
+        "[SCOPE-03] Fresh scope call result: {}",
+        if result.is_some() {
+            "Some (V8 version may allow this)"
+        } else {
+            "None (old bug confirmed)"
+        }
+    );
 
     // NOTE: We don't assert here — this test documents behavior, not enforces it.
     // SCOPE-01 is the correctness test for the fix.
@@ -233,7 +266,10 @@ function __nano_user_fetch(r) {
 
     // Compile and run ONCE
     let cv = v8::String::new(&mut cs, code).unwrap();
-    v8::Script::compile(&cs, cv, None).unwrap().run(&cs).unwrap();
+    v8::Script::compile(&cs, cv, None)
+        .unwrap()
+        .run(&cs)
+        .unwrap();
 
     let global = ctx.global(&mut cs);
     let key = v8::String::new(&mut cs, "__nano_user_fetch").unwrap();
@@ -244,16 +280,23 @@ function __nano_user_fetch(r) {
     for i in 0..20 {
         let h = v8::Local::new(&mut cs, &handler_g);
         let recv = ctx.global(&mut cs);
-        let result = h.call(&mut cs, recv.into(), &[dummy.into()])
+        let result = h
+            .call(&mut cs, recv.into(), &[dummy.into()])
             .unwrap_or_else(|| panic!("[SCOPE-04] call {} returned None", i));
         let obj = result.to_object(&mut cs).unwrap();
         let bk = v8::String::new(&mut cs, "body").unwrap();
-        let body = obj.get(&mut cs, bk.into()).unwrap()
-            .to_string(&mut cs).unwrap()
+        let body = obj
+            .get(&mut cs, bk.into())
+            .unwrap()
+            .to_string(&mut cs)
+            .unwrap()
             .to_rust_string_lossy(&mut cs);
         // INIT_COUNT must remain 1 — script only ran once
-        assert_eq!(body, "inits:1",
-            "[SCOPE-04] call {}: body='{}' — script re-executed! Expected 'inits:1'", i, body);
+        assert_eq!(
+            body, "inits:1",
+            "[SCOPE-04] call {}: body='{}' — script re-executed! Expected 'inits:1'",
+            i, body
+        );
     }
 }
 
@@ -264,18 +307,19 @@ fn scope05_workerpool_200_sequential_all_valid() {
     init_v8();
     nano::data_plane::init_code_cache();
 
-    let entrypoint = write_js("scope05.js", r#"
+    let entrypoint = write_js(
+        "scope05.js",
+        r#"
 export default {
     fetch(request) {
         const url = new URL(request.url);
         return new Response("ok:" + url.pathname, { status: 200 });
     }
 };
-"#);
-
-    let pool = WorkerPool::with_backend(
-        "scope.test".to_string(), 1, 0, make_backend(),
+"#,
     );
+
+    let pool = WorkerPool::with_backend("scope.test".to_string(), 1, 0, make_backend());
 
     // Single worker, 200 requests → all must hit same persistent scope
     let mut failed = Vec::new();
@@ -287,7 +331,8 @@ export default {
             tx,
         );
         pool.dispatch(task).unwrap();
-        let resp = rx.blocking_recv()
+        let resp = rx
+            .blocking_recv()
             .unwrap_or_else(|_| Err(anyhow::anyhow!("channel closed")));
 
         match resp {
@@ -300,8 +345,12 @@ export default {
         }
     }
 
-    assert!(failed.is_empty(),
-        "[SCOPE-05] {} requests failed:\n{}", failed.len(), failed.join("\n"));
+    assert!(
+        failed.is_empty(),
+        "[SCOPE-05] {} requests failed:\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
 }
 
 // ─── [SCOPE-06] Isolate recycles after MAX_REQUESTS, new isolate works ────────
@@ -311,20 +360,21 @@ fn scope06_isolate_recycles_cleanly() {
     init_v8();
     nano::data_plane::init_code_cache();
 
-    let entrypoint = write_js("scope06.js", r#"
+    let entrypoint = write_js(
+        "scope06.js",
+        r#"
 export default {
     fetch(request) {
         return new Response("alive", { status: 200 });
     }
 };
-"#);
+"#,
+    );
 
     // MAX_REQUESTS_PER_ISOLATE=10_000 in pool. We can't easily trigger it in a
     // short test, but we can verify the pool survives a burst that would expose
     // lifecycle bugs. Use 2 workers, 100 requests each = 200 total.
-    let pool = WorkerPool::with_backend(
-        "scope.test".to_string(), 2, 0, make_backend(),
-    );
+    let pool = WorkerPool::with_backend("scope.test".to_string(), 2, 0, make_backend());
 
     let mut errors = 0usize;
     for i in 0..200 {
@@ -333,16 +383,30 @@ export default {
             entrypoint.clone(),
             make_get("http://scope.test/"),
             tx,
-        )).unwrap();
+        ))
+        .unwrap();
         match rx.blocking_recv() {
             Ok(Ok(r)) if r.status() == 200 => {}
-            Ok(Ok(r)) => { errors += 1; eprintln!("[SCOPE-06] req {} status={}", i, r.status()); }
-            Ok(Err(e)) => { errors += 1; eprintln!("[SCOPE-06] req {} err: {}", i, e); }
-            Err(_) => { errors += 1; eprintln!("[SCOPE-06] req {} channel closed", i); }
+            Ok(Ok(r)) => {
+                errors += 1;
+                eprintln!("[SCOPE-06] req {} status={}", i, r.status());
+            }
+            Ok(Err(e)) => {
+                errors += 1;
+                eprintln!("[SCOPE-06] req {} err: {}", i, e);
+            }
+            Err(_) => {
+                errors += 1;
+                eprintln!("[SCOPE-06] req {} channel closed", i);
+            }
         }
     }
 
-    assert_eq!(errors, 0, "[SCOPE-06] {} out of 200 requests failed", errors);
+    assert_eq!(
+        errors, 0,
+        "[SCOPE-06] {} out of 200 requests failed",
+        errors
+    );
 }
 
 // ─── [SCOPE-07] Async handler (Promise) resolves correctly ───────────────────
@@ -352,17 +416,18 @@ fn scope07_async_handler_promise_resolves() {
     init_v8();
     nano::data_plane::init_code_cache();
 
-    let entrypoint = write_js("scope07.js", r#"
+    let entrypoint = write_js(
+        "scope07.js",
+        r#"
 export default {
     async fetch(request) {
         return new Response("async-ok", { status: 200 });
     }
 };
-"#);
-
-    let pool = WorkerPool::with_backend(
-        "scope.test".to_string(), 1, 0, make_backend(),
+"#,
     );
+
+    let pool = WorkerPool::with_backend("scope.test".to_string(), 1, 0, make_backend());
 
     let mut failed = Vec::new();
     for i in 0..20 {
@@ -371,7 +436,8 @@ export default {
             entrypoint.clone(),
             make_get("http://scope.test/async"),
             tx,
-        )).unwrap();
+        ))
+        .unwrap();
         match rx.blocking_recv() {
             Ok(Ok(r)) => {
                 if r.status() != 200 {
@@ -383,8 +449,11 @@ export default {
         }
     }
 
-    assert!(failed.is_empty(),
-        "[SCOPE-07] async handler failures:\n{}", failed.join("\n"));
+    assert!(
+        failed.is_empty(),
+        "[SCOPE-07] async handler failures:\n{}",
+        failed.join("\n")
+    );
 }
 
 // ─── [SCOPE-08] ESM module: handler found and callable via persistent scope ───
@@ -395,33 +464,45 @@ fn scope08_esm_module_handler_found() {
     nano::data_plane::init_code_cache();
 
     // ESM format — goes through transform_module_code before execution
-    let entrypoint = write_js("scope08.js", r#"
+    let entrypoint = write_js(
+        "scope08.js",
+        r#"
 export default {
     fetch(request) {
         return new Response("esm-ok", { status: 200 });
     }
 };
-"#);
-
-    let pool = WorkerPool::with_backend(
-        "scope.test".to_string(), 1, 0, make_backend(),
+"#,
     );
+
+    let pool = WorkerPool::with_backend("scope.test".to_string(), 1, 0, make_backend());
 
     // First request: ESM transform + compile + cache
     let (tx, rx) = tokio::sync::oneshot::channel();
     pool.dispatch(HandlerTask::new(
-        entrypoint.clone(), make_get("http://scope.test/"), tx,
-    )).unwrap();
-    let first = rx.blocking_recv().unwrap().expect("[SCOPE-08] first request failed");
+        entrypoint.clone(),
+        make_get("http://scope.test/"),
+        tx,
+    ))
+    .unwrap();
+    let first = rx
+        .blocking_recv()
+        .unwrap()
+        .expect("[SCOPE-08] first request failed");
     assert_eq!(first.status(), 200, "[SCOPE-08] first request status");
 
     // Subsequent: must use cached handler, not re-compile
     for i in 1..20 {
         let (tx, rx) = tokio::sync::oneshot::channel();
         pool.dispatch(HandlerTask::new(
-            entrypoint.clone(), make_get("http://scope.test/"), tx,
-        )).unwrap();
-        let r = rx.blocking_recv().unwrap()
+            entrypoint.clone(),
+            make_get("http://scope.test/"),
+            tx,
+        ))
+        .unwrap();
+        let r = rx
+            .blocking_recv()
+            .unwrap()
             .unwrap_or_else(|e| panic!("[SCOPE-08] req {} failed: {}", i, e));
         assert_eq!(r.status(), 200, "[SCOPE-08] req {} wrong status", i);
     }
@@ -434,22 +515,28 @@ fn latency_steady_state_under_10ms() {
     init_v8();
     nano::data_plane::init_code_cache();
 
-    let entrypoint = write_js("latency.js", r#"
+    let entrypoint = write_js(
+        "latency.js",
+        r#"
 export default {
     fetch(request) {
         return new Response("fast", { status: 200 });
     }
 };
-"#);
-
-    let pool = WorkerPool::with_backend(
-        "scope.test".to_string(), 1, 0, make_backend(),
+"#,
     );
+
+    let pool = WorkerPool::with_backend("scope.test".to_string(), 1, 0, make_backend());
 
     // Warmup: let handler compile on worker thread
     for _ in 0..3 {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        pool.dispatch(HandlerTask::new(entrypoint.clone(), make_get("http://scope.test/"), tx)).unwrap();
+        pool.dispatch(HandlerTask::new(
+            entrypoint.clone(),
+            make_get("http://scope.test/"),
+            tx,
+        ))
+        .unwrap();
         rx.blocking_recv().unwrap().unwrap();
     }
 
@@ -458,7 +545,12 @@ export default {
     for _ in 0..100 {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let t = Instant::now();
-        pool.dispatch(HandlerTask::new(entrypoint.clone(), make_get("http://scope.test/"), tx)).unwrap();
+        pool.dispatch(HandlerTask::new(
+            entrypoint.clone(),
+            make_get("http://scope.test/"),
+            tx,
+        ))
+        .unwrap();
         rx.blocking_recv().unwrap().unwrap();
         times.push(t.elapsed());
     }
@@ -469,14 +561,17 @@ export default {
     let p99 = times[98];
     let max = times[99];
 
-    eprintln!("[LATENCY] avg={:.2}ms p50={:.2}ms p99={:.2}ms max={:.2}ms (target <10ms)",
-        avg.as_secs_f64()*1e3,
-        p50.as_secs_f64()*1e3,
-        p99.as_secs_f64()*1e3,
-        max.as_secs_f64()*1e3,
+    eprintln!(
+        "[LATENCY] avg={:.2}ms p50={:.2}ms p99={:.2}ms max={:.2}ms (target <10ms)",
+        avg.as_secs_f64() * 1e3,
+        p50.as_secs_f64() * 1e3,
+        p99.as_secs_f64() * 1e3,
+        max.as_secs_f64() * 1e3,
     );
 
-    assert!(p99.as_millis() < 10,
+    assert!(
+        p99.as_millis() < 10,
         "[LATENCY] p99={:.2}ms exceeds 10ms target (old approach was 50-100ms)",
-        p99.as_secs_f64()*1e3);
+        p99.as_secs_f64() * 1e3
+    );
 }

@@ -1,5 +1,7 @@
 //! Unit tests for MemoryBackend — extracted from src/vfs/memory.rs
-use nano::vfs::{MemoryBackend, ResourceLimits, VfsBackend, VfsBackendEnum, VfsError, VfsFile, VfsPath};
+use nano::vfs::{
+    MemoryBackend, ResourceLimits, VfsBackend, VfsBackendEnum, VfsError, VfsFile, VfsPath,
+};
 
 #[tokio::test]
 async fn test_memory_backend_basic() {
@@ -70,7 +72,9 @@ async fn test_memory_backend_quota_file_size() {
     backend.write(&path, &[0u8; 50]).await.unwrap();
 
     let result = backend.write(&path, &[0u8; 101]).await;
-    assert!(matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_size"));
+    assert!(
+        matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_size")
+    );
     assert_eq!(result.unwrap_err().code(), "EQUOTA");
 }
 
@@ -89,7 +93,9 @@ async fn test_memory_backend_quota_file_count() {
 
     let path = VfsPath::new("file3.txt").unwrap();
     let result = backend.write(&path, b"content").await;
-    assert!(matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_count"));
+    assert!(
+        matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "file_count")
+    );
 }
 
 #[tokio::test]
@@ -101,11 +107,21 @@ async fn test_memory_backend_quota_total_storage() {
     };
     let backend = MemoryBackend::with_limits(limits);
 
-    backend.write(&VfsPath::new("file1.txt").unwrap(), &[0u8; 100]).await.unwrap();
-    backend.write(&VfsPath::new("file2.txt").unwrap(), &[0u8; 100]).await.unwrap();
+    backend
+        .write(&VfsPath::new("file1.txt").unwrap(), &[0u8; 100])
+        .await
+        .unwrap();
+    backend
+        .write(&VfsPath::new("file2.txt").unwrap(), &[0u8; 100])
+        .await
+        .unwrap();
 
-    let result = backend.write(&VfsPath::new("file3.txt").unwrap(), &[0u8; 10]).await;
-    assert!(matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "total_storage"));
+    let result = backend
+        .write(&VfsPath::new("file3.txt").unwrap(), &[0u8; 10])
+        .await;
+    assert!(
+        matches!(result, Err(VfsError::QuotaExceeded { ref resource, .. }) if resource == "total_storage")
+    );
 }
 
 #[tokio::test]
@@ -168,19 +184,34 @@ async fn test_memory_backend_concurrent_writes() {
 async fn test_snapshot_entries() {
     let backend = MemoryBackend::default();
 
-    backend.write(&VfsPath::new("file1.txt").unwrap(), b"content1").await.unwrap();
-    backend.write(&VfsPath::new("dir/file2.txt").unwrap(), b"content2").await.unwrap();
-    backend.write(&VfsPath::new("empty.txt").unwrap(), b"").await.unwrap();
+    backend
+        .write(&VfsPath::new("file1.txt").unwrap(), b"content1")
+        .await
+        .unwrap();
+    backend
+        .write(&VfsPath::new("dir/file2.txt").unwrap(), b"content2")
+        .await
+        .unwrap();
+    backend
+        .write(&VfsPath::new("empty.txt").unwrap(), b"")
+        .await
+        .unwrap();
 
     let entries = backend.snapshot_entries();
     assert_eq!(entries.len(), 3);
 
-    let paths: Vec<_> = entries.iter().map(|(p, _)| p.as_str().to_string()).collect();
+    let paths: Vec<_> = entries
+        .iter()
+        .map(|(p, _)| p.as_str().to_string())
+        .collect();
     assert!(paths.contains(&"file1.txt".to_string()));
     assert!(paths.contains(&"dir/file2.txt".to_string()));
     assert!(paths.contains(&"empty.txt".to_string()));
 
-    let file1 = entries.iter().find(|(p, _)| p.as_str() == "file1.txt").unwrap();
+    let file1 = entries
+        .iter()
+        .find(|(p, _)| p.as_str() == "file1.txt")
+        .unwrap();
     assert_eq!(file1.1.content, b"content1");
 }
 
@@ -188,20 +219,35 @@ async fn test_snapshot_entries() {
 async fn test_restore_from_snapshot() {
     let backend = MemoryBackend::default();
 
-    backend.write(&VfsPath::new("old.txt").unwrap(), b"old content").await.unwrap();
+    backend
+        .write(&VfsPath::new("old.txt").unwrap(), b"old content")
+        .await
+        .unwrap();
     assert_eq!(backend.len(), 1);
 
     let entries = vec![
-        (VfsPath::new("new1.txt").unwrap(), VfsFile::new(b"new content 1".to_vec())),
-        (VfsPath::new("new2.txt").unwrap(), VfsFile::new(b"new content 2".to_vec())),
+        (
+            VfsPath::new("new1.txt").unwrap(),
+            VfsFile::new(b"new content 1".to_vec()),
+        ),
+        (
+            VfsPath::new("new2.txt").unwrap(),
+            VfsFile::new(b"new content 2".to_vec()),
+        ),
     ];
 
     backend.restore_from_snapshot(&entries);
 
-    assert!(!backend.exists(&VfsPath::new("old.txt").unwrap()).await.unwrap());
+    assert!(!backend
+        .exists(&VfsPath::new("old.txt").unwrap())
+        .await
+        .unwrap());
     assert_eq!(backend.len(), 2);
 
-    let content1 = backend.read(&VfsPath::new("new1.txt").unwrap()).await.unwrap();
+    let content1 = backend
+        .read(&VfsPath::new("new1.txt").unwrap())
+        .await
+        .unwrap();
     assert_eq!(content1, b"new content 1");
     assert_eq!(backend.current_usage(), (2, 26));
 }
@@ -210,8 +256,17 @@ async fn test_restore_from_snapshot() {
 async fn test_snapshot_roundtrip() {
     let backend = MemoryBackend::default();
 
-    backend.write(&VfsPath::new("config.json").unwrap(), b"{\"key\": \"value\"}").await.unwrap();
-    backend.write(&VfsPath::new("data/users.txt").unwrap(), b"user1\nuser2").await.unwrap();
+    backend
+        .write(
+            &VfsPath::new("config.json").unwrap(),
+            b"{\"key\": \"value\"}",
+        )
+        .await
+        .unwrap();
+    backend
+        .write(&VfsPath::new("data/users.txt").unwrap(), b"user1\nuser2")
+        .await
+        .unwrap();
 
     let entries = backend.snapshot_entries();
 
@@ -220,10 +275,16 @@ async fn test_snapshot_roundtrip() {
 
     assert_eq!(new_backend.len(), 2);
 
-    let config = new_backend.read(&VfsPath::new("config.json").unwrap()).await.unwrap();
+    let config = new_backend
+        .read(&VfsPath::new("config.json").unwrap())
+        .await
+        .unwrap();
     assert_eq!(config, b"{\"key\": \"value\"}");
 
-    let users = new_backend.read(&VfsPath::new("data/users.txt").unwrap()).await.unwrap();
+    let users = new_backend
+        .read(&VfsPath::new("data/users.txt").unwrap())
+        .await
+        .unwrap();
     assert_eq!(users, b"user1\nuser2");
 }
 
@@ -231,7 +292,10 @@ async fn test_snapshot_roundtrip() {
 async fn test_list_dir_returns_immediate_children_only() {
     let backend = MemoryBackend::default();
 
-    backend.write(&VfsPath::new("a/b/c/deep.txt").unwrap(), b"deep").await.unwrap();
+    backend
+        .write(&VfsPath::new("a/b/c/deep.txt").unwrap(), b"deep")
+        .await
+        .unwrap();
 
     let a_dir = VfsPath::new("a").unwrap();
     let a_entries = backend.list_dir(&a_dir).await.unwrap();
@@ -248,9 +312,18 @@ async fn test_list_dir_returns_immediate_children_only() {
 async fn test_list_dir_nested_directory() {
     let backend = MemoryBackend::default();
 
-    backend.write(&VfsPath::new("data/file1.txt").unwrap(), b"content1").await.unwrap();
-    backend.write(&VfsPath::new("data/file2.txt").unwrap(), b"content2").await.unwrap();
-    backend.write(&VfsPath::new("data/subdir/nested.txt").unwrap(), b"nested").await.unwrap();
+    backend
+        .write(&VfsPath::new("data/file1.txt").unwrap(), b"content1")
+        .await
+        .unwrap();
+    backend
+        .write(&VfsPath::new("data/file2.txt").unwrap(), b"content2")
+        .await
+        .unwrap();
+    backend
+        .write(&VfsPath::new("data/subdir/nested.txt").unwrap(), b"nested")
+        .await
+        .unwrap();
 
     let data_dir = VfsPath::new("data").unwrap();
     let entries = backend.list_dir(&data_dir).await.unwrap();

@@ -75,7 +75,10 @@ impl MemoryPressureLevel {
 
     /// Check if this level requires eviction action
     pub fn requires_eviction(&self) -> bool {
-        matches!(self, MemoryPressureLevel::Critical | MemoryPressureLevel::Emergency)
+        matches!(
+            self,
+            MemoryPressureLevel::Critical | MemoryPressureLevel::Emergency
+        )
     }
 
     /// Check if this level requires hard (immediate) eviction
@@ -169,12 +172,7 @@ impl MemorySnapshot {
     /// * `heap_total` - Total heap size in bytes
     /// * `external` - External memory in bytes
     /// * `limit_bytes` - Memory limit for pressure calculation
-    pub fn new(
-        heap_used: usize,
-        heap_total: usize,
-        external: usize,
-        limit_bytes: usize,
-    ) -> Self {
+    pub fn new(heap_used: usize, heap_total: usize, external: usize, limit_bytes: usize) -> Self {
         let total = heap_used.saturating_add(external);
         let percent = if limit_bytes > 0 {
             total as f64 / limit_bytes as f64
@@ -424,7 +422,10 @@ impl MemoryMonitor {
 
         let prev = self.history.back().unwrap();
         let memory_delta = current.total_memory_bytes() as f64 - prev.total_memory_bytes() as f64;
-        let time_delta = current.timestamp.duration_since(prev.timestamp).as_secs_f64();
+        let time_delta = current
+            .timestamp
+            .duration_since(prev.timestamp)
+            .as_secs_f64();
 
         if time_delta < 0.001 {
             // Too soon to calculate meaningful trend
@@ -457,15 +458,42 @@ mod tests {
 
     #[test]
     fn test_pressure_level_from_percent() {
-        assert_eq!(MemoryPressureLevel::from_percent(0.5), MemoryPressureLevel::Normal);
-        assert_eq!(MemoryPressureLevel::from_percent(0.69), MemoryPressureLevel::Normal);
-        assert_eq!(MemoryPressureLevel::from_percent(0.70), MemoryPressureLevel::Warning);
-        assert_eq!(MemoryPressureLevel::from_percent(0.84), MemoryPressureLevel::Warning);
-        assert_eq!(MemoryPressureLevel::from_percent(0.85), MemoryPressureLevel::Critical);
-        assert_eq!(MemoryPressureLevel::from_percent(0.94), MemoryPressureLevel::Critical);
-        assert_eq!(MemoryPressureLevel::from_percent(0.95), MemoryPressureLevel::Emergency);
-        assert_eq!(MemoryPressureLevel::from_percent(1.0), MemoryPressureLevel::Emergency);
-        assert_eq!(MemoryPressureLevel::from_percent(1.5), MemoryPressureLevel::Emergency);
+        assert_eq!(
+            MemoryPressureLevel::from_percent(0.5),
+            MemoryPressureLevel::Normal
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(0.69),
+            MemoryPressureLevel::Normal
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(0.70),
+            MemoryPressureLevel::Warning
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(0.84),
+            MemoryPressureLevel::Warning
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(0.85),
+            MemoryPressureLevel::Critical
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(0.94),
+            MemoryPressureLevel::Critical
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(0.95),
+            MemoryPressureLevel::Emergency
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(1.0),
+            MemoryPressureLevel::Emergency
+        );
+        assert_eq!(
+            MemoryPressureLevel::from_percent(1.5),
+            MemoryPressureLevel::Emergency
+        );
     }
 
     #[test]
@@ -507,39 +535,22 @@ mod tests {
     #[test]
     fn test_memory_snapshot_pressure_calculation() {
         // 50% of limit -> Normal
-        let normal = MemorySnapshot::new(
-            64 * 1024 * 1024,
-            128 * 1024 * 1024,
-            0,
-            128 * 1024 * 1024,
-        );
+        let normal = MemorySnapshot::new(64 * 1024 * 1024, 128 * 1024 * 1024, 0, 128 * 1024 * 1024);
         assert_eq!(normal.pressure_level, MemoryPressureLevel::Normal);
 
         // 80% of limit -> Warning
-        let warning = MemorySnapshot::new(
-            102 * 1024 * 1024,
-            128 * 1024 * 1024,
-            0,
-            128 * 1024 * 1024,
-        );
+        let warning =
+            MemorySnapshot::new(102 * 1024 * 1024, 128 * 1024 * 1024, 0, 128 * 1024 * 1024);
         assert_eq!(warning.pressure_level, MemoryPressureLevel::Warning);
 
         // 90% of limit -> Critical
-        let critical = MemorySnapshot::new(
-            115 * 1024 * 1024,
-            128 * 1024 * 1024,
-            0,
-            128 * 1024 * 1024,
-        );
+        let critical =
+            MemorySnapshot::new(115 * 1024 * 1024, 128 * 1024 * 1024, 0, 128 * 1024 * 1024);
         assert_eq!(critical.pressure_level, MemoryPressureLevel::Critical);
 
         // 98% of limit -> Emergency
-        let emergency = MemorySnapshot::new(
-            125 * 1024 * 1024,
-            128 * 1024 * 1024,
-            0,
-            128 * 1024 * 1024,
-        );
+        let emergency =
+            MemorySnapshot::new(125 * 1024 * 1024, 128 * 1024 * 1024, 0, 128 * 1024 * 1024);
         assert_eq!(emergency.pressure_level, MemoryPressureLevel::Emergency);
     }
 
@@ -561,8 +572,14 @@ mod tests {
 
         let monitor = MemoryMonitor::with_config(256, config);
         assert_eq!(monitor.limit_mb(), 256);
-        assert_eq!(monitor.soft_limit_bytes(), (256.0 * 0.75 * 1024.0 * 1024.0) as usize);
-        assert_eq!(monitor.critical_limit_bytes(), (256.0 * 0.90 * 1024.0 * 1024.0) as usize);
+        assert_eq!(
+            monitor.soft_limit_bytes(),
+            (256.0 * 0.75 * 1024.0 * 1024.0) as usize
+        );
+        assert_eq!(
+            monitor.critical_limit_bytes(),
+            (256.0 * 0.90 * 1024.0 * 1024.0) as usize
+        );
     }
 
     #[test]
@@ -587,15 +604,23 @@ mod tests {
     fn test_memory_trend_descriptions() {
         assert!(MemoryTrend::Growing(2.5).description().contains("Growing"));
         assert!(MemoryTrend::Stable.description().contains("Stable"));
-        assert!(MemoryTrend::Shrinking(1.0).description().contains("Shrinking"));
+        assert!(MemoryTrend::Shrinking(1.0)
+            .description()
+            .contains("Shrinking"));
     }
 
     #[test]
     fn test_pressure_level_descriptions() {
         assert!(MemoryPressureLevel::Normal.description().contains("Normal"));
-        assert!(MemoryPressureLevel::Warning.description().contains("Elevated"));
-        assert!(MemoryPressureLevel::Critical.description().contains("Critical"));
-        assert!(MemoryPressureLevel::Emergency.description().contains("Emergency"));
+        assert!(MemoryPressureLevel::Warning
+            .description()
+            .contains("Elevated"));
+        assert!(MemoryPressureLevel::Critical
+            .description()
+            .contains("Critical"));
+        assert!(MemoryPressureLevel::Emergency
+            .description()
+            .contains("Emergency"));
     }
 
     #[test]

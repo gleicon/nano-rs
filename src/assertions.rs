@@ -215,18 +215,20 @@ macro_rules! debug_assert_tiger {
 /// Panics with detailed message if value is out of range.
 #[macro_export]
 macro_rules! assert_range {
-    ($value:expr, $min:expr, $max:expr) => {
-        {
-            let val = $value;
-            let min_val = $min;
-            let max_val = $max;
-            assert!(
-                val >= min_val && val <= max_val,
-                "RANGE: value {} not in range [{}..{}] at {}:{}",
-                val, min_val, max_val, file!(), line!()
-            );
-        }
-    };
+    ($value:expr, $min:expr, $max:expr) => {{
+        let val = $value;
+        let min_val = $min;
+        let max_val = $max;
+        assert!(
+            val >= min_val && val <= max_val,
+            "RANGE: value {} not in range [{}..{}] at {}:{}",
+            val,
+            min_val,
+            max_val,
+            file!(),
+            line!()
+        );
+    }};
 }
 
 /// Non-null assertion for pointers
@@ -289,17 +291,19 @@ macro_rules! assert_thread_affinity {
 /// Used to enforce TigerStyle explicit resource limits.
 #[macro_export]
 macro_rules! assert_resource_limit {
-    ($usage:expr, $limit:expr, $resource_name:expr) => {
-        {
-            let usage_val = $usage;
-            let limit_val = $limit;
-            assert!(
-                usage_val <= limit_val,
-                "RESOURCE LIMIT EXCEEDED: {} usage {} exceeds limit {} at {}:{}",
-                $resource_name, usage_val, limit_val, file!(), line!()
-            );
-        }
-    };
+    ($usage:expr, $limit:expr, $resource_name:expr) => {{
+        let usage_val = $usage;
+        let limit_val = $limit;
+        assert!(
+            usage_val <= limit_val,
+            "RESOURCE LIMIT EXCEEDED: {} usage {} exceeds limit {} at {}:{}",
+            $resource_name,
+            usage_val,
+            limit_val,
+            file!(),
+            line!()
+        );
+    }};
 }
 
 /// Loop iteration limit assertion
@@ -308,32 +312,32 @@ macro_rules! assert_resource_limit {
 /// Prevents infinite loops per TigerStyle no-recursion principle.
 #[macro_export]
 macro_rules! assert_iteration_limit {
-    ($counter:expr, $max:expr) => {
-        {
-            let counter_val = $counter;
-            let max_val = $max;
-            assert!(
-                counter_val < max_val,
-                "ITERATION LIMIT EXCEEDED: {} iterations (max {}) at {}:{}",
-                counter_val, max_val, file!(), line!()
-            );
-        }
-    };
+    ($counter:expr, $max:expr) => {{
+        let counter_val = $counter;
+        let max_val = $max;
+        assert!(
+            counter_val < max_val,
+            "ITERATION LIMIT EXCEEDED: {} iterations (max {}) at {}:{}",
+            counter_val,
+            max_val,
+            file!(),
+            line!()
+        );
+    }};
 }
 
 /// Re-export all assertion macros for convenient use
 pub mod prelude {
     pub use crate::{
-        assert_positive, assert_negative, assert_precondition, assert_postcondition,
-        assert_state_transition, assert_invariant, debug_assert_tiger,
-        assert_range, assert_non_null, assert_static_allocation_phase,
-        assert_thread_affinity, assert_resource_limit, assert_iteration_limit,
+        assert_invariant, assert_iteration_limit, assert_negative, assert_non_null,
+        assert_positive, assert_postcondition, assert_precondition, assert_range,
+        assert_resource_limit, assert_state_transition, assert_static_allocation_phase,
+        assert_thread_affinity, debug_assert_tiger,
     };
 }
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn test_positive_assertion_passes() {
@@ -382,8 +386,8 @@ mod tests {
     #[test]
     fn test_range_assertion_passes() {
         assert_range!(50, 0, 100);
-        assert_range!(0, 0, 100);   // boundary
-        assert_range!(100, 0, 100);  // boundary
+        assert_range!(0, 0, 100); // boundary
+        assert_range!(100, 0, 100); // boundary
     }
 
     #[test]
@@ -458,7 +462,8 @@ mod tests {
         let from = TestState::Idle;
         let to = TestState::Processing;
         assert_state_transition!(
-            from, to,
+            from,
+            to,
             (TestState::Idle, TestState::Processing),
             (TestState::Processing, TestState::Complete),
             (TestState::Processing, TestState::Error),
@@ -471,7 +476,8 @@ mod tests {
         let from = TestState::Complete;
         let to = TestState::Processing;
         assert_state_transition!(
-            from, to,
+            from,
+            to,
             (TestState::Idle, TestState::Processing),
             (TestState::Processing, TestState::Complete),
         );
