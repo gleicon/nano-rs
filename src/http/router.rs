@@ -487,6 +487,7 @@ impl VirtualHostRouter {
         self.routes.iter().filter_map(|(host, target)| {
             match &target.handler_type {
                 HandlerType::WinterTCHandler(path) => Some((host, path)),
+                HandlerType::WinterTCSliverHandler { entrypoint, .. } => Some((host, entrypoint)),
                 _ => None,
             }
         })

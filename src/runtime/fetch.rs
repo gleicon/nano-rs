@@ -253,9 +253,9 @@ fn fetch_callback(
         return;
     }
     
-    // Pause the CPU timer for the duration of the HTTP request — network I/O
-    // should not count toward the JS CPU budget.
-    crate::data_plane::signal_cpu_async_waiting(true);
+    // Pause the CPU timer for the duration of the HTTP request.
+    // AsyncWaitGuard resumes the timer on drop — panic-safe.
+    let _cpu_wait = crate::data_plane::AsyncWaitGuard::begin();
     let response_result: Result<(Bytes, Vec<(String, String)>, u16, String), String> =
         with_fetch_state(|state| {
             rt_handle.block_on(async {
@@ -305,7 +305,7 @@ fn fetch_callback(
                 }
             })
         });
-    crate::data_plane::signal_cpu_async_waiting(false);
+    drop(_cpu_wait); // explicit drop for clarity; timer resumes here
 
     // Create Response object
     match response_result {

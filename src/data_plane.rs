@@ -152,14 +152,39 @@ thread_local! {
 
 /// Signal the active CPU timer that the current thread is about to wait for async I/O.
 ///
-/// Call with `true` immediately before any `block_on` (network I/O, disk reads, etc.).
-/// Call with `false` immediately after. No-op if no `CpuTimeoutGuard` is active.
+/// Prefer `AsyncWaitGuard::begin()` — the guard calls this in both the normal
+/// path and on panic unwind, preventing indefinite timer suppression.
+/// No-op if no `CpuTimeoutGuard` is active.
 pub fn signal_cpu_async_waiting(waiting: bool) {
     CPU_ASYNC_WAIT_FLAG.with(|cell| {
         if let Some(flag) = cell.borrow().as_ref() {
             flag.store(waiting, Ordering::Relaxed);
         }
     });
+}
+
+/// RAII guard that pauses the CPU timer for the duration of a blocking async wait.
+///
+/// ```rust,ignore
+/// let _w = AsyncWaitGuard::begin();
+/// handle.block_on(async { ... }); // CPU timer paused; resumes when _w drops
+/// ```
+///
+/// Panic-safe: Drop always calls `signal_cpu_async_waiting(false)` even when
+/// an unwind skips the normal return path.
+pub struct AsyncWaitGuard;
+
+impl AsyncWaitGuard {
+    pub fn begin() -> Self {
+        signal_cpu_async_waiting(true);
+        Self
+    }
+}
+
+impl Drop for AsyncWaitGuard {
+    fn drop(&mut self) {
+        signal_cpu_async_waiting(false);
+    }
 }
 
 /// Inner timer loop, extracted so it can be tested without a real V8 isolate.

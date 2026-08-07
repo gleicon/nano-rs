@@ -895,6 +895,9 @@ impl WorkerPool {
                                                         tc.reset();
                                                     }
                                                     crate::runtime::apis::fire_pending_timeouts(&mut *tc);
+                                                    if tc.has_caught() {
+                                                        tc.reset();
+                                                    }
                                                     tc.perform_microtask_checkpoint();
                                                     if promise.state() == v8::PromiseState::Pending {
                                                         // Pause CPU timer during async sleep — only actual JS

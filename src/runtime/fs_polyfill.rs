@@ -63,15 +63,13 @@ where
     let handle = tokio::runtime::Handle::try_current()
         .ok()
         .or_else(|| crate::data_plane::with_worker_runtime(|h| h.clone()));
-    crate::data_plane::signal_cpu_async_waiting(true);
-    let result = if let Some(handle) = handle {
+    let _cpu_wait = crate::data_plane::AsyncWaitGuard::begin();
+    if let Some(handle) = handle {
         handle.block_on(make_fut())
     } else {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(make_fut())
-    };
-    crate::data_plane::signal_cpu_async_waiting(false);
-    result
+    }
 }
 
 /// Helper to extract string argument from V8 callback

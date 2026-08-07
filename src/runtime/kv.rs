@@ -143,27 +143,9 @@ fn kv_set(
     };
 
     let value: Vec<u8> = if args.length() > 1 {
-        let val_arg = args.get(1);
-        if let Ok(arr) = val_arg.try_cast::<v8::Uint8Array>() {
-            let len = arr.byte_length();
-            let mut bytes = Vec::with_capacity(len);
-            for i in 0..len {
-                if let Some(v) = arr.get_index(scope, i as u32) {
-                    if let Some(n) = v.to_integer(scope) {
-                        bytes.push(n.value() as u8);
-                    }
-                }
-            }
-            bytes
-        } else if let Ok(ab) = val_arg.try_cast::<v8::ArrayBuffer>() {
-            let store = ab.get_backing_store();
-            (0..ab.byte_length())
-                .filter_map(|i| store.get(i).map(|c| c.get()))
-                .collect()
-        } else if let Some(s) = val_arg.to_string(scope) {
-            s.to_rust_string_lossy(scope).into_bytes()
-        } else {
-            return;
+        match crate::runtime::v8_helpers::extract_bytes_from_v8_value(scope, args.get(1)) {
+            Some(b) => b,
+            None => return,
         }
     } else {
         return;
