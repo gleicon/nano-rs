@@ -887,7 +887,7 @@ impl WorkerPool {
                                                     // interrupts WASM JIT loops but does not automatically reject
                                                     // the outer async Promise — it stays Pending. Check both the
                                                     // timer flag and the TryCatch termination flag.
-                                                    if crate::data_plane::is_cpu_termination_requested() || tc.has_terminated() {
+                                                    if _timeout.as_ref().map_or(false, |g| g.is_terminated()) || tc.has_terminated() {
                                                         return Err(anyhow!("CPU timeout"));
                                                     }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
