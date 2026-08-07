@@ -23,7 +23,7 @@ pub(crate) async fn handle_ws_upgrade(
 ) -> Response<Body> {
     use axum::extract::FromRequestParts;
 
-    let target = state.router.resolve(&host);
+    let target = state.router.read().await.resolve(&host).clone();
     let entrypoint = match &target.handler_type {
         HandlerType::WinterTCHandler(path) => path.clone(),
         HandlerType::WinterTCSliverHandler { entrypoint: path, .. } => path.clone(),

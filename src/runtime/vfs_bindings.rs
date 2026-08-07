@@ -42,6 +42,12 @@ pub fn set_current_env(env: HashMap<String, String>) {
     });
 }
 
+/// Read the per-app env vars for the current isolate.
+/// Returns a clone of the operator-configured allowlist, NOT std::env::vars().
+pub fn current_env() -> HashMap<String, String> {
+    CURRENT_ENV.with(|cell| cell.borrow().clone())
+}
+
 /// Get the current VFS context if available
 fn with_current_vfs<F, R>(f: F) -> R
 where
@@ -65,6 +71,7 @@ where
     let handle = tokio::runtime::Handle::try_current()
         .ok()
         .or_else(|| crate::data_plane::with_worker_runtime(|h| h.clone()));
+    let _cpu_wait = crate::data_plane::AsyncWaitGuard::begin();
     if let Some(handle) = handle {
         handle.block_on(make_fut())
     } else {

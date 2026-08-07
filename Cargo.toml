@@ -1,6 +1,6 @@
 [package]
 name = "nano-rs"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2021"
 authors = ["Gleicon Moraes <gleicon@gmail.com>"]
 description = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)"
@@ -103,6 +103,9 @@ async-trait = "0.1"
 
 # Random for temp file suffixes in DiskBackend
 rand = "0.8"
+
+# Embedded KV storage for nano:kv module
+edgestore = "1.6.0"
 
 # S3-compatible object storage
 rust-s3 = { version = "0.37", optional = true }

@@ -58,7 +58,12 @@ pub(crate) fn fire_pending_intervals(scope: &mut v8::PinnedRef<v8::HandleScope>)
     for mut entry in due {
         let func = v8::Local::new(scope, &entry.func);
         let gobj = scope.get_current_context().global(scope);
-        let _ = func.call(scope, gobj.into(), &[]);
+        if func.call(scope, gobj.into(), &[]).is_none() {
+            // Browser behavior: interval callbacks that throw are logged but
+            // not cancelled. The caller (pool.rs) resets TryCatch state
+            // after fire_pending_intervals returns.
+            tracing::warn!("setInterval callback threw (id={}); interval continues", entry.id);
+        }
 
         let cleared = INTERVALS_CLEARED_DURING_FIRE.with(|cs| cs.borrow().contains(&entry.id));
         if !cleared {

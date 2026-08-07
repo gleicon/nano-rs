@@ -89,6 +89,34 @@ fn compile_esm_handler(
     Ok(v8::Global::new(ctx_scope, handler_val.cast::<v8::Function>()))
 }
 
+/// WinterTC addEventListener shim — prefix+suffix wrapping the user script.
+///
+/// Prefix: defines `addEventListener` that stores the user callback in a
+/// module-level var (`__nano_fetch_listener`), avoiding closure-over-parameter
+/// issues with V8's TryCatch scope in production.
+///
+/// Suffix: after user code has run and called `addEventListener`, builds
+/// `__nano_user_fetch` — the function pool.rs looks for — as a plain module-
+/// level FetchEvent adapter that returns `respondWith`'s argument (or the
+/// handler's return value as fallback).
+const WINTERTC_PREFIX: &str = "\
+var __nano_user_fetch;\
+\nvar __nano_fetch_listener = null;\
+\nglobalThis.addEventListener = function(type, fn) {\
+\n  if (type === 'fetch') { __nano_fetch_listener = fn; }\
+\n};\n";
+
+const WINTERTC_SUFFIX: &str = "\
+\nif (typeof __nano_fetch_listener === 'function') {\
+\n  var __nano_fl = __nano_fetch_listener;\
+\n  globalThis.__nano_user_fetch = function(request) {\
+\n    var captured;\
+\n    var event = { request: request, respondWith: function(r) { captured = r; } };\
+\n    var ret = __nano_fl(event);\
+\n    return captured !== undefined ? captured : ret;\
+\n  };\
+\n}\n";
+
 fn compile_classic_handler(
     ctx_scope: &mut v8::ContextScope<'_, '_, v8::HandleScope<'_, v8::Context>>,
     entrypoint: &str,
@@ -96,7 +124,8 @@ fn compile_classic_handler(
     context: v8::Local<'_, v8::Context>,
     cache_key: &str,
 ) -> Result<v8::Global<v8::Function>> {
-    let code_v8 = v8::String::new(ctx_scope, code)
+    let shimmed = format!("{}{}{}", WINTERTC_PREFIX, code, WINTERTC_SUFFIX);
+    let code_v8 = v8::String::new(ctx_scope, &shimmed)
         .ok_or_else(|| anyhow!("V8 string alloc failed"))?;
 
     let unbound = if let Some(cached_bytes) = crate::data_plane::get_bytecode_cache(cache_key) {
@@ -496,6 +525,8 @@ impl WorkerPool {
                     crate::runtime::vfs_bindings::set_current_vfs(Some(vfs_arc));
                     // Expose app env vars as Nano.env frozen object.
                     crate::runtime::vfs_bindings::set_current_env(worker_env_vars.clone());
+                    // Set KV namespace hostname for tenant isolation.
+                    crate::runtime::kv::set_kv_hostname(worker_hostname.clone());
 
                     // Raw pointer for CPU timeout guards.
                     // SAFETY: nano lives for the entire scope block below.
@@ -552,8 +583,17 @@ impl WorkerPool {
                                 _ => task.entrypoint.clone(),
                             };
 
-                            // Compile + cache handler (once per entrypoint, per isolate lifetime)
-                            if !handler_cache.contains_key(&entrypoint) {
+                            // Versioned cache key: include file mtime so symlink-swap deploys
+                            // get fresh compilation without restarting workers.
+                            let mtime_ver = std::fs::metadata(&entrypoint)
+                                .and_then(|m| m.modified())
+                                .map(|t| t.duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default().as_secs())
+                                .unwrap_or(0);
+                            let versioned_entrypoint = format!("{}@{}", entrypoint, mtime_ver);
+
+                            // Compile + cache handler (once per entrypoint version, per isolate lifetime)
+                            if !handler_cache.contains_key(&versioned_entrypoint) {
                                 let code = match read_code_vfs_or_disk(&entrypoint, &vfs_clone) {
                                     Ok(c) => c,
                                     Err(e) => {
@@ -563,7 +603,7 @@ impl WorkerPool {
                                 };
 
                                 let is_esm = crate::v8::module::is_esm_module(&code);
-                                let cache_key = format!("{}::{}", worker_hostname, entrypoint);
+                                let cache_key = format!("{}::{}@{}", worker_hostname, entrypoint, mtime_ver);
                                 let handler_result = if is_esm {
                                     compile_esm_handler(&mut ctx_scope, &entrypoint, &code, vfs_clone.clone())
                                 } else {
@@ -571,7 +611,7 @@ impl WorkerPool {
                                 };
                                 match handler_result {
                                     Ok(g) => {
-                                        handler_cache.insert(entrypoint.clone(), g);
+                                        handler_cache.insert(versioned_entrypoint.clone(), g);
                                         info!("Worker {}: {} handler cached for '{}'", id,
                                               if is_esm { "ESM" } else { "classic" }, entrypoint);
                                     }
@@ -595,7 +635,7 @@ impl WorkerPool {
                                 WS_CLOSE_HANDLERS.with(|h| h.borrow_mut().clear());
                                 WS_ERROR_HANDLERS.with(|h| h.borrow_mut().clear());
 
-                                                if let Some(handler_g) = handler_cache.get(&entrypoint) {
+                                                if let Some(handler_g) = handler_cache.get(&versioned_entrypoint) {
                                     let gobj = context.global(&mut ctx_scope);
                                     let hlocal = v8::Local::new(&mut ctx_scope, handler_g);
                                     if let Some(url_str) = v8::String::new(&mut ctx_scope, &task.request.url().href()) {
@@ -746,7 +786,7 @@ impl WorkerPool {
 
                             // Execute handler using persistent context
                             // handler_cache.get is infallible: just inserted above if missing.
-                            let handler_g = handler_cache.get(&entrypoint)
+                            let handler_g = handler_cache.get(&versioned_entrypoint)
                                 .expect("handler must be cached: just inserted in block above");
                             let global_obj = context.global(&mut ctx_scope);
                             let handler_local = v8::Local::new(&mut ctx_scope, handler_g);
@@ -847,12 +887,29 @@ impl WorkerPool {
                                                     // interrupts WASM JIT loops but does not automatically reject
                                                     // the outer async Promise — it stays Pending. Check both the
                                                     // timer flag and the TryCatch termination flag.
-                                                    if crate::data_plane::is_cpu_termination_requested() || tc.has_terminated() {
+                                                    if _timeout.as_ref().map_or(false, |g| g.is_terminated()) || tc.has_terminated() {
                                                         return Err(anyhow!("CPU timeout"));
                                                     }
                                                     crate::runtime::apis::fire_pending_intervals(&mut *tc);
+                                                    if tc.has_caught() {
+                                                        tc.reset();
+                                                    }
                                                     crate::runtime::apis::fire_pending_timeouts(&mut *tc);
-                                                    std::thread::sleep(std::time::Duration::from_millis(1));
+                                                    if tc.has_caught() {
+                                                        tc.reset();
+                                                    }
+                                                    tc.perform_microtask_checkpoint();
+                                                    if promise.state() == v8::PromiseState::Pending {
+                                                        // Pause CPU timer during async sleep — only actual JS
+                                                        // execution time counts toward the cpu_time_ms limit.
+                                                        if let Some(ref cg) = _timeout {
+                                                            cg.set_async_waiting(true);
+                                                        }
+                                                        std::thread::sleep(std::time::Duration::from_millis(1));
+                                                        if let Some(ref cg) = _timeout {
+                                                            cg.set_async_waiting(false);
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -986,6 +1043,49 @@ mod tests {
             VfsNamespace::from_hostname("test.example.com"),
             VfsBackendEnum::memory(MemoryBackend::default()),
         )
+    }
+
+    #[test]
+    fn test_wintertc_add_event_listener_shim() {
+        // Verify that WINTERTC_SHIM injects addEventListener and that calling it
+        // registers a working __nano_user_fetch wrapper on the global.
+        init_platform();
+        let mut isolate = v8::Isolate::new(Default::default());
+        let scope_pin = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+        let mut scope = scope_pin.init();
+        let context = v8::Context::new(&scope, Default::default());
+        let mut ctx_scope = v8::ContextScope::new(&mut scope, context);
+
+        // Shim + user code that uses addEventListener pattern
+        let user_code = r#"
+addEventListener("fetch", function(event) {
+  event.respondWith({ status: 200, result: "wintertc_ok", has_respondWith: typeof event.respondWith });
+});
+"#;
+        let result = compile_classic_handler(&mut ctx_scope, "/test.js", user_code, context, "test::/test.js");
+        assert!(result.is_ok(), "addEventListener shim should produce a handler: {:?}", result);
+
+        // Verify the handler is callable and returns the event.respondWith result
+        let handler_g = result.unwrap();
+        let global_obj = context.global(&mut ctx_scope);
+        let handler_local = v8::Local::new(&mut ctx_scope, &handler_g);
+
+        // Create a minimal "request" object with a url property
+        let req_obj = v8::Object::new(&mut ctx_scope);
+        let url_k = v8::String::new(&mut ctx_scope, "url").unwrap();
+        let url_v = v8::String::new(&mut ctx_scope, "http://test/").unwrap();
+        req_obj.set(&mut ctx_scope, url_k.into(), url_v.into());
+
+        let call_result = handler_local.call(&mut ctx_scope, global_obj.into(), &[req_obj.into()]);
+        assert!(call_result.is_some(), "handler should not throw");
+
+        let returned = call_result.unwrap();
+        assert!(returned.is_object(), "handler should return the object from respondWith");
+        let obj = returned.to_object(&mut ctx_scope).unwrap();
+        let result_k = v8::String::new(&mut ctx_scope, "result").unwrap();
+        let result_v = obj.get(&mut ctx_scope, result_k.into()).unwrap();
+        let result_str = result_v.to_string(&mut ctx_scope).unwrap().to_rust_string_lossy(&mut ctx_scope);
+        assert_eq!(result_str, "wintertc_ok", "handler should return respondWith result");
     }
 
     #[test]

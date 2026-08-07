@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::config::{AppConfig, AppLimits, validate_config};
-use crate::app::registry::AppRegistry;
+use crate::config::{AppConfig, AppLimits};
+use crate::http::router::{HandlerType, RouteTarget, VirtualHostRouter};
 
 /// App status in the lifecycle
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -227,25 +227,26 @@ fn config_to_info(config: &AppConfig, status: AppStatus, created_at: &str) -> Ap
 /// }
 /// ```
 pub async fn list_apps(
-    State(registry): State<Arc<RwLock<AppRegistry>>>,
+    State(http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<ListAppsResponse>, (StatusCode, Json<AppError>)> {
     tracing::debug!("Listing all apps");
 
-    let registry = registry.read().await;
-    let mut apps = Vec::new();
-
-    for hostname in registry.all_hostnames() {
-        if let Some(config) = registry.get(&hostname) {
-            // For now, assume all apps in registry are active
-            // In production, you'd track status separately
-            apps.push(config_to_info(&config, AppStatus::Active, &current_timestamp()));
-        }
-    }
+    let router = http_router.read().await;
+    let apps: Vec<AppInfo> = router
+        .user_routes()
+        .map(|(hostname, entrypoint)| AppInfo {
+            hostname: hostname.clone(),
+            entrypoint: entrypoint.clone(),
+            env_vars: HashMap::new(),
+            limits: AppLimits::default(),
+            status: AppStatus::Active,
+            created_at: current_timestamp(),
+            is_active: true,
+        })
+        .collect();
 
     let total = apps.len();
-
-    tracing::debug!(total = total, "Apps listed successfully");
-
+    tracing::debug!(total = total, "Apps listed");
     Ok(Json(ListAppsResponse { total, apps }))
 }
 
@@ -267,17 +268,21 @@ pub async fn list_apps(
 /// ```
 pub async fn get_app(
     Path(hostname): Path<String>,
-    State(registry): State<Arc<RwLock<AppRegistry>>>,
+    State(http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<AppInfo>, (StatusCode, Json<AppError>)> {
     tracing::debug!(hostname = %hostname, "Getting app info");
 
-    let registry = registry.read().await;
-
-    match registry.get(&hostname) {
-        Some(config) => {
-            let info = config_to_info(&config, AppStatus::Active, &current_timestamp());
-            Ok(Json(info))
-        }
+    let router = http_router.read().await;
+    match router.get_user_route(&hostname) {
+        Some(entrypoint) => Ok(Json(AppInfo {
+            hostname: hostname.clone(),
+            entrypoint,
+            env_vars: HashMap::new(),
+            limits: AppLimits::default(),
+            status: AppStatus::Active,
+            created_at: current_timestamp(),
+            is_active: true,
+        })),
         None => Err(AppError::not_found(&hostname).into_response()),
     }
 }
@@ -312,7 +317,7 @@ pub async fn get_app(
 /// }
 /// ```
 pub async fn create_app(
-    State(registry): State<Arc<RwLock<AppRegistry>>>,
+    State(http_router): State<Arc<RwLock<VirtualHostRouter>>>,
     AxumJson(request): AxumJson<CreateAppRequest>,
 ) -> Result<(StatusCode, Json<CreateAppResponse>), (StatusCode, Json<AppError>)> {
     tracing::info!(
@@ -321,10 +326,9 @@ pub async fn create_app(
         "Creating new app"
     );
 
-    // Check if hostname already exists
     {
-        let registry = registry.read().await;
-        if registry.contains(&request.hostname) {
+        let router = http_router.read().await;
+        if router.get_user_route(&request.hostname).is_some() {
             return Err(AppError::conflict(format!(
                 "App '{}' already exists",
                 request.hostname
@@ -332,61 +336,33 @@ pub async fn create_app(
         }
     }
 
-    // Build AppConfig
-    let config = AppConfig {
-        hostname: request.hostname.clone(),
-        entrypoint: request.entrypoint.clone(),
-        sliver: None,
-        env_vars: request.env_vars.clone(),
-        limits: request.limits.clone(),
-        vfs_backend: Default::default(),
-        vfs_disk: None,
-        vfs_s3: None,
-    };
-
-    // Validate the config
-    if let Err(errors) = validate_config(&config, None) {
-        return Err(AppError::validation(format!(
-            "Configuration validation failed: {}",
-            errors
-        )).into_response());
-    }
-
-    // Determine status based on activate flag
-    let status = if request.activate {
-        AppStatus::Active
-    } else {
-        AppStatus::Pending
-    };
-
-    let created_at = current_timestamp();
-    let app_info = config_to_info(&config, status.clone(), &created_at);
-
-    // In a real implementation, we would:
-    // 1. Store pending apps in a separate collection
-    // 2. Create the app in the registry only when activated
-    // For now, we simulate this behavior
-
-    tracing::info!(
-        hostname = %request.hostname,
-        status = ?status,
-        "App created successfully"
+    // Register in the HTTP router so requests are routed immediately.
+    http_router.write().await.register(
+        request.hostname.clone(),
+        RouteTarget {
+            hostname: request.hostname.clone(),
+            handler_type: HandlerType::WinterTCHandler(request.entrypoint.clone()),
+        },
     );
 
-    let message = if request.activate {
-        format!("App '{}' created and activated", request.hostname)
-    } else {
-        format!(
-            "App '{}' created in pending status. Use POST /admin/apps/{}/activate to activate.",
-            request.hostname, request.hostname
-        )
+    let status = AppStatus::Active;
+    let app_info = AppInfo {
+        hostname: request.hostname.clone(),
+        entrypoint: request.entrypoint.clone(),
+        env_vars: request.env_vars.clone(),
+        limits: request.limits.clone(),
+        status: status.clone(),
+        created_at: current_timestamp(),
+        is_active: true,
     };
+
+    tracing::info!(hostname = %request.hostname, "App created and route registered");
 
     Ok((
         StatusCode::CREATED,
         Json(CreateAppResponse {
             app: app_info,
-            message,
+            message: format!("App '{}' created and activated", request.hostname),
         }),
     ))
 }
@@ -415,45 +391,41 @@ pub async fn create_app(
 /// ```
 pub async fn update_app(
     Path(hostname): Path<String>,
-    State(registry): State<Arc<RwLock<AppRegistry>>>,
+    State(http_router): State<Arc<RwLock<VirtualHostRouter>>>,
     AxumJson(request): AxumJson<UpdateAppRequest>,
 ) -> Result<Json<UpdateAppResponse>, (StatusCode, Json<AppError>)> {
     tracing::info!(hostname = %hostname, "Updating app");
 
-    let registry = registry.read().await;
-
-    let mut config = match registry.get(&hostname) {
-        Some(c) => c,
-        None => return Err(AppError::not_found(&hostname).into_response()),
+    let current_entrypoint = {
+        let router = http_router.read().await;
+        match router.get_user_route(&hostname) {
+            Some(e) => e,
+            None => return Err(AppError::not_found(&hostname).into_response()),
+        }
     };
 
-    // Apply updates
-    if let Some(entrypoint) = request.entrypoint {
-        config.entrypoint = entrypoint;
-    }
-    if let Some(env_vars) = request.env_vars {
-        config.env_vars = env_vars;
-    }
-    if let Some(limits) = request.limits {
-        config.limits = limits;
-    }
+    let new_entrypoint = request.entrypoint.unwrap_or(current_entrypoint);
 
-    // Validate updated config
-    if let Err(errors) = validate_config(&config, None) {
-        return Err(AppError::validation(format!(
-            "Updated configuration is invalid: {}",
-            errors
-        )).into_response());
-    }
+    // Re-register with updated entrypoint (register overwrites existing route).
+    http_router.write().await.register(
+        hostname.clone(),
+        RouteTarget {
+            hostname: hostname.clone(),
+            handler_type: HandlerType::WinterTCHandler(new_entrypoint.clone()),
+        },
+    );
 
-    drop(registry); // Release read lock
+    tracing::info!(hostname = %hostname, entrypoint = %new_entrypoint, "App updated");
 
-    // In a real implementation, we would update the registry here
-    // For now, we just return the updated config
-
-    let app_info = config_to_info(&config, AppStatus::Active, &current_timestamp());
-
-    tracing::info!(hostname = %hostname, "App updated successfully");
+    let app_info = AppInfo {
+        hostname: hostname.clone(),
+        entrypoint: new_entrypoint,
+        env_vars: request.env_vars.unwrap_or_default(),
+        limits: request.limits.unwrap_or_default(),
+        status: AppStatus::Active,
+        created_at: current_timestamp(),
+        is_active: true,
+    };
 
     Ok(Json(UpdateAppResponse {
         app: app_info,
@@ -481,27 +453,16 @@ pub async fn update_app(
 /// ```
 pub async fn delete_app(
     Path(hostname): Path<String>,
-    State(registry): State<Arc<RwLock<AppRegistry>>>,
+    State(http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<AppActionResponse>, (StatusCode, Json<AppError>)> {
     tracing::warn!(hostname = %hostname, "Deleting app");
 
-    let registry = registry.read().await;
+    let removed = http_router.write().await.deregister(&hostname);
+    if !removed {
+        return Err(AppError::not_found(&hostname).into_response());
+    }
 
-    // Check if app exists
-    let _config = match registry.get(&hostname) {
-        Some(c) => c,
-        None => return Err(AppError::not_found(&hostname).into_response()),
-    };
-
-    drop(registry);
-
-    // In a real implementation:
-    // 1. Check if app is active
-    // 2. If active, initiate drain
-    // 3. Wait for drain to complete (or timeout)
-    // 4. Remove from registry
-
-    tracing::info!(hostname = %hostname, "App deleted successfully");
+    tracing::info!(hostname = %hostname, "App deleted and route removed");
 
     Ok(Json(AppActionResponse {
         hostname,
@@ -531,7 +492,7 @@ pub async fn delete_app(
 /// ```
 pub async fn activate_app(
     Path(hostname): Path<String>,
-    State(_registry): State<Arc<RwLock<AppRegistry>>>,
+    State(_http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<AppActionResponse>, (StatusCode, Json<AppError>)> {
     tracing::info!(hostname = %hostname, "Activating app");
 
@@ -569,7 +530,7 @@ pub async fn activate_app(
 /// ```
 pub async fn disable_app(
     Path(hostname): Path<String>,
-    State(_registry): State<Arc<RwLock<AppRegistry>>>,
+    State(_http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<AppActionResponse>, (StatusCode, Json<AppError>)> {
     tracing::info!(hostname = %hostname, "Disabling app");
 
@@ -605,7 +566,7 @@ pub async fn disable_app(
 /// ```
 pub async fn enable_app(
     Path(hostname): Path<String>,
-    State(_registry): State<Arc<RwLock<AppRegistry>>>,
+    State(_http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<AppActionResponse>, (StatusCode, Json<AppError>)> {
     tracing::info!(hostname = %hostname, "Enabling app");
 
@@ -641,14 +602,27 @@ pub async fn enable_app(
 /// ```
 pub async fn reload_app(
     Path(hostname): Path<String>,
-    State(_registry): State<Arc<RwLock<AppRegistry>>>,
+    State(http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<AppActionResponse>, (StatusCode, Json<AppError>)> {
     tracing::info!(hostname = %hostname, "Reloading app");
 
-    // In a real implementation:
-    // 1. Verify entrypoint file exists and is valid JS
-    // 2. Trigger worker pool reload (reset contexts)
-    // 3. Keep serving requests during reload
+    let entrypoint = {
+        let router = http_router.read().await;
+        match router.get_user_route(&hostname) {
+            Some(e) => e,
+            None => return Err(AppError::not_found(&hostname).into_response()),
+        }
+    };
+
+    // Re-register with the same entrypoint. The worker pool will pick up fresh JS
+    // content on the next request (workers load on-demand, not at register time).
+    http_router.write().await.register(
+        hostname.clone(),
+        RouteTarget {
+            hostname: hostname.clone(),
+            handler_type: HandlerType::WinterTCHandler(entrypoint),
+        },
+    );
 
     Ok(Json(AppActionResponse {
         hostname,
@@ -677,28 +651,14 @@ pub async fn reload_app(
 /// ```
 pub async fn scale_app(
     Path(hostname): Path<String>,
-    State(registry): State<Arc<RwLock<AppRegistry>>>,
+    State(_http_router): State<Arc<RwLock<VirtualHostRouter>>>,
     AxumJson(request): AxumJson<ScaleRequest>,
 ) -> Result<Json<AppActionResponse>, (StatusCode, Json<AppError>)> {
-    tracing::info!(
-        hostname = %hostname,
-        workers = request.workers,
-        "Scaling app"
-    );
+    tracing::info!(hostname = %hostname, workers = request.workers, "Scaling app");
 
-    // Validate worker count
     if request.workers < 1 || request.workers > 32 {
-        return Err(AppError::validation(
-            "Workers must be between 1 and 32"
-        ).into_response());
+        return Err(AppError::validation("Workers must be between 1 and 32").into_response());
     }
-
-    let _registry = registry.read().await;
-
-    // In a real implementation:
-    // 1. Validate app exists
-    // 2. Update worker pool size (add/remove workers)
-    // 3. Update config
 
     Ok(Json(AppActionResponse {
         hostname,
@@ -735,7 +695,7 @@ pub struct ScaleRequest {
 /// ```
 pub async fn drain_app(
     Path(hostname): Path<String>,
-    State(_registry): State<Arc<RwLock<AppRegistry>>>,
+    State(_http_router): State<Arc<RwLock<VirtualHostRouter>>>,
 ) -> Result<Json<AppActionResponse>, (StatusCode, Json<AppError>)> {
     tracing::info!(hostname = %hostname, "Draining app");
 

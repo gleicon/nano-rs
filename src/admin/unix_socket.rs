@@ -327,21 +327,21 @@ async fn list_isolates_handler_unix(
 async fn list_apps_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
 ) -> impl axum::response::IntoResponse {
-    list_apps(axum::extract::State(state.inner.registry.clone())).await
+    list_apps(axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn create_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     body: axum::extract::Json<crate::admin::handlers::CreateAppRequest>,
 ) -> impl axum::response::IntoResponse {
-    create_app(axum::extract::State(state.inner.registry.clone()), body).await
+    create_app(axum::extract::State(state.inner.http_router.clone()), body).await
 }
 
 async fn get_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    get_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    get_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn update_app_handler_unix(
@@ -349,42 +349,42 @@ async fn update_app_handler_unix(
     axum::extract::Path(hostname): axum::extract::Path<String>,
     body: axum::extract::Json<crate::admin::handlers::UpdateAppRequest>,
 ) -> impl axum::response::IntoResponse {
-    update_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone()), body).await
+    update_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone()), body).await
 }
 
 async fn delete_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    delete_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    delete_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn activate_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    activate_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    activate_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn disable_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    disable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    disable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn enable_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    enable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    enable_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn reload_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    reload_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    reload_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn scale_app_handler_unix(
@@ -392,14 +392,14 @@ async fn scale_app_handler_unix(
     axum::extract::Path(hostname): axum::extract::Path<String>,
     body: axum::extract::Json<crate::admin::handlers::ScaleRequest>,
 ) -> impl axum::response::IntoResponse {
-    scale_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone()), body).await
+    scale_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone()), body).await
 }
 
 async fn drain_app_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
     axum::extract::Path(hostname): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
-    drain_app(axum::extract::Path(hostname), axum::extract::State(state.inner.registry.clone())).await
+    drain_app(axum::extract::Path(hostname), axum::extract::State(state.inner.http_router.clone())).await
 }
 
 async fn admin_metrics_handler_unix() -> impl axum::response::IntoResponse {

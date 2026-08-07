@@ -253,7 +253,10 @@ fn fetch_callback(
         return;
     }
     
-    let response_result: Result<(Bytes, Vec<(String, String)>, u16, String), String> = 
+    // Pause the CPU timer for the duration of the HTTP request.
+    // AsyncWaitGuard resumes the timer on drop — panic-safe.
+    let _cpu_wait = crate::data_plane::AsyncWaitGuard::begin();
+    let response_result: Result<(Bytes, Vec<(String, String)>, u16, String), String> =
         with_fetch_state(|state| {
             rt_handle.block_on(async {
                 let mut request_builder = state.client.request(
@@ -302,6 +305,7 @@ fn fetch_callback(
                 }
             })
         });
+    drop(_cpu_wait); // explicit drop for clarity; timer resumes here
 
     // Create Response object
     match response_result {
