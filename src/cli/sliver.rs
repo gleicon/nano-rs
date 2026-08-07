@@ -70,7 +70,7 @@ pub struct SliverDeleteArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::{Command, Parser};
+    use clap::Parser;
 
     fn parse_sliver_command(args: &[&str]) -> Result<SliverCommand, clap::Error> {
         // Create a test command that includes just the sliver subcommand

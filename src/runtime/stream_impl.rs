@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn test_resource_table_creation() {
         let table = StreamResourceTable::new();
-        assert!(table.has(0) == false);
+        assert!(!table.has(0));
     }
 
     /// Test 2: Resources can be added

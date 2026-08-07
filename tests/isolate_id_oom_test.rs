@@ -29,7 +29,7 @@ fn write_temp_js(filename: &str, code: &str) -> std::path::PathBuf {
 #[tokio::test]
 async fn test_isolate_id_changes_after_oom_recovery() {
     // Initialize V8 platform (required for isolate creation)
-    initialize_platform();
+    let _ = initialize_platform();
 
     // Create a work queue with 1 worker and memory monitoring enabled
     // Use a low memory limit (16MB) to trigger OOM with memory-heavy operations
@@ -175,7 +175,7 @@ async fn test_isolate_id_changes_after_oom_recovery() {
 /// 3. After OOM recovery, age resets to 0
 #[test]
 fn test_isolate_age_tracking() {
-    use nano::worker::eviction::{IsolateId, IsolateMetadata};
+    use nano::worker::eviction::IsolateMetadata;
     use std::thread;
 
     // Create metadata for a new isolate
@@ -206,7 +206,7 @@ fn test_isolate_age_tracking() {
 /// - isolate_id: Identifies the exact V8 isolate instance (changes on OOM)
 #[tokio::test]
 async fn test_request_tracing_combo() {
-    initialize_platform();
+    let _ = initialize_platform();
 
     let mut queue = WorkQueue::new(2); // 2 workers
     let hostname = "tracing-test.local";

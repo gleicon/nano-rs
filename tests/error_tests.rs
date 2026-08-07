@@ -17,6 +17,7 @@ fn init_platform() {
 }
 
 /// Helper to create V8 scopes using v147 API
+#[allow(dead_code)]
 fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
 where
     F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,

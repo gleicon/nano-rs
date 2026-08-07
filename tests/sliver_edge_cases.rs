@@ -2,7 +2,6 @@
 //!
 //! Tests error paths, concurrent operations, and large file handling.
 
-use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -159,7 +158,7 @@ mod tests {
 
         let result = nano::sliver::validate_sliver_integrity(&bad_sliver);
         assert!(result.is_err());
-        let err_str = format!("{}", result.unwrap_err());
+        let _err_str = format!("{}", result.unwrap_err());
         // Should detect invalid JSON
     }
 

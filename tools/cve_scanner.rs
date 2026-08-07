@@ -15,7 +15,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
 
     // Check if cargo-audit is available
-    let audit_check = Command::new("cargo").args(&["audit", "--version"]).output();
+    let audit_check = Command::new("cargo").args(["audit", "--version"]).output();
 
     match audit_check {
         Ok(output) if output.status.success() => {
@@ -87,7 +87,7 @@ fn main() -> ExitCode {
     // Update database if requested
     if update_db {
         println!("Updating cargo-audit database...");
-        let update_result = Command::new("cargo").args(&["audit", "--update"]).status();
+        let update_result = Command::new("cargo").args(["audit", "--update"]).status();
 
         match update_result {
             Ok(status) if status.success() => {

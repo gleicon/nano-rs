@@ -321,7 +321,7 @@ async fn run_from_sliver(
     let socket_addr = config.socket_addr()?;
 
     // Print startup banner to console (not just tracing)
-    println!("");
+    println!();
     println!("╔════════════════════════════════════════════════════════════╗");
     if static_files {
         println!("║      NANO Edge Runtime - Sliver Mode (WinterTC/Permissive) ║");
@@ -329,7 +329,7 @@ async fn run_from_sliver(
         println!("║    NANO Edge Runtime - Sliver Mode (WinterTC/Multi-Tenant) ║");
     }
     println!("╚════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("  Sliver:     {}", sliver_path.display());
     println!("  Hostname:   {}", hostname);
     println!("  Address:    http://{}", socket_addr);
@@ -341,13 +341,13 @@ async fn run_from_sliver(
     } else {
         println!("  Mode:       Strict - 404 for wrong Host header");
     }
-    println!("");
+    println!();
     println!("  ALL requests route through JavaScript (WinterTC fetch handler)");
     println!("  Static files must be served by your JS code via nano.vfs.read()");
     println!("  Entrypoint: {}", js_entrypoint);
     println!("  Ready to accept connections...");
     println!("  Press Ctrl+C to stop");
-    println!("");
+    println!();
 
     tracing::info!(
         "Starting HTTP server on {} for sliver app {}",
@@ -374,9 +374,9 @@ async fn run_from_sliver(
     // Wait for shutdown signal
     let _ = shutdown_rx.recv().await;
 
-    println!("");
+    println!();
     println!("  Shutdown signal received, stopping server...");
-    println!("");
+    println!();
 
     tracing::info!("Shutdown signal received, initiating graceful shutdown...");
 
@@ -419,7 +419,7 @@ async fn run_from_sliver(
     }
 
     println!("  Server stopped.");
-    println!("");
+    println!();
 
     tracing::info!("NANO Edge Runtime (sliver mode) shutdown complete");
     Ok(())
@@ -490,15 +490,15 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     tracing::info!("Starting HTTP server on {}", addr);
 
     // Print startup banner
-    println!("");
+    println!();
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║          NANO Edge Runtime - Config Mode (Multi-App)        ║");
     println!("╚════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("  Config:     {}", config_path.display());
     println!("  Address:    http://{}", addr);
     println!("  Apps:       {}", config.apps.len());
-    println!("");
+    println!();
 
     // Display app information
     for app in &config.apps {
@@ -514,10 +514,10 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
         );
     }
 
-    println!("");
+    println!();
     println!("  Ready to accept connections...");
     println!("  Press Ctrl+C to stop");
-    println!("");
+    println!();
 
     // Start server with config
     let shutdown_state = shutdown.state().clone();
@@ -529,9 +529,9 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     // Wait for shutdown signal
     let _ = shutdown_rx.recv().await;
 
-    println!("");
+    println!();
     println!("  Shutdown signal received, stopping server...");
-    println!("");
+    println!();
 
     tracing::info!("Shutdown signal received, initiating graceful shutdown...");
 
@@ -866,7 +866,7 @@ mod tests {
         // Default behavior (no subcommand) should run server
         let cli = Cli::try_parse_from(["nano-rs"]);
         assert!(cli.is_ok());
-        assert!(matches!(cli.unwrap().command, None));
+        assert!(cli.unwrap().command.is_none());
     }
 }
 // force rebuild

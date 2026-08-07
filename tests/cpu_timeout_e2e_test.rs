@@ -3,6 +3,8 @@
 //! These tests spawn the NANO binary and verify actual timeout behavior.
 //! Run with: cargo test --test cpu_timeout_e2e_test -- --test-threads=1
 //!
+// Helper functions used by test subsets; not all are called from every fn.
+#![allow(dead_code, unused_imports)]
 //! NOTE: All tests use the disk VFS backend for per-app VFS configuration.
 //! The WASM tests that read files via Nano.fs.readFile() require the disk
 //! VFS backend to be properly configured via the AppRegistry.

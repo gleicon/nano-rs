@@ -3,6 +3,7 @@
 //! Tests the `--config` workflow including:
 //! - Config loading and validation
 //! - Port configuration from config file
+#![allow(dead_code, unused_imports)]
 //! - Host configuration from config file  
 //! - Multiple apps with virtual host routing
 //! - Per-app limits (timeout, memory, workers)

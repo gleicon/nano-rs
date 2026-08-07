@@ -3,6 +3,7 @@
 //! Tests for ES Module support including:
 //! - export default { fetch } pattern
 //! - Relative imports
+#![allow(dead_code, unused_imports)]
 //! - Async handlers
 //! - Backward compatibility with classic scripts
 
@@ -12,6 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Helper to execute code with V8 v147 scope pattern
+#[allow(dead_code)]
 fn with_v8_context<F, R>(isolate: &mut v8::Isolate, f: F) -> R
 where
     F: FnOnce(&mut v8::ContextScope<v8::HandleScope>, v8::Local<v8::Context>) -> R,

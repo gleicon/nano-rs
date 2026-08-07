@@ -359,5 +359,6 @@ fn ws_module_compiles() {
 fn ws_structural_smoke() {
     // Verify websocket module is reachable via the runtime module path.
     // This is a link-time check; the function call is a no-op here.
+    #[allow(function_casts_as_integer)]
     let _ = std::hint::black_box(nano::runtime::websocket::bind_websocket_pair as usize);
 }

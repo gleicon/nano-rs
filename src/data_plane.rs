@@ -18,7 +18,7 @@ use anyhow::{anyhow, Result};
 // Thread-local storage for the worker thread's Tokio runtime handle.
 // This allows fetch() and other async operations to access the runtime.
 thread_local! {
-    static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = RefCell::new(None);
+    static WORKER_RUNTIME: RefCell<Option<tokio::runtime::Handle>> = const { RefCell::new(None) };
 }
 
 /// Get the worker thread's Tokio runtime handle if available.
@@ -154,7 +154,7 @@ pub fn read_code_cached(entrypoint: &str) -> Result<Arc<str>> {
 thread_local! {
     /// Shared with the active CpuTimeoutGuard so that any code on the worker thread
     /// (fetch, VFS, fs) can signal async I/O waits without holding the guard directly.
-    static CPU_ASYNC_WAIT_FLAG: RefCell<Option<Arc<AtomicBool>>> = RefCell::new(None);
+    static CPU_ASYNC_WAIT_FLAG: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
 }
 
 /// Signal the active CPU timer that the current thread is about to wait for async I/O.

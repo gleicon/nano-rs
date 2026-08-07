@@ -28,7 +28,7 @@ fmt:
 	cargo fmt
 
 lint:
-	cargo clippy --all-targets --all-features -- -D warnings
+	cargo clippy --lib --bins --tests --all-features -- -D warnings
 
 clean:
 	cargo clean

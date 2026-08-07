@@ -248,7 +248,7 @@ mod tests {
         };
 
         let factory = BackendFactory::new();
-        let result = factory
+        let _result = factory
             .create_backend(VfsBackendType::S3, None, Some(&s3_config))
             .await;
 

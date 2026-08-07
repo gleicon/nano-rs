@@ -189,6 +189,7 @@ fn current_timestamp() -> String {
 }
 
 /// Convert AppConfig to AppInfo
+#[allow(dead_code)]
 fn config_to_info(config: &AppConfig, status: AppStatus, created_at: &str) -> AppInfo {
     AppInfo {
         hostname: config.hostname.clone(),

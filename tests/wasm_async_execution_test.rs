@@ -24,7 +24,7 @@ where
 /// and verifies basic Promise functionality works.
 #[test]
 fn test_simple_promise_creation() {
-    initialize_platform();
+    let _ = initialize_platform();
 
     // Create a fresh isolate
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
@@ -60,7 +60,7 @@ fn test_simple_promise_creation() {
 /// This test executes an async function and verifies it creates a Promise.
 #[test]
 fn test_async_await_creation() {
-    initialize_platform();
+    let _ = initialize_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
@@ -98,7 +98,7 @@ fn test_async_await_creation() {
 /// Test that JavaScript execution works with v147 API
 #[test]
 fn test_basic_js_execution() {
-    initialize_platform();
+    let _ = initialize_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 
@@ -127,7 +127,7 @@ fn test_basic_js_execution() {
 /// Test that microtask checkpoint works (critical for WASM)
 #[test]
 fn test_microtask_checkpoint() {
-    initialize_platform();
+    let _ = initialize_platform();
 
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
 

@@ -367,9 +367,9 @@ impl VfsBackend for S3Backend {
                 // Parse HTTP date format
                 chrono::DateTime::parse_from_rfc2822(&ts)
                     .ok()
-                    .and_then(|dt| {
+                    .map(|dt| {
                         let utc: chrono::DateTime<chrono::Utc> = dt.into();
-                        std::time::SystemTime::try_from(utc).ok()
+                        std::time::SystemTime::from(utc)
                     })
             })
             .unwrap_or_else(std::time::SystemTime::now);

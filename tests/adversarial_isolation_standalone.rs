@@ -6,7 +6,6 @@
 #[path = "common.rs"]
 mod common;
 use common::{find_available_port, NanoProcess};
-use std::time::Duration;
 
 /// Test hostname spoofing detection
 #[tokio::test]

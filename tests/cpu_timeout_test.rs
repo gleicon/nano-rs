@@ -4,7 +4,6 @@
 //! when a script runs longer than the configured limit.
 
 use nano::v8::{initialize_platform, NanoIsolate};
-use nano::worker::context::ContextManager;
 
 /// Helper to ensure platform is initialized for tests
 fn init_platform() {

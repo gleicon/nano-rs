@@ -2,6 +2,9 @@
 //!
 //! Shared utilities and test harness for adversarial security testing.
 //! Provides common setup functions, test context management, and assertion helpers.
+// Shared test utilities — each integration test binary links only a subset,
+// so helpers appear unused from any single binary's perspective.
+#![allow(dead_code, unused_imports)]
 
 use std::fs;
 use std::net::TcpListener;
