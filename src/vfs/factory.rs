@@ -248,12 +248,15 @@ mod tests {
         };
 
         let factory = BackendFactory::new();
-        let _result = factory
+        let result = factory
             .create_backend(VfsBackendType::S3, None, Some(&s3_config))
             .await;
 
         // Without vfs-s3 feature, this should fail
         #[cfg(not(feature = "vfs-s3"))]
         assert!(result.is_err());
+        // With vfs-s3 feature, result is used above; silence dead_code in the other cfg.
+        #[cfg(feature = "vfs-s3")]
+        let _ = result;
     }
 }
