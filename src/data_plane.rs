@@ -181,14 +181,18 @@ fn request_isolate_termination() {
 
 /// Guard that sets up CPU timeout enforcement for V8 execution.
 ///
-/// Uses a wall-clock timer as an approximation of CPU time.
-/// Note: True CPU time measurement requires platform-specific APIs (e.g., getrusage
-/// on Unix, GetProcessTimes on Windows) which are not yet integrated. The wall-clock
-/// approximation works for most cases but may be affected by system load.
+/// Measures actual JS execution time by pausing the timer during async waits
+/// (setTimeout/setInterval sleep, fetch I/O, etc.). Call `set_async_waiting(true)`
+/// before sleeping and `set_async_waiting(false)` when JS execution resumes.
+/// The timer thread ticks every 1ms and only accumulates elapsed time when the
+/// worker is NOT in an async-waiting state.
 ///
-/// The timer thread calls request_isolate_termination() when timeout is reached.
+/// The timer thread calls request_isolate_termination() when accumulated CPU time
+/// exceeds `limit_ms`.
 pub struct CpuTimeoutGuard {
-    /// Handle to the timer thread
+    /// Set to true by the event loop while sleeping between timer ticks.
+    /// The timer thread skips accumulation during these windows.
+    is_async_waiting: std::sync::Arc<AtomicBool>,
     timer_thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -197,21 +201,41 @@ impl CpuTimeoutGuard {
     ///
     /// # Arguments
     /// * `isolate` - The V8 isolate to terminate on timeout
-    /// * `limit_ms` - Wall time limit in milliseconds (used as approximation for CPU time)
+    /// * `limit_ms` - CPU execution time limit in milliseconds (async waits excluded)
     pub fn new(isolate: &mut v8::Isolate, limit_ms: u32) -> Self {
         let isolate_ptr: *mut v8::Isolate = isolate as *mut _;
         TERMINATION_ISOLATE_PTR.store(isolate_ptr, Ordering::SeqCst);
         TERMINATION_REQUESTED.store(false, Ordering::SeqCst);
 
+        let is_async_waiting = std::sync::Arc::new(AtomicBool::new(false));
+        let waiting_clone = is_async_waiting.clone();
+
         let timer_thread = std::thread::spawn(move || {
-            let limit_duration = std::time::Duration::from_millis(limit_ms as u64);
-            std::thread::sleep(limit_duration);
+            let tick = std::time::Duration::from_millis(1);
+            let mut elapsed_ms: u64 = 0;
+            let limit = limit_ms as u64;
+            while elapsed_ms < limit {
+                std::thread::sleep(tick);
+                // Only count this tick toward CPU time when JS is actually running.
+                if !waiting_clone.load(Ordering::Relaxed) {
+                    elapsed_ms += 1;
+                }
+            }
             request_isolate_termination();
         });
 
         Self {
+            is_async_waiting,
             timer_thread: Some(timer_thread),
         }
+    }
+
+    /// Signal whether the worker is currently waiting for async I/O.
+    ///
+    /// Pass `true` before sleeping in the event loop, `false` immediately after.
+    /// Timer accumulation is suspended while `true`.
+    pub fn set_async_waiting(&self, waiting: bool) {
+        self.is_async_waiting.store(waiting, Ordering::Relaxed);
     }
 }
 
