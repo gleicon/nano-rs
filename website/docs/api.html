@@ -20,6 +20,7 @@
                 <div class="hidden md:flex items-center gap-8">
                     <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
                     <a href="api.html" class="text-white">API</a>
+                    <a href="#kv" class="text-slate-400 hover:text-white transition">KV &amp; Compat</a>
                     <a href="websocket.html" class="text-slate-400 hover:text-white transition">WebSocket</a>
                     <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
                     <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
@@ -303,7 +304,7 @@ const exists = await Nano.fs.exists('/data/config.json');</pre>
                 </div>
             </section>
 
-            <section class="mb-12" id="kv">
+            <section class="mb-12 scroll-mt-20" id="kv">
                 <h2 class="text-2xl font-semibold text-white mb-2">nano:kv <span class="text-sm font-normal bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded ml-1">v2.2.2+</span></h2>
                 <p class="text-slate-400 mb-4">EdgeStore-backed persistent key-value storage. Hostname-namespaced — each app has its own isolated slice. Zero configuration: the engine initialises on first import.</p>
 
