@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `subtle = "2.6"` dependency for constant-time byte comparison.
 
+## [2.2.2] - 2026-08-06
+
+### Added
+
+- **`nano:kv` ESM module** — EdgeStore-backed persistent key-value store available to every app via `import { kv, openKV } from 'nano:kv'`. Keys are automatically namespaced as `{hostname}::{kv_name}` for tenant isolation. API: `get(key)`, `set(key, bytes)`, `delete(key)`, `list(prefix)`, `getJSON(key)`, `setJSON(key, value)`. Named namespaces via `openKV('cache')`.
+- **`require('path')`** — `join`, `dirname`, `basename`, `extname`, `resolve`, `isAbsolute`, `normalize`.
+- **`require('buffer')`** — `Buffer.from`, `Buffer.alloc`, `Buffer.isBuffer`, `Buffer.concat` (returns `Uint8Array`).
+- **`require('assert')`** — `ok`, `equal`, `strictEqual`, `notEqual`.
+- **`process` global** — `process.env` (injected from app `env_vars` config, per-isolate, no host env leakage), `process.version`, `process.platform`. No `process.exit`.
+- **`localStorage` shim** — Userland implementation over `nano:kv` in `examples/localStorage-shim.js`.
+- **Examples** — `examples/kv-counter.js`, `examples/kv-namespaced.js`, `examples/node-compat.js` added.
+
 ## [2.2.1] - 2026-08-02
 
 ### Fixed

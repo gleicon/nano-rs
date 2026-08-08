@@ -69,16 +69,20 @@
 | fs.writeFileSync | ⚠️ Partial | Limited support | Use async writeFile |
 | fs.existsSync | ✅ Complete | Sync check | |
 
+**Implemented via `require()`:**
+- `require('path')` — join, dirname, basename, extname, resolve, isAbsolute, normalize
+- `require('buffer')` — Buffer.from, alloc, isBuffer, concat (returns Uint8Array)
+- `require('assert')` — ok, equal, strictEqual, notEqual
+- `process.env` — app env vars (set via `env_vars` in config); `process.version`, `process.platform`
+
 **NOT Implemented (by design):**
 - Node.js http module — Use WinterTC fetch() instead
 - Node.js net module — Raw sockets not supported
-- process.env global — Use request headers or config
-- Node.js path module — Use URL API instead
 - Node.js os module — Not available
 - Node.js stream module — Use WinterTC streams
 - Node.js crypto module — Use WebCrypto instead
 
-**Coverage:** 11/20+ common APIs (55%)
+**Coverage:** ~14/20+ common APIs (~65%)
 
 **Important:** NANO is NOT a Node.js replacement. It targets WinterTC (Web-interoperable Runtimes Community Group) APIs first, with Node.js polyfills for convenience.
 
@@ -94,6 +98,9 @@
 | Nano.fs.deleteFile | ✅ Complete | Remove files |
 | Nano.fs.listDir | ⚠️ Partial | Directory listing (basic implementation) |
 | Nano.fs.mkdir | ❌ Not Implemented | Planned for v2.0 |
+| `nano:kv` (default KV) | ✅ Complete | `import { kv } from 'nano:kv'` — get/set/delete/list, getJSON/setJSON, hostname-namespaced |
+| `nano:kv` (named namespace) | ✅ Complete | `openKV('name')` — isolated named KV store per app |
+| `localStorage` shim | ✅ Available | Userland shim — see `examples/localStorage-shim.js` |
 
 ---
 

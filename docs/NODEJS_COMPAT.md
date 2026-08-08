@@ -41,8 +41,8 @@ NANO provides partial Node.js compatibility for common patterns, but is **NOT a 
 | **https** | ❌ Not Supported | 0% | Use WinterTC `fetch()` instead |
 | **net** | ❌ Not Supported | 0% | Raw sockets not available |
 | **os** | ❌ Not Supported | 0% | No system information access |
-| **path** | ❌ Not Supported | 0% | Use `URL` API instead |
-| **process** | ❌ Not Supported | 0% | No `process.env` or `process.exit` |
+| **path** | ✅ Supported | 100% | `require('path')` — join, dirname, basename, extname, resolve, isAbsolute, normalize |
+| **process** | ⚠️ Partial | ~40% | `process.env` (app env vars), `process.version`, `process.platform` — no `process.exit` |
 | **stream** | ⚠️ Partial | ~40% | WinterTC ReadableStream/WritableStream only |
 | **url** | ⚠️ Partial | ~80% | URL, URLSearchParams supported |
 | **util** | ❌ Not Supported | 0% | Not implemented |
@@ -109,14 +109,28 @@ export default {
 
 ---
 
-### 2. Replace `process.env` with request headers or config
+### 2. `process.env` — now supported via app env vars
 
-**Node.js (Old):**
+`process.env` is available directly. Set environment variables in the app config `env_vars` section; they are injected per-isolate and namespaced to the app.
+
 ```javascript
+// Works as-is — values come from the app's env_vars config
 const dbUrl = process.env.DATABASE_URL;
 ```
 
-**NANO (New) - Option 1: Request headers:**
+**Config:**
+```json
+{
+  "apps": [{
+    "hostname": "api.example.com",
+    "env_vars": { "DATABASE_URL": "postgres://..." }
+  }]
+}
+```
+
+If you need values NOT in `env_vars`, the fallback options still work:
+
+**Option 1: Request headers:**
 ```javascript
 export default {
   async fetch(request) {
