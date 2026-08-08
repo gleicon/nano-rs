@@ -218,7 +218,7 @@ pub struct ServerConfigSection {
     /// Server port (default: 8080)
     #[serde(default = "default_port")]
     pub port: u16,
-    /// Server bind address (default: "0.0.0.0")
+    /// Server bind address (default: "127.0.0.1")
     #[serde(default = "default_bind")]
     pub host: String,
 }
@@ -233,7 +233,7 @@ impl Default for ServerConfigSection {
 }
 
 fn default_bind() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 fn default_port() -> u16 {
@@ -257,7 +257,7 @@ pub struct GlobalSettings {
     /// Default workers per app
     #[serde(default = "default_workers")]
     pub workers_per_app: u32,
-    /// Server bind address
+    /// Server bind address (default: "127.0.0.1")
     #[serde(default = "default_bind")]
     pub bind_address: String,
     /// Server port

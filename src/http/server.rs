@@ -958,7 +958,7 @@ mod tests {
     async fn test_server_config_default() {
         let config = ServerConfig::default();
         assert_eq!(config.port, 8080);
-        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.host, "127.0.0.1");
 
         // Verify socket_addr works
         let addr = config.socket_addr().unwrap();

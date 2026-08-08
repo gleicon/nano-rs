@@ -165,8 +165,8 @@ async fn run_server() -> Result<()> {
     // Start Unix socket admin server (optional)
     let unix_socket_handle = if let Some(socket_path) = unix_socket_path {
         let unix_config = nano::admin::unix_socket::UnixSocketConfig::new(socket_path);
-        let unix_auth =
-            std::sync::Arc::new(nano::admin::auth::AdminAuth::new("unix-socket-unused"));
+        // Auth object passed for API compat but not used; socket is gated by filesystem permissions
+        let unix_auth = std::sync::Arc::new(nano::admin::auth::AdminAuth::new(""));
         let unix_state =
             nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
 

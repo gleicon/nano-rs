@@ -14,7 +14,8 @@
 //! # Security
 //!
 //! - URL validation blocks dangerous schemes (file://, ftp://, javascript://)
-//! - SSRF prevention blocks private IP ranges
+//! - SSRF prevention blocks private/internal literal IPs and known internal hostnames
+//!   (DNS rebinding is not prevented — requires socket-level IP check after connect)
 //! - Response size limits prevent memory exhaustion
 //! - Timeout handling prevents hanging requests
 
@@ -22,6 +23,75 @@ use bytes::Bytes;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Duration;
+
+/// Block URLs that would allow SSRF to private/internal addresses.
+///
+/// Blocks literal private IPv4/IPv6 ranges and known internal hostnames.
+/// Does NOT defend against DNS rebinding (where a public hostname resolves
+/// to a private IP after this check).
+fn is_ssrf_blocked(url_str: &str) -> Option<String> {
+    let parsed = match url::Url::parse(url_str) {
+        Ok(u) => u,
+        Err(e) => return Some(format!("Invalid URL: {e}")),
+    };
+
+    match parsed.host() {
+        None => return Some("URL has no host".to_string()),
+        Some(url::Host::Ipv4(addr)) => {
+            let o = addr.octets();
+            let blocked = o[0] == 10
+                || (o[0] == 172 && (16..=31).contains(&o[1]))
+                || (o[0] == 192 && o[1] == 168)
+                || o[0] == 127
+                || (o[0] == 169 && o[1] == 254)
+                || o[0] == 0
+                || addr.is_broadcast()
+                || (o[0] == 100 && (64..=127).contains(&o[1]));
+            if blocked {
+                return Some(format!("SSRF blocked: private address {addr}"));
+            }
+        }
+        Some(url::Host::Ipv6(addr)) => {
+            // IPv4-mapped (::ffff:x.x.x.x) — check the mapped IPv4 address
+            if let Some(v4) = addr.to_ipv4_mapped() {
+                let o = v4.octets();
+                let blocked = o[0] == 10
+                    || (o[0] == 172 && (16..=31).contains(&o[1]))
+                    || (o[0] == 192 && o[1] == 168)
+                    || o[0] == 127
+                    || (o[0] == 169 && o[1] == 254)
+                    || o[0] == 0
+                    || v4.is_broadcast()
+                    || (o[0] == 100 && (64..=127).contains(&o[1]));
+                if blocked {
+                    return Some(format!("SSRF blocked: private address {addr}"));
+                }
+            } else {
+                let s = addr.segments();
+                let blocked = addr.is_loopback()
+                    || addr.is_multicast()
+                    || (s[0] & 0xffc0) == 0xfe80
+                    || (s[0] & 0xfe00) == 0xfc00;
+                if blocked {
+                    return Some(format!("SSRF blocked: private address {addr}"));
+                }
+            }
+        }
+        Some(url::Host::Domain(domain)) => {
+            let lower = domain.to_ascii_lowercase();
+            let blocked = lower == "localhost"
+                || lower.ends_with(".local")
+                || lower.ends_with(".internal")
+                || lower.ends_with(".localdomain")
+                || lower == "metadata.google.internal"
+                || lower == "169.254.169.254";
+            if blocked {
+                return Some(format!("SSRF blocked: internal hostname {domain}"));
+            }
+        }
+    }
+    None
+}
 
 /// Per-isolate fetch state
 ///
@@ -180,6 +250,12 @@ fn fetch_callback(
                 url.split("://").next().unwrap_or("")
             ),
         );
+        return;
+    }
+
+    // Validate URL for SSRF: block private/internal addresses
+    if let Some(err) = is_ssrf_blocked(&url) {
+        reject_with_error(scope, &mut retval, &err);
         return;
     }
 

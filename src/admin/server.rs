@@ -93,7 +93,7 @@ pub struct AdminConfig {
     #[serde(default = "default_admin_port")]
     pub port: u16,
 
-    /// Bind address (default: "0.0.0.0")
+    /// Bind address (default: "127.0.0.1")
     #[serde(default = "default_admin_host")]
     pub host: String,
 
@@ -119,7 +119,7 @@ fn default_admin_port() -> u16 {
 }
 
 fn default_admin_host() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 impl Default for AdminConfig {
@@ -570,7 +570,7 @@ mod tests {
     fn test_admin_config_default() {
         let config = AdminConfig::default();
         assert_eq!(config.port, 8889);
-        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.host, "127.0.0.1");
         assert!(config.api_key.is_empty());
         assert!(config.tls_cert_path.is_none());
         assert!(config.tls_key_path.is_none());
@@ -611,7 +611,7 @@ mod tests {
         let config = AdminConfig::default();
         let addr = config.socket_addr().unwrap();
         assert_eq!(addr.port(), 8889);
-        assert!(addr.ip().is_unspecified());
+        assert!(addr.ip().is_loopback());
     }
 
     #[test]

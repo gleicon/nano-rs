@@ -164,41 +164,30 @@ impl SystemDiagnostics {
 
     /// Format as JSON for API consumption
     pub fn format_json(&self) -> String {
-        // Manual JSON construction since we have non-serializable fields
-        let mut json = String::new();
-        json.push_str("{\n");
-        json.push_str(&format!("  \"total_isolates\": {},\n", self.total_isolates));
-        json.push_str(&format!("  \"total_requests\": {},\n", self.total_requests));
-        json.push_str(&format!("  \"app_count\": {},\n", self.app_stats.len()));
-        json.push_str("  \"apps\": [\n");
+        use serde_json::json;
 
-        for (i, app) in self.app_stats.iter().enumerate() {
-            json.push_str("    {\n");
-            json.push_str(&format!("      \"hostname\": \"{}\",\n", app.hostname));
-            json.push_str(&format!("      \"workers\": {},\n", app.worker_count));
-            json.push_str(&format!(
-                "      \"total_requests\": {},\n",
-                app.total_requests
-            ));
-            json.push_str(&format!(
-                "      \"memory_limit_mb\": {},\n",
-                app.config.memory_limit_mb
-            ));
-            json.push_str(&format!(
-                "      \"timeout_secs\": {},\n",
-                app.config.timeout_secs
-            ));
-            json.push_str(&format!("      \"uptime\": \"{}\"\n", app.uptime));
-            if i < self.app_stats.len() - 1 {
-                json.push_str("    },\n");
-            } else {
-                json.push_str("    }\n");
-            }
-        }
+        let apps: Vec<_> = self
+            .app_stats
+            .iter()
+            .map(|app| {
+                json!({
+                    "hostname": app.hostname,
+                    "workers": app.worker_count,
+                    "total_requests": app.total_requests,
+                    "memory_limit_mb": app.config.memory_limit_mb,
+                    "timeout_secs": app.config.timeout_secs,
+                    "uptime": app.uptime,
+                })
+            })
+            .collect();
 
-        json.push_str("  ]\n");
-        json.push('}');
-        json
+        json!({
+            "total_isolates": self.total_isolates,
+            "total_requests": self.total_requests,
+            "app_count": self.app_stats.len(),
+            "apps": apps,
+        })
+        .to_string()
     }
 }
 

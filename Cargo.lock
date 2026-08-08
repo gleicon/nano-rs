@@ -1779,7 +1779,7 @@ dependencies = [
 
 [[package]]
 name = "nano-rs"
-version = "2.2.2"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1819,6 +1819,7 @@ dependencies = [
  "sha2",
  "signal-hook",
  "signature",
+ "subtle",
  "tar",
  "tempfile",
  "thiserror 2.0.18",

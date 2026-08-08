@@ -18,6 +18,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use ring::digest::{self, SHA256};
+use subtle::ConstantTimeEq;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -67,15 +69,11 @@ impl AdminAuth {
         if key.is_empty() || self.api_key.is_empty() {
             return false;
         }
-        let a = key.as_bytes();
-        let b = self.api_key.as_bytes();
-        if a.len() != b.len() {
-            return false;
-        }
-        a.iter()
-            .zip(b.iter())
-            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-            == 0
+        // Hash both to fixed-length digests before ct_eq so comparison time
+        // is independent of key length — eliminates the length-timing channel.
+        let a = digest::digest(&SHA256, key.as_bytes());
+        let b = digest::digest(&SHA256, self.api_key.as_bytes());
+        bool::from(a.as_ref().ct_eq(b.as_ref()))
     }
 
     /// Check if an API key is configured
@@ -146,10 +144,10 @@ pub async fn api_key_middleware(
     req: Request,
     next: Next,
 ) -> Response {
-    // Skip auth if no key is configured (shouldn't happen in production)
+    // Deny all requests when no key is configured — misconfigured deployment, not dev mode
     if !auth.is_configured() {
-        tracing::warn!("Admin API key not configured, allowing request (development mode?)");
-        return next.run(req).await;
+        tracing::error!("Admin API key not configured; denying request");
+        return AuthError::new("Admin API key not configured").into_response();
     }
 
     // Extract the X-Admin-Key header

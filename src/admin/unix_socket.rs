@@ -27,12 +27,7 @@
 //! srwxrwx--- 1 nano nano 0 Apr 19 14:30 control.sock
 //! ```
 
-use axum::{
-    body::Body,
-    extract::{ConnectInfo, Request, State},
-    middleware::Next,
-    response::Response,
-};
+use axum::extract::State;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::net::UnixListener;
@@ -42,7 +37,7 @@ use crate::admin::handlers::{
     activate_app, create_app, delete_app, disable_app, drain_app, enable_app, get_app, list_apps,
     list_isolates, reload_app, scale_app, update_app,
 };
-use crate::admin::server::{create_admin_router, AdminState, AdminStateAxum};
+use crate::admin::server::{AdminState, AdminStateAxum};
 
 /// Unix socket configuration
 #[derive(Debug, Clone)]
@@ -214,8 +209,9 @@ pub async fn start_unix_socket_server(
         config.path.display()
     );
 
-    // Create router that skips auth for Unix socket requests
-    let router = create_unix_socket_router(auth, admin_state);
+    // Unix socket access is gated by filesystem permissions; no API key required
+    let _ = auth; // auth param kept for API compatibility; not used for socket
+    let router = create_unix_socket_router_no_auth(admin_state);
 
     // Create shutdown channel
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(());
@@ -252,39 +248,6 @@ pub async fn start_unix_socket_server(
         shutdown_tx,
         socket_path: config.path,
     })
-}
-
-/// Create admin router with Unix socket authentication bypass
-///
-/// This creates the same router as the TCP admin server, but adds
-/// middleware that detects Unix socket connections and skips API key
-/// authentication for them.
-fn create_unix_socket_router(auth: Arc<AdminAuth>, state: AdminState) -> axum::Router {
-    use axum::middleware;
-
-    let state_axum = Arc::new(AdminStateAxum::new(state));
-
-    // First create the standard admin router
-    let router = create_admin_router(auth, state_axum.inner.clone());
-
-    // Add middleware that marks Unix socket requests
-    router.layer(middleware::from_fn(mark_unix_socket_request))
-}
-
-/// Mark requests coming from Unix socket connections
-///
-/// This middleware detects Unix socket connections by checking the
-/// ConnectInfo extension. Unix socket connections are marked with
-/// a custom header that the auth middleware uses to skip authentication.
-async fn mark_unix_socket_request(
-    ConnectInfo(_addr): ConnectInfo<std::net::SocketAddr>,
-    req: Request<Body>,
-    next: Next,
-) -> Response {
-    // Unix socket connections are identified by filesystem path, not TCP address.
-    // The separate Unix socket router (create_unix_socket_router_no_auth) handles
-    // all admin routes without authentication, as filesystem permissions control access.
-    next.run(req).await
 }
 
 /// Create admin router without authentication for Unix socket

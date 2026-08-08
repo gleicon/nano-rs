@@ -1,6 +1,6 @@
 [package]
 name = "nano-rs"
-version = "2.2.8"
+version = "2.3.0"
 edition = "2021"
 rust-version = "1.95"
 authors = ["Gleicon Moraes <gleicon@gmail.com>"]
@@ -114,6 +114,9 @@ base64 = "0.22"
 
 # Cryptographic randomness
 getrandom = "0.2"
+
+# Constant-time comparison to prevent timing attacks
+subtle = "2.6"
 
 # WebCrypto implementation via ring crate
 ring = "0.17"

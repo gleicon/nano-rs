@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 ///
 /// let config = ServerConfig::default();
 /// assert_eq!(config.port, 8080);
-/// assert_eq!(config.host, "0.0.0.0");
+/// assert_eq!(config.host, "127.0.0.1");
 /// ```
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -34,7 +34,7 @@ pub struct ServerConfig {
     /// Use "0.0.0.0" to listen on all interfaces,
     /// or "127.0.0.1" for localhost only.
     ///
-    /// Default: "0.0.0.0"
+    /// Default: "127.0.0.1"
     /// Environment variable: `NANO_HOST`
     pub host: String,
 
@@ -49,14 +49,13 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     /// Creates a default server configuration
     ///
-    /// Uses port 8080 and binds to all interfaces (0.0.0.0).
+    /// Uses port 8080 and binds to localhost (127.0.0.1).
     /// Includes example virtual host routes for testing.
-    /// These defaults are suitable for containerized deployments
-    /// and local development.
+    /// Set host to "0.0.0.0" explicitly for all-interface binding.
     fn default() -> Self {
         Self {
             port: 8080,
-            host: "0.0.0.0".to_string(),
+            host: "127.0.0.1".to_string(),
             routes: vec![
                 ("api.example.com".to_string(), "api".to_string()),
                 ("blog.example.com".to_string(), "blog".to_string()),
@@ -107,7 +106,7 @@ impl ServerConfig {
     /// # Environment Variables
     ///
     /// - `NANO_PORT` - Port number (default: 8080)
-    /// - `NANO_HOST` - Bind address (default: "0.0.0.0")
+    /// - `NANO_HOST` - Bind address (default: "127.0.0.1")
     ///
     /// # Errors
     ///
@@ -132,7 +131,7 @@ impl ServerConfig {
             .transpose()?
             .unwrap_or(8080);
 
-        let host = std::env::var("NANO_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+        let host = std::env::var("NANO_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
 
         // Default routes for from_env
         let routes = vec![
@@ -167,7 +166,7 @@ mod tests {
     fn test_default_config() {
         let config = ServerConfig::default();
         assert_eq!(config.port, 8080);
-        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.host, "127.0.0.1");
     }
 
     #[test]
@@ -196,7 +195,7 @@ mod tests {
         // This test may fail if env vars are set in the test environment
         let config = ServerConfig::from_env().unwrap();
         assert_eq!(config.port, 8080);
-        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.host, "127.0.0.1");
     }
 
     #[test]
@@ -213,7 +212,7 @@ mod tests {
         let config = ServerConfig::from(section);
 
         assert_eq!(config.port, 8080);
-        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.host, "127.0.0.1");
         assert!(config.routes.is_empty());
     }
 
