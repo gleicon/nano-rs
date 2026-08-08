@@ -342,15 +342,8 @@ await sessions.setJSON('tok:abc', { uid: 1, exp: Date.now() + 3600_000 });</pre>
                     </div>
                 </div>
 
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">localStorage shim (userland, built on nano:kv)</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300">// Copy examples/localStorage-shim.js into your app, then:
-import './localStorage-shim.js';
-
-await localStorage.setItem('theme', 'dark');
-const theme = await localStorage.getItem('theme'); // "dark"</pre>
-                    </div>
+                <div class="bg-purple-500/5 border border-purple-500/30 rounded-lg p-4 mb-6 text-sm text-slate-400">
+                    Want the browser <code class="text-purple-400">localStorage</code> API? See the <a href="#localstorage" class="text-purple-400 hover:text-purple-300 underline">localStorage shim section</a> below — it's built on <code class="text-purple-400">nano:kv</code>.
                 </div>
 
                 <div class="bg-slate-800/50 rounded-lg p-6">
@@ -373,6 +366,52 @@ const theme = await localStorage.getItem('theme'); // "dark"</pre>
                             <tr><td class="py-2 font-mono text-emerald-400">openKV(name)</td><td class="py-2 font-mono text-slate-500 text-xs">→ KVStore</td><td class="py-2">Open a named namespace — same API as <code>kv</code></td></tr>
                         </tbody>
                     </table>
+                </div>
+            </section>
+
+            <section class="mb-12 scroll-mt-20" id="localstorage">
+                <h2 class="text-2xl font-semibold text-white mb-2">localStorage shim <span class="text-sm font-normal bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded ml-1">v2.2.2+</span></h2>
+                <p class="text-slate-400 mb-4">A synchronous, browser-compatible <code class="text-purple-400">localStorage</code> API backed by <code class="text-purple-400">nano:kv</code>. Copy <a href="https://github.com/nano-rs/nano-rs/blob/main/examples/localStorage-shim.js" class="text-purple-400 hover:text-purple-300 underline" target="_blank"><code>examples/localStorage-shim.js</code></a> into your app and import it once — front-end code and Cloudflare Workers patterns that use <code class="text-purple-400">localStorage.*</code> run unchanged.</p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">localStorage-shim.js — usage</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Import once at the top of your app:
+import './localStorage-shim.js';
+
+// Then use the standard browser API anywhere:
+await localStorage.setItem('theme', 'dark');
+const theme = await localStorage.getItem('theme'); // "dark"
+await localStorage.removeItem('theme');
+localStorage.length;   // number of stored keys
+localStorage.key(0);   // key name at index 0
+await localStorage.clear(); // wipe all keys</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">localStorage API</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Method / Property</th>
+                                <th class="text-left py-2 text-white">Returns</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400 divide-y divide-slate-800">
+                            <tr><td class="py-2 font-mono text-purple-400">setItem(key, val)</td><td class="py-2 font-mono text-slate-500 text-xs">→ Promise&lt;void&gt;</td><td class="py-2">Store a string value</td></tr>
+                            <tr><td class="py-2 font-mono text-purple-400">getItem(key)</td><td class="py-2 font-mono text-slate-500 text-xs">→ Promise&lt;string | null&gt;</td><td class="py-2">Read a value; null if missing</td></tr>
+                            <tr><td class="py-2 font-mono text-purple-400">removeItem(key)</td><td class="py-2 font-mono text-slate-500 text-xs">→ Promise&lt;void&gt;</td><td class="py-2">Delete a key</td></tr>
+                            <tr><td class="py-2 font-mono text-purple-400">clear()</td><td class="py-2 font-mono text-slate-500 text-xs">→ Promise&lt;void&gt;</td><td class="py-2">Remove all keys in this namespace</td></tr>
+                            <tr><td class="py-2 font-mono text-purple-400">key(n)</td><td class="py-2 font-mono text-slate-500 text-xs">→ string | null</td><td class="py-2">Return the nth key name</td></tr>
+                            <tr><td class="py-2 font-mono text-purple-400">length</td><td class="py-2 font-mono text-slate-500 text-xs">number</td><td class="py-2">Number of stored entries</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="bg-yellow-500/5 border border-yellow-500/30 rounded-lg p-4 text-sm text-slate-400">
+                    <span class="text-yellow-400 font-semibold">Note:</span> The shim's <code class="text-yellow-300">setItem</code>/<code class="text-yellow-300">getItem</code>/<code class="text-yellow-300">removeItem</code>/<code class="text-yellow-300">clear</code> return <strong>Promises</strong> — unlike the synchronous browser DOM API — because nano:kv operations cross into Rust. Await them or chain with <code class="text-yellow-300">.then()</code>.
                 </div>
             </section>
 

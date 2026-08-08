@@ -171,12 +171,21 @@
                     <a href="docs/storage.html#kv" class="inline-block mt-3 text-xs text-emerald-400 hover:text-emerald-300 transition">API reference →</a>
                 </div>
 
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-purple-500 transition">
+                    <div class="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-purple-400 font-mono text-xl">⬡</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">localStorage <span class="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded ml-1">shim</span></h3>
+                    <p class="text-slate-400 text-sm">Drop-in browser <code class="text-purple-400">localStorage</code> API backed by <code class="text-purple-400">nano:kv</code>. Front-end code and Cloudflare Workers patterns using <code class="text-purple-400">localStorage.*</code> run unchanged — no rewrite needed.</p>
+                    <a href="docs/storage.html#localstorage" class="inline-block mt-3 text-xs text-purple-400 hover:text-purple-300 transition">API reference →</a>
+                </div>
+
                 <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-amber-500 transition">
                     <div class="w-12 h-12 bg-amber-500/20 rounded-lg flex items-center justify-center mb-4">
                         <span class="text-amber-400 font-mono text-xl">⬡</span>
                     </div>
                     <h3 class="text-lg font-semibold text-white mb-2">Node.js &amp; Browser APIs</h3>
-                    <p class="text-slate-400 text-sm"><code class="text-amber-400">require('path')</code>, <code class="text-amber-400">require('buffer')</code>, <code class="text-amber-400">process.env</code>, and a <code class="text-amber-400">localStorage</code> shim built on nano:kv — so npm packages and browser code run unchanged.</p>
+                    <p class="text-slate-400 text-sm"><code class="text-amber-400">require('path')</code>, <code class="text-amber-400">require('buffer')</code>, <code class="text-amber-400">require('assert')</code>, <code class="text-amber-400">process.env</code> — common npm packages work without a bundler shim.</p>
                     <a href="docs/compatibility.html" class="inline-block mt-3 text-xs text-amber-400 hover:text-amber-300 transition">Compatibility matrix →</a>
                 </div>
             </div>
@@ -235,7 +244,7 @@ await localStorage.setItem('theme', 'dark');</pre>
                 </div>
             </div>
             <div class="text-center mt-10">
-                <a href="docs/compatibility.html" class="text-slate-400 hover:text-white text-sm transition underline">View full compatibility matrix →</a>
+                <a href="docs/storage.html" class="text-slate-400 hover:text-white text-sm transition underline">View Storage &amp; Databases docs →</a>
             </div>
         </div>
     </section>
