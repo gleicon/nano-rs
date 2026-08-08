@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storage &amp; Databases - NANO Documentation</title>
+    <meta name="description" content="NANO storage layers: nano:kv (embedded EdgeStore KV), localStorage shim, VFS file storage, and external database patterns via fetch().">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="../index.html" class="flex items-center gap-2 text-white font-bold text-xl">
+                    <span class="text-blue-500 text-2xl">◆</span>
+                    NANO
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="quickstart.html" class="text-slate-400 hover:text-white transition">Quick Start</a>
+                    <a href="api.html" class="text-slate-400 hover:text-white transition">API</a>
+                    <a href="storage.html" class="text-white">Storage</a>
+                    <a href="websocket.html" class="text-slate-400 hover:text-white transition">WebSocket</a>
+                    <a href="slivers.html" class="text-slate-400 hover:text-white transition">Slivers</a>
+                    <a href="cli.html" class="text-slate-400 hover:text-white transition">CLI</a>
+                    <a href="runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
+                    <a href="architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
+                    <a href="compatibility.html" class="text-slate-400 hover:text-white transition">Compatibility</a>
+                    <a href="../index.html" class="text-slate-400 hover:text-white transition">Home</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+
+            <h1 class="text-4xl font-bold text-white mb-3">Storage &amp; Databases</h1>
+            <p class="text-lg text-slate-400 mb-10">NANO provides three built-in storage layers. Pick the right one for your data shape.</p>
+
+            <!-- Storage layer overview -->
+            <div class="grid md:grid-cols-3 gap-5 mb-14">
+                <a href="#kv" class="bg-emerald-500/5 border border-emerald-500/30 rounded-xl p-5 hover:border-emerald-400 transition block">
+                    <div class="text-emerald-400 font-semibold text-sm mb-2">nano:kv</div>
+                    <p class="text-xs text-slate-400">Embedded EdgeStore key-value database. Persistent across restarts. Namespaced per app. Best for counters, sessions, feature flags, structured config.</p>
+                </a>
+                <a href="#localstorage" class="bg-purple-500/5 border border-purple-500/30 rounded-xl p-5 hover:border-purple-400 transition block">
+                    <div class="text-purple-400 font-semibold text-sm mb-2">localStorage shim</div>
+                    <p class="text-xs text-slate-400">Browser-compatible <code>localStorage</code> API built on nano:kv. Drop-in for front-end code and Cloudflare Workers patterns using <code>localStorage.*</code>.</p>
+                </a>
+                <a href="#vfs" class="bg-blue-500/5 border border-blue-500/30 rounded-xl p-5 hover:border-blue-400 transition block">
+                    <div class="text-blue-400 font-semibold text-sm mb-2">VFS (Nano.fs)</div>
+                    <p class="text-xs text-slate-400">Virtual File System for static assets, config files, and binary data. Memory or disk backend, swappable to S3. Per-app namespace isolation.</p>
+                </a>
+            </div>
+
+            <!-- ── nano:kv ──────────────────────────────────────────────── -->
+            <section class="mb-16 scroll-mt-20" id="kv">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="text-emerald-400 text-2xl font-mono">⬡</span>
+                    <h2 class="text-2xl font-semibold text-white">nano:kv — Embedded Key-Value Database</h2>
+                    <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded">v2.2.2+</span>
+                </div>
+                <p class="text-slate-400 mb-6">
+                    <code class="text-emerald-400">nano:kv</code> wraps <a href="https://github.com/gleicon/edgestore" class="text-blue-400 hover:text-blue-300 underline" target="_blank">EdgeStore</a>, a Rust embedded KV engine.
+                    Data is stored in <code>.nano-kv/</code> next to the binary and persists across restarts.
+                    Every app gets its own namespace — <code class="text-slate-300">hostname::kv_name::key</code> — so tenants can never read each other's data.
+                </p>
+
+                <h3 class="text-lg font-semibold text-white mb-3">Persistent counter</h3>
+                <p class="text-slate-400 text-sm mb-3">Source: <a href="https://github.com/nano-rs/nano-rs/blob/main/examples/kv-counter.js" class="text-blue-400 hover:text-blue-300 underline" target="_blank">examples/kv-counter.js</a></p>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-8">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">kv-counter.js</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">import { kv } from 'nano:kv';
+
+export default {
+  async fetch(request) {
+    const raw = await kv.get('hits');
+    const hits = raw ? parseInt(new TextDecoder().decode(raw), 10) : 0;
+    const next = hits + 1;
+    await kv.set('hits', new TextEncoder().encode(String(next)));
+
+    return new Response(JSON.stringify({ hits: next }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  },
+};</pre>
+                    </div>
+                </div>
+
+                <h3 class="text-lg font-semibold text-white mb-3">Multiple namespaces with JSON helpers</h3>
+                <p class="text-slate-400 text-sm mb-3">Source: <a href="https://github.com/nano-rs/nano-rs/blob/main/examples/kv-namespaced.js" class="text-blue-400 hover:text-blue-300 underline" target="_blank">examples/kv-namespaced.js</a></p>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-8">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">kv-namespaced.js</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">import { kv, openKV } from 'nano:kv';
+
+// Each openKV() call creates an isolated namespace within this app
+const cache    = openKV('cache');
+const sessions = openKV('sessions');
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/set' && request.method === 'POST') {
+      const body = await request.json();
+      await cache.setJSON(body.key, body.value);       // JSON helper
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/get') {
+      const value = await cache.getJSON(url.searchParams.get('key'));
+      return Response.json({ value });
+    }
+
+    if (url.pathname === '/list') {
+      const prefix = url.searchParams.get('prefix') ?? '';
+      const entries = await cache.list(prefix);         // prefix scan
+      return Response.json(entries.map(([k, v]) => ({
+        key: k, value: new TextDecoder().decode(v),
+      })));
+    }
+
+    return new Response('Not Found', { status: 404 });
+  },
+};</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-8">
+                    <h3 class="text-lg font-semibold text-white mb-4">Full API</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Method</th>
+                                <th class="text-left py-2 text-white">Returns</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400 divide-y divide-slate-800">
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.get(key)</td><td class="py-2 font-mono text-xs">Uint8Array | null</td><td class="py-2">Read raw bytes. Returns null if key absent.</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.set(key, value)</td><td class="py-2 font-mono text-xs">void</td><td class="py-2">Write bytes or string. Overwrites silently.</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.delete(key)</td><td class="py-2 font-mono text-xs">void</td><td class="py-2">Remove a key. No-op if absent.</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.list(prefix)</td><td class="py-2 font-mono text-xs">[string, Uint8Array][]</td><td class="py-2">All keys matching prefix, with their values.</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.getJSON(key)</td><td class="py-2 font-mono text-xs">any | null</td><td class="py-2">Read and JSON.parse. Null if absent.</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.setJSON(key, val)</td><td class="py-2 font-mono text-xs">void</td><td class="py-2">JSON.stringify and write.</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">openKV(name)</td><td class="py-2 font-mono text-xs">KVStore</td><td class="py-2">Open a named namespace. Same API as <code>kv</code>.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-5">
+                    <h4 class="text-sm font-semibold text-white mb-2">Data directory</h4>
+                    <p class="text-xs text-slate-400">EdgeStore files live in <code class="text-slate-300">.nano-kv/kv/</code> relative to the working directory. The engine is shared across all worker threads (one <code>Mutex&lt;Engine&gt;</code>); each app is isolated by key prefix.</p>
+                </div>
+            </section>
+
+            <!-- ── localStorage shim ──────────────────────────────────── -->
+            <section class="mb-16 scroll-mt-20" id="localstorage">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="text-purple-400 text-2xl font-mono">□</span>
+                    <h2 class="text-2xl font-semibold text-white">localStorage — Browser-Compatible KV</h2>
+                </div>
+                <p class="text-slate-400 mb-6">
+                    NANO ships a userland <code class="text-purple-400">localStorage</code> shim built on <code class="text-emerald-400">nano:kv</code>.
+                    Copy <code class="text-slate-300">examples/localStorage-shim.js</code> into your app and import it once — after that, <code class="text-purple-400">localStorage.setItem</code> / <code class="text-purple-400">getItem</code> / <code class="text-purple-400">removeItem</code> / <code class="text-purple-400">clear</code> work exactly like in a browser.
+                    Data is persisted via EdgeStore, not lost between requests.
+                </p>
+
+                <p class="text-slate-400 text-sm mb-3">Source: <a href="https://github.com/nano-rs/nano-rs/blob/main/examples/localStorage-shim.js" class="text-blue-400 hover:text-blue-300 underline" target="_blank">examples/localStorage-shim.js</a></p>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">localStorage-shim.js</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">import { openKV } from 'nano:kv';
+
+const store = openKV('localStorage');
+
+const localStorage = {
+  async getItem(key) {
+    const bytes = await store.get(String(key));
+    return bytes ? new TextDecoder().decode(bytes) : null;
+  },
+  async setItem(key, value) {
+    await store.set(String(key), new TextEncoder().encode(String(value)));
+  },
+  async removeItem(key) {
+    await store.delete(String(key));
+  },
+  async clear() {
+    const entries = await store.list('');
+    await Promise.all(entries.map(([k]) => store.delete(k)));
+  },
+  async length() {
+    return (await store.list('')).length;
+  },
+  async key(index) {
+    const entries = await store.list('');
+    return index &lt; entries.length ? entries[index][0] : null;
+  },
+};
+
+globalThis.localStorage = localStorage;
+export { localStorage };</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">usage in your handler</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Import once at the top of your entry point
+import './localStorage-shim.js';
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/set') {
+      const key   = url.searchParams.get('key')   ?? 'default';
+      const value = url.searchParams.get('value') ?? '';
+      await localStorage.setItem(key, value);
+      return Response.json({ ok: true, key, value });
+    }
+
+    if (url.pathname === '/get') {
+      const key   = url.searchParams.get('key') ?? 'default';
+      const value = await localStorage.getItem(key);
+      return Response.json({ key, value });
+    }
+
+    return new Response('Use /set?key=k&amp;value=v or /get?key=k');
+  },
+};</pre>
+                    </div>
+                </div>
+
+                <div class="bg-amber-500/5 border border-amber-500/30 rounded-lg p-4">
+                    <p class="text-xs text-slate-400"><strong class="text-amber-400">Note:</strong> The shim methods are async (they return Promises), unlike the synchronous browser <code>localStorage</code>. This is intentional — storage I/O in an edge runtime must not block the event loop. Add <code class="text-slate-300">await</code> before every call.</p>
+                </div>
+            </section>
+
+            <!-- ── VFS ─────────────────────────────────────────────────── -->
+            <section class="mb-16 scroll-mt-20" id="vfs">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="text-blue-400 text-2xl font-mono">📁</span>
+                    <h2 class="text-2xl font-semibold text-white">VFS — Virtual File System</h2>
+                </div>
+                <p class="text-slate-400 mb-6">
+                    <code class="text-blue-400">Nano.fs</code> exposes an async file system API backed by the Virtual File System. The default backend is in-memory; a disk backend can be configured. For cloud deployments an S3-compatible backend is available via the <code class="text-slate-300">vfs-s3</code> feature flag.
+                    VFS is ideal for <strong class="text-slate-300">static assets</strong>, <strong class="text-slate-300">config files loaded at startup</strong>, and <strong class="text-slate-300">larger binary blobs</strong> where a KV key is not the right shape.
+                </p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Reading config and serving static files</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    // Read a JSON config bundled into the VFS
+    if (url.pathname === '/config') {
+      const raw    = await Nano.fs.readFile('/data/config.json', 'utf-8');
+      const config = JSON.parse(raw);
+      return Response.json(config);
+    }
+
+    // Serve a static HTML file
+    if (url.pathname === '/') {
+      const html = await Nano.fs.readFile('/public/index.html', 'utf-8');
+      return new Response(html, {
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+
+    // Write a log entry
+    if (url.pathname === '/log' && request.method === 'POST') {
+      const body = await request.text();
+      await Nano.fs.writeFile('/logs/access.log', body + '\n');
+      return Response.json({ ok: true });
+    }
+
+    return new Response('Not Found', { status: 404 });
+  },
+};</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-white mb-4">Nano.fs API</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Method</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400 divide-y divide-slate-800">
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.readFile(path, enc?)</td><td class="py-2">Read file. Returns string (with encoding) or Uint8Array.</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.writeFile(path, data)</td><td class="py-2">Write string or Uint8Array to path.</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.exists(path)</td><td class="py-2">Returns boolean. Does not throw.</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.deleteFile(path)</td><td class="py-2">Remove a file.</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">Nano.fs.listDir(path)</td><td class="py-2">List directory contents (partial support).</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">require('fs').readFileSync()</td><td class="py-2">Sync Node.js-compatible read from VFS.</td></tr>
+                            <tr><td class="py-2 font-mono text-blue-400">require('fs').writeFileSync()</td><td class="py-2">Sync Node.js-compatible write to VFS.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-4">
+                    <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
+                        <div class="text-sm font-semibold text-white mb-1">Memory backend</div>
+                        <p class="text-xs text-slate-400">Default. Files live in RAM, cleared on process exit. Fast for tests and ephemeral data.</p>
+                    </div>
+                    <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
+                        <div class="text-sm font-semibold text-white mb-1">Disk backend</div>
+                        <p class="text-xs text-slate-400">Files persisted to the local filesystem under a configurable root path.</p>
+                    </div>
+                    <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
+                        <div class="text-sm font-semibold text-white mb-1">S3 backend</div>
+                        <p class="text-xs text-slate-400">S3-compatible object storage via <code class="text-slate-300">vfs-s3</code> feature. Replication-ready for multi-node deploys.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── External databases ─────────────────────────────────── -->
+            <section class="mb-16 scroll-mt-20" id="external">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="text-slate-400 text-2xl font-mono">⇄</span>
+                    <h2 class="text-2xl font-semibold text-white">External Databases via <code class="text-blue-400">fetch()</code></h2>
+                </div>
+                <p class="text-slate-400 mb-6">
+                    NANO does not support raw TCP sockets (<code>net</code>, <code>pg</code> native driver, etc.). For traditional databases, use an HTTP-based proxy or a serverless HTTP database client.
+                </p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">PlanetScale / Neon / Turso — HTTP database clients</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Works with any HTTP-based database driver bundled via esbuild
+import { Client } from '@libsql/client/http';   // Turso (LibSQL)
+
+const db = new Client({
+  url: process.env.DATABASE_URL,
+  authToken: process.env.DATABASE_TOKEN,
+});
+
+export default {
+  async fetch(request) {
+    const { rows } = await db.execute(
+      'SELECT id, name FROM users WHERE active = 1 LIMIT 10'
+    );
+    return Response.json({ users: rows });
+  },
+};</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Redis via Upstash REST API</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const UPSTASH_URL   = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+async function redisGet(key) {
+  const res = await fetch(`${UPSTASH_URL}/get/${key}`, {
+    headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+  });
+  const { result } = await res.json();
+  return result;
+}
+
+async function redisSet(key, value, ttlSecs) {
+  await fetch(`${UPSTASH_URL}/set/${key}/${encodeURIComponent(value)}${ttlSecs ? `/ex/${ttlSecs}` : ''}`, {
+    headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+  });
+}
+
+export default {
+  async fetch(request) {
+    const cached = await redisGet('hot-data');
+    if (cached) return Response.json(JSON.parse(cached));
+
+    // ... fetch from origin, store in Redis
+    const data = { ts: Date.now() };
+    await redisSet('hot-data', JSON.stringify(data), 60);
+    return Response.json(data);
+  },
+};</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-sm font-semibold text-white mb-3">HTTP-compatible database services</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Service</th>
+                                <th class="text-left py-2 text-white">Type</th>
+                                <th class="text-left py-2 text-white">Driver pattern</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400 divide-y divide-slate-800">
+                            <tr><td class="py-2">Turso / LibSQL</td><td class="py-2">SQLite (edge)</td><td class="py-2 font-mono text-xs">@libsql/client/http (bundle with esbuild)</td></tr>
+                            <tr><td class="py-2">Neon</td><td class="py-2">Postgres (serverless)</td><td class="py-2 font-mono text-xs">@neondatabase/serverless (HTTP mode)</td></tr>
+                            <tr><td class="py-2">PlanetScale</td><td class="py-2">MySQL (serverless)</td><td class="py-2 font-mono text-xs">@planetscale/database</td></tr>
+                            <tr><td class="py-2">Upstash Redis</td><td class="py-2">Redis (REST API)</td><td class="py-2 font-mono text-xs">@upstash/redis or raw fetch()</td></tr>
+                            <tr><td class="py-2">Cloudflare D1</td><td class="py-2">SQLite (REST API)</td><td class="py-2 font-mono text-xs">fetch() to CF API or @cloudflare/d1-rest</td></tr>
+                            <tr><td class="py-2">Supabase</td><td class="py-2">Postgres (REST)</td><td class="py-2 font-mono text-xs">@supabase/supabase-js (REST mode)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Choosing the right storage -->
+            <section class="mb-12">
+                <h2 class="text-2xl font-semibold text-white mb-6">Choosing the right storage</h2>
+                <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-800">
+                            <tr>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Use case</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Recommended</th>
+                                <th class="text-left px-4 py-3 text-white font-semibold">Why</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800">
+                            <tr>
+                                <td class="px-4 py-3 text-slate-300">Request counters, feature flags</td>
+                                <td class="px-4 py-3 font-mono text-emerald-400">nano:kv</td>
+                                <td class="px-4 py-3 text-slate-400">Zero-latency local reads, no network hop</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-slate-300">Session tokens, short-lived cache</td>
+                                <td class="px-4 py-3 font-mono text-emerald-400">nano:kv (openKV)</td>
+                                <td class="px-4 py-3 text-slate-400">Named namespace keeps sessions isolated from other KV data</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-slate-300">Browser-targeting code using localStorage</td>
+                                <td class="px-4 py-3 font-mono text-purple-400">localStorage shim</td>
+                                <td class="px-4 py-3 text-slate-400">Drop-in — no code changes, persistent via EdgeStore</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-slate-300">Static assets, config files</td>
+                                <td class="px-4 py-3 font-mono text-blue-400">Nano.fs (VFS)</td>
+                                <td class="px-4 py-3 text-slate-400">Path-based access, binary blobs, bundled at deploy time</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-slate-300">Relational data, complex queries</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">External (Turso/Neon)</td>
+                                <td class="px-4 py-3 text-slate-400">SQL semantics, joins, transactions — use HTTP drivers</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 text-slate-300">Global cache / pub-sub</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">External (Upstash Redis)</td>
+                                <td class="px-4 py-3 text-slate-400">Cross-node visibility, TTL, pub-sub need network-accessible store</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <div class="mt-12 flex justify-between items-center">
+                <a href="api.html" class="text-slate-400 hover:text-white transition">&larr; API Reference</a>
+                <a href="websocket.html" class="text-slate-400 hover:text-white transition">WebSocket &rarr;</a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-sm text-slate-500">
+                <p>&copy; 2026 nano-rs project. Released under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
