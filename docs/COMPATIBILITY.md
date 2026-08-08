@@ -1,7 +1,7 @@
 # NANO Runtime Compatibility Matrix
 
-**Version:** 1.5.0  
-**Last Updated:** 2026-05-02
+**Version:** 2.3.0  
+**Last Updated:** 2026-08-08
 
 ---
 
@@ -69,11 +69,46 @@
 | fs.writeFileSync | ⚠️ Partial | Limited support | Use async writeFile |
 | fs.existsSync | ✅ Complete | Sync check | |
 
-**Implemented via `require()`:**
-- `require('path')` — join, dirname, basename, extname, resolve, isAbsolute, normalize
-- `require('buffer')` — Buffer.from, alloc, isBuffer, concat (returns Uint8Array)
-- `require('assert')` — ok, equal, strictEqual, notEqual
-- `process.env` — app env vars (set via `env_vars` in config); `process.version`, `process.platform`
+**Implemented via `require()` (added in v2.2.2):**
+
+See full working example: [`examples/node-compat.js`](../examples/node-compat.js)
+
+```javascript
+// require('path') — join, dirname, basename, extname, normalize, isAbsolute
+const path = require('path');
+path.join('/var', 'app', 'config.json'); // → "/var/app/config.json"
+path.dirname('/var/app/config.json');    // → "/var/app"
+path.basename('/var/app/config.json');   // → "config.json"
+path.extname('/var/app/config.json');    // → ".json"
+path.isAbsolute('/abs');                 // → true
+path.normalize('/var//app/../app/f');    // → "/var/app/f"
+```
+
+```javascript
+// require('buffer') — Buffer.from, alloc, isBuffer, concat (returns Uint8Array)
+const { from, alloc, isBuffer, concat } = require('buffer');
+const a = from('hello ');
+const b = from('world');
+new TextDecoder().decode(concat([a, b])); // → "hello world"
+isBuffer(a);                              // → true
+```
+
+```javascript
+// require('assert') — ok, equal, strictEqual, notEqual
+const assert = require('assert');
+assert.ok(true);
+assert.equal(1 + 1, 2);
+assert.strictEqual('a', 'a');
+assert.notEqual(1, 2);
+```
+
+```javascript
+// process.env — app env vars set via env_vars config; process.version; process.platform
+// Config: { "apps": [{ "env_vars": { "NODE_ENV": "production" } }] }
+process.env.NODE_ENV;  // → "production"
+process.version;       // → "v18.0.0"
+process.platform;      // → "linux"
+```
 
 **NOT Implemented (by design):**
 - Node.js http module — Use WinterTC fetch() instead
@@ -100,7 +135,55 @@
 | Nano.fs.mkdir | ❌ Not Implemented | Planned for v2.0 |
 | `nano:kv` (default KV) | ✅ Complete | `import { kv } from 'nano:kv'` — get/set/delete/list, getJSON/setJSON, hostname-namespaced |
 | `nano:kv` (named namespace) | ✅ Complete | `openKV('name')` — isolated named KV store per app |
-| `localStorage` shim | ✅ Available | Userland shim — see `examples/localStorage-shim.js` |
+| `localStorage` shim | ✅ Available | Userland shim — see [`examples/localStorage-shim.js`](../examples/localStorage-shim.js) |
+
+### `nano:kv` — Persistent Key-Value Store (v2.2.2+)
+
+Keys are stored in EdgeStore and automatically namespaced by hostname, so two apps
+on the same process never see each other's data.
+
+See full examples: [`examples/kv-counter.js`](../examples/kv-counter.js), [`examples/kv-namespaced.js`](../examples/kv-namespaced.js)
+
+```javascript
+import { kv, openKV } from 'nano:kv';
+
+// Default namespace — scoped to current app hostname
+await kv.set('hits', new TextEncoder().encode('42'));
+const raw = await kv.get('hits');
+new TextDecoder().decode(raw); // → "42"
+await kv.delete('hits');
+
+// JSON helpers — serialize/deserialize automatically
+await kv.setJSON('config', { version: 3, enabled: true });
+const cfg = await kv.getJSON('config'); // → { version: 3, enabled: true }
+
+// Named namespaces — isolated slices within one app
+const cache    = openKV('cache');
+const sessions = openKV('sessions');
+await cache.set('user:1', new TextEncoder().encode('Alice'));
+await sessions.setJSON('tok:abc', { uid: 1, exp: Date.now() + 3600000 });
+
+// List keys by prefix
+const entries = await cache.list('user:');
+// entries: [['user:1', Uint8Array], ...]
+```
+
+### `localStorage` Shim (userland, built on `nano:kv`)
+
+See full example: [`examples/localStorage-shim.js`](../examples/localStorage-shim.js)
+
+```javascript
+import { openKV } from 'nano:kv';
+
+const store = openKV('localStorage');
+
+globalThis.localStorage = {
+  async getItem(key)       { const b = await store.get(String(key)); return b ? new TextDecoder().decode(b) : null; },
+  async setItem(key, val)  { await store.set(String(key), new TextEncoder().encode(String(val))); },
+  async removeItem(key)    { await store.delete(String(key)); },
+  async clear()            { const e = await store.list(''); await Promise.all(e.map(([k]) => store.delete(k))); },
+};
+```
 
 ---
 
@@ -202,24 +285,23 @@ Quick reference:
 | Node.js Pattern | NANO Equivalent |
 |-----------------|----------------|
 | `http.createServer()` | `export default { fetch }` |
-| `process.env.VAR` | Request headers or VFS config |
+| `process.env.VAR` | `process.env.VAR` (set via `env_vars` in config) |
 | `fs.readFileSync()` | `await Nano.fs.readFile()` |
 | `crypto.createHash()` | `crypto.subtle.digest()` |
 | `path.join()` | `new URL()` |
 
 ---
 
-## Upcoming in v2.0
+## Upcoming
 
 | Feature | Status |
 |---------|--------|
-| WebSocket Server | Planned |
-| RSA/ECDSA Algorithms | Planned |
+| RSA/ECDSA full algorithm suite | In progress |
 | Compression Streams | Planned |
 | Inter-Isolate Messaging | Planned |
 | Full VFS Directory Operations | Planned |
 
-See [ROADMAP](../.planning/ROADMAP.md) for full details.
+See [CHANGELOG](../CHANGELOG.md) for shipped features.
 
 ---
 
@@ -232,4 +314,4 @@ See [ROADMAP](../.planning/ROADMAP.md) for full details.
 
 ---
 
-*Last updated: 2026-05-02*
+*Last updated: 2026-08-08*

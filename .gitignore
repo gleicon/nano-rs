@@ -44,6 +44,9 @@ Thumbs.db
 /var/
 /run/
 
+# KV engine data (EdgeStore files created by nano:kv tests and runtime)
+.nano-kv/
+
 # GSD/planning (kept locally, not committed)
 .planning/
 # Added by goreleaser init:

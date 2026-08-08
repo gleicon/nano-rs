@@ -661,8 +661,213 @@ This guide covers:
 
 ---
 
+## 4. Persistent KV Storage (`nano:kv`)
+
+NANO includes a built-in EdgeStore-backed key-value store accessible as `nano:kv`.
+Keys are automatically namespaced by hostname — no cross-tenant leakage.
+
+Full example: [`examples/kv-counter.js`](examples/kv-counter.js)
+
+```javascript
+import { kv } from 'nano:kv';
+
+export default {
+  async fetch(request) {
+    const raw = await kv.get('hits');
+    const hits = raw ? parseInt(new TextDecoder().decode(raw), 10) : 0;
+    const next = hits + 1;
+    await kv.set('hits', new TextEncoder().encode(String(next)));
+
+    return new Response(JSON.stringify({ hits: next }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  },
+};
+```
+
+```bash
+curl http://localhost:8080/
+# {"hits":1}
+curl http://localhost:8080/
+# {"hits":2}
+```
+
+### Multiple KV namespaces with JSON helpers
+
+Full example: [`examples/kv-namespaced.js`](examples/kv-namespaced.js)
+
+```javascript
+import { kv, openKV } from 'nano:kv';
+
+const cache = openKV('cache');
+const sessions = openKV('sessions');
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/set' && request.method === 'POST') {
+      const body = await request.json();
+      await cache.setJSON(body.key, body.value);
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/get') {
+      const key = url.searchParams.get('key');
+      const value = await cache.getJSON(key);
+      return new Response(JSON.stringify({ key, value }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/list') {
+      const prefix = url.searchParams.get('prefix') ?? '';
+      const entries = await cache.list(prefix);
+      const result = entries.map(([k, v]) => ({
+        key: k,
+        value: new TextDecoder().decode(v),
+      }));
+      return new Response(JSON.stringify(result), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    return new Response('Not Found', { status: 404 });
+  },
+};
+```
+
+```bash
+curl -X POST http://localhost:8080/set -d '{"key":"x","value":42}' -H 'content-type: application/json'
+curl "http://localhost:8080/get?key=x"
+# {"key":"x","value":42}
+```
+
+---
+
+## 5. Node.js Compatibility (`require`, `process.env`)
+
+NANO polyfills the most common Node.js APIs so npm packages that use `path`,
+`buffer`, or `assert` work without modification.
+
+Full example: [`examples/node-compat.js`](examples/node-compat.js)
+
+```javascript
+const path = require('path');
+const { from: bufferFrom, isBuffer, concat } = require('buffer');
+const assert = require('assert');
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/path') {
+      const joined = path.join('/var', 'app', 'config.json');
+      const dir = path.dirname(joined);
+      const base = path.basename(joined);
+      const ext = path.extname(joined);
+      return new Response(JSON.stringify({ joined, dir, base, ext }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/buffer') {
+      const a = bufferFrom('hello ');
+      const b = bufferFrom('world');
+      const combined = concat([a, b]);
+      const text = new TextDecoder().decode(combined);
+      return new Response(JSON.stringify({ text, isBuffer: isBuffer(a) }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/env') {
+      const node_env = process.env.NODE_ENV ?? 'not set';
+      const version = process.version;
+      return new Response(JSON.stringify({ node_env, version }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    return new Response('Not Found', { status: 404 });
+  },
+};
+```
+
+Set `NODE_ENV` via the app config:
+
+```json
+{
+  "apps": [{
+    "hostname": "api.example.com",
+    "entrypoint": "./node-compat.js",
+    "env_vars": { "NODE_ENV": "production" }
+  }]
+}
+```
+
+```bash
+curl http://localhost:8080/path
+# {"joined":"/var/app/config.json","dir":"/var/app","base":"config.json","ext":".json"}
+curl http://localhost:8080/env
+# {"node_env":"production","version":"v18.0.0"}
+```
+
+---
+
+## 6. `localStorage` Shim (built on `nano:kv`)
+
+A drop-in browser `localStorage` API backed by `nano:kv` — useful for running
+front-end code that reads from `localStorage` unchanged.
+
+Full example: [`examples/localStorage-shim.js`](examples/localStorage-shim.js)
+
+```javascript
+import { openKV } from 'nano:kv';
+
+const store = openKV('localStorage');
+
+const localStorage = {
+  async getItem(key) {
+    const bytes = await store.get(String(key));
+    return bytes ? new TextDecoder().decode(bytes) : null;
+  },
+
+  async setItem(key, value) {
+    await store.set(String(key), new TextEncoder().encode(String(value)));
+  },
+
+  async removeItem(key) {
+    await store.delete(String(key));
+  },
+
+  async clear() {
+    const entries = await store.list('');
+    await Promise.all(entries.map(([k]) => store.delete(k)));
+  },
+};
+
+globalThis.localStorage = localStorage;
+
+export { localStorage };
+```
+
+```bash
+# Import the shim at the top of your app, then use localStorage normally
+curl "http://localhost:8080/set?key=theme&value=dark"
+curl "http://localhost:8080/get?key=theme"
+# {"key":"theme","value":"dark"}
+```
+
+---
+
 ## See Also
 
 - [API Reference](docs/API.md) - Complete WinterTC API documentation
 - [CLI Reference](docs/CLI.md) - All CLI commands
 - [Config Reference](docs/CONFIG.md) - Full configuration schema
+- [Node.js Compatibility Guide](docs/NODEJS_COMPAT.md) - Migration patterns
+- [Compatibility Matrix](docs/COMPATIBILITY.md) - Full API surface coverage
