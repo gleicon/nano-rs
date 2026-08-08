@@ -1,7 +1,7 @@
 # NANO Runtime Technical Documentation
 
-Version: v2.2.1  
-Last Updated: 2026-07-31
+Version: v2.3.0  
+Last Updated: 2026-08-08
 
 ## Executive Summary
 
@@ -202,7 +202,7 @@ See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks and tuning g
 
 - Per-isolate VFS namespaces prevent filesystem escape
 - Path traversal blocked (".." sequences rejected)
-- SSRF prevention blocks private IP ranges
+- SSRF prevention blocks private/internal IPs (RFC1918, loopback, link-local, IPv4-mapped IPv6) and internal hostnames
 - Dangerous headers filtered (Content-Length, Host, etc.)
 - URL scheme restricted to http/https only
 - Request timeouts enforced per-isolate

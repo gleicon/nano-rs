@@ -1,7 +1,7 @@
 # NANO Configuration Reference
 
-**Version:** 1.5.0  
-**Last Updated:** 2026-05-02
+**Version:** 2.3.0  
+**Last Updated:** 2026-08-08
 
 ---
 
@@ -53,10 +53,10 @@ nano-rs run --config dev.json
 ```json
 {
   "server": {
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "port": 8080,
     "admin_port": 8889,
-    "admin_api_key": null,
+    "admin_api_key": "your-secret-key-min-32-chars",
     "admin_unix_socket": "/tmp/nano-admin.sock"
   },
   "logging": {
@@ -94,11 +94,11 @@ nano-rs run --config dev.json
 
 ### host
 - **Type:** string
-- **Default:** `"0.0.0.0"`
+- **Default:** `"127.0.0.1"` (changed from `"0.0.0.0"` in v2.3.0)
 - **Description:** HTTP server bind address
 - **Examples:**
-  - `"127.0.0.1"` — localhost only
-  - `"0.0.0.0"` — all interfaces
+  - `"127.0.0.1"` — localhost only (default; safe for proxied deployments)
+  - `"0.0.0.0"` — all interfaces (set explicitly for direct public access)
   - `"192.168.1.100"` — specific interface
 - **CLI override:** `--host`
 
@@ -116,11 +116,11 @@ nano-rs run --config dev.json
 - **Examples:** `8889`, `9090`
 
 ### admin_api_key
-- **Type:** string | null
-- **Default:** `null`
+- **Type:** string
+- **Default:** none (required)
 - **Description:** API key for admin HTTP endpoints
-- **Important:** If null, no authentication required (local dev only)
-- **Security:** Use strong random key in production
+- **Important:** If not set, all admin API requests are denied with 401 (changed in v2.3.0 — previously allowed all requests)
+- **Security:** Use strong random key; minimum 32 characters recommended (`openssl rand -hex 32`)
 - **Example:** `"sk_live_abc123xyz789"`
 
 ### admin_unix_socket

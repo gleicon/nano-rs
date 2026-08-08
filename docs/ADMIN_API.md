@@ -449,7 +449,7 @@ curl -s -H "X-API-Key: secret" http://localhost:8889/metrics | \
 
 ## Unix Domain Socket
 
-On Unix systems, the admin API is also available via Unix domain socket for local access without authentication:
+On Unix systems, the admin API is also available via Unix domain socket for local access. No API key is required — access is controlled entirely by filesystem permissions on the socket file (mode 0660, owner+group):
 
 ```bash
 # Default socket path

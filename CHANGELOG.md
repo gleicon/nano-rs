@@ -3,6 +3,22 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-08-08
+
+### Security
+
+- **SSRF filter — IPv4-mapped IPv6 bypass fixed** (`fetch.rs`) — The previous SSRF blocklist checked plain IPv4 and IPv6 separately but missed IPv4-mapped IPv6 addresses (`::ffff:x.x.x.x`). A request to `http://[::ffff:127.0.0.1]/` bypassed all checks. Now the IPv6 arm calls `to_ipv4_mapped()` and applies the full IPv4 private-range logic to the mapped address.
+- **SSRF filter — private IP ranges actually enforced** (`fetch.rs`) — The module-level comment claimed SSRF prevention was in place, but no code implemented it. Added `is_ssrf_blocked()` blocking RFC1918, loopback (127.0.0.0/8), link-local (169.254.0.0/16), CGNAT (100.64.0.0/10), and internal hostnames (`localhost`, `*.local`, `*.internal`, GCP/AWS metadata).
+- **Admin API key comparison — length-timing channel closed** (`admin/auth.rs`) — Previous XOR-fold short-circuited on `len != len`, leaking key length via response timing. Now both keys are SHA-256 hashed first, then compared with `subtle::ConstantTimeEq` on the fixed 32-byte digests — comparison time is independent of input length.
+- **Admin API unconfigured key — deny instead of allow** (`admin/auth.rs`) — A missing API key previously logged a warning and allowed all requests. Now returns 401. A misconfigured deployment no longer becomes an open admin API.
+- **Default bind address changed from `0.0.0.0` to `127.0.0.1`** (`config/mod.rs`, `http/config.rs`, `admin/server.rs`) — Both the data plane (port 8080) and admin API (port 8889) now default to localhost-only binding. Operators who need public or LAN binding must set `"host": "0.0.0.0"` explicitly in config. **Breaking change** for deployments relying on the default bind address.
+- **Unix socket — removed hardcoded credential** (`admin/unix_socket.rs`, `main.rs`) — The unix socket server was passing the auth-gated router with a hardcoded key `"unix-socket-unused"` visible in source. Now uses `create_unix_socket_router_no_auth`; access is gated by socket file permissions (mode 0660) as intended.
+- **JSON injection in diagnostics** (`admin/diagnostics.rs`) — `format_json()` interpolated `app.hostname` and `app.uptime` directly into a manually constructed JSON string. Control characters, quotes, and backslashes in a hostname would corrupt the output. Replaced with `serde_json::json!`.
+
+### Added
+
+- `subtle = "2.6"` dependency for constant-time byte comparison.
+
 ## [2.2.1] - 2026-08-02
 
 ### Fixed

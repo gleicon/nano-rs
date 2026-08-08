@@ -72,13 +72,14 @@ NANO implements defense-in-depth security to protect against malicious tenant co
 - **Test Coverage:** 7 adversarial tests (cross-tenant file access, memory isolation, hostname spoofing)
 
 ### 8. Cryptographic Security
-- **Mechanism:** ring crate implementation with constant-time operations
+- **Mechanism:** ring crate + subtle crate constant-time operations
 - **Features:**
-  - Constant-time comparison for HMAC/verification
+  - API key comparison: SHA-256 digest of both keys, then `subtle::ConstantTimeEq` — comparison time is independent of key length
+  - Constant-time HMAC/verification for WebCrypto
   - Cryptographically secure random generation (getrandom)
   - Non-extractable key support
   - Weak key rejection (RSA < 2048, weak curves)
-- **Mitigation:** Timing attacks, weak keys, predictable randomness
+- **Mitigation:** Timing attacks (including length-based), weak keys, predictable randomness
 - **Test Coverage:** 9 adversarial tests (weak RSA/EC/AES, constant-time, random validation)
 
 ## Adversarial Test Coverage
