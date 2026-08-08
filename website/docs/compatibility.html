@@ -39,8 +39,27 @@
 
             <section class="mb-12">
                 <h2 class="text-2xl font-semibold text-white mb-4">Overview</h2>
-                <p class="text-slate-400 mb-4">NANO is a <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a>-compatible runtime providing web-standard APIs (fetch, Request, Response) rather than Node.js-specific APIs (fs, path, http).</p>
-                <p class="text-slate-400">The nano-compat library provides polyfills for common Node.js patterns requiring backward compatibility.</p>
+                <p class="text-slate-400 mb-6">NANO speaks three dialects. Your code can use any combination.</p>
+
+                <div class="grid md:grid-cols-3 gap-5 mb-6">
+                    <div class="bg-blue-500/5 border border-blue-500/30 rounded-xl p-5">
+                        <div class="text-blue-400 font-semibold text-sm mb-2">WinterTC / Cloudflare Workers</div>
+                        <p class="text-xs text-slate-400 mb-3">Web-standard APIs. Drop-in replacement for Workers code. 100% of the minimum common API surface.</p>
+                        <code class="text-xs text-blue-400">fetch · Request · Response · WebCrypto · streams</code>
+                    </div>
+                    <div class="bg-amber-500/5 border border-amber-500/30 rounded-xl p-5">
+                        <div class="text-amber-400 font-semibold text-sm mb-2">Node.js packages</div>
+                        <p class="text-xs text-slate-400 mb-3">Most npm packages that target edge runtimes work out of the box via built-in polyfills.</p>
+                        <code class="text-xs text-amber-400">require('path') · require('buffer') · process.env</code>
+                    </div>
+                    <div class="bg-emerald-500/5 border border-emerald-500/30 rounded-xl p-5">
+                        <div class="text-emerald-400 font-semibold text-sm mb-2">Browser APIs + nano:kv</div>
+                        <p class="text-xs text-slate-400 mb-3">localStorage shim built on nano:kv means browser-targeting code runs unmodified.</p>
+                        <code class="text-xs text-emerald-400">nano:kv · openKV · localStorage shim</code>
+                    </div>
+                </div>
+
+                <p class="text-slate-400">NANO is a <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a>-compatible runtime. Where Node.js APIs are available they are polyfilled — not at full fidelity, but enough for the common edge patterns. <code class="text-slate-300">http</code>, <code class="text-slate-300">net</code>, <code class="text-slate-300">os</code>, and native addons are out of scope by design.</p>
             </section>
 
             <section class="mb-12">
@@ -190,7 +209,7 @@ const result = instance.exports.add(1, 2);</pre>
             </section>
 
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">nano: Built-in Modules</h2>
+                <h2 class="text-2xl font-semibold text-white mb-4" id="kv">nano: Built-in Modules</h2>
                 <p class="text-slate-400 mb-4">nano-rs exposes its own APIs under the <code class="text-blue-400">nano:</code> ESM namespace — clearly distinct from WinterTC and Node.js. Import them in any ESM handler.</p>
 
                 <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
@@ -300,7 +319,7 @@ const ver    = process.version;                         // "v18.0.0"</pre>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">process.env</td>
                                 <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
-                                <td class="px-4 py-3 text-slate-400">Host environment variables. process.version = "v18.0.0", process.platform = "linux".</td>
+                                <td class="px-4 py-3 text-slate-400">App-configured env vars (set via <code>env_vars</code> in config). <strong>Never</strong> the host process env. process.version = "v18.0.0", process.platform = "linux".</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">require('events')</td>

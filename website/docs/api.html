@@ -217,7 +217,7 @@ const encrypted = await crypto.subtle.encrypt(
             </section>
 
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">WebSocket <span class="text-sm font-normal bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded ml-1">v2.0a</span></h2>
+                <h2 class="text-2xl font-semibold text-white mb-4">WebSocket <span class="text-sm font-normal bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded ml-1">v2.3.0</span></h2>
                 <p class="text-slate-400 mb-4">WebSocket support follows the Cloudflare Workers API. See the <a href="websocket.html" class="text-blue-400 hover:text-blue-300 underline">WebSocket guide</a> for full details.</p>
 
                 <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
@@ -300,6 +300,126 @@ const exists = await Nano.fs.exists('/data/config.json');</pre>
                             <tr><td class="py-2 font-mono text-blue-400">Nano.fs.unlink()</td><td>Delete file</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </section>
+
+            <section class="mb-12" id="kv">
+                <h2 class="text-2xl font-semibold text-white mb-2">nano:kv <span class="text-sm font-normal bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded ml-1">v2.2.2+</span></h2>
+                <p class="text-slate-400 mb-4">EdgeStore-backed persistent key-value storage. Hostname-namespaced — each app has its own isolated slice. Zero configuration: the engine initialises on first import.</p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Default namespace (hostname-scoped)</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">import { kv } from 'nano:kv';
+
+// Bytes API
+await kv.set('hits', new TextEncoder().encode('42'));
+const raw = await kv.get('hits');          // Uint8Array | null
+new TextDecoder().decode(raw);             // "42"
+await kv.delete('hits');
+
+// JSON helpers
+await kv.setJSON('config', { version: 3 });
+const cfg = await kv.getJSON('config');    // { version: 3 }
+
+// Prefix scan
+const entries = await kv.list('user:');   // [[key, Uint8Array], ...]</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Named namespaces with openKV()</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">import { openKV } from 'nano:kv';
+
+const cache    = openKV('cache');
+const sessions = openKV('sessions');
+
+// Namespaces are isolated — same key in different stores never collides
+await cache.setJSON('user:1', { name: 'Alice' });
+await sessions.setJSON('tok:abc', { uid: 1, exp: Date.now() + 3600_000 });</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">localStorage shim (userland, built on nano:kv)</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Copy examples/localStorage-shim.js into your app, then:
+import './localStorage-shim.js';
+
+await localStorage.setItem('theme', 'dark');
+const theme = await localStorage.getItem('theme'); // "dark"</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold text-white mb-3">KV Store API</h3>
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left py-2 text-white">Method</th>
+                                <th class="text-left py-2 text-white">Signature</th>
+                                <th class="text-left py-2 text-white">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-slate-400 divide-y divide-slate-800">
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.get(key)</td><td class="py-2 font-mono text-slate-500 text-xs">→ Uint8Array | null</td><td class="py-2">Read raw bytes</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.set(key, value)</td><td class="py-2 font-mono text-slate-500 text-xs">Uint8Array | string</td><td class="py-2">Write raw bytes or string</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.delete(key)</td><td class="py-2 font-mono text-slate-500 text-xs">→ void</td><td class="py-2">Remove a key</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.list(prefix)</td><td class="py-2 font-mono text-slate-500 text-xs">→ [string, Uint8Array][]</td><td class="py-2">Scan keys by prefix</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.getJSON(key)</td><td class="py-2 font-mono text-slate-500 text-xs">→ any | null</td><td class="py-2">Deserialise JSON value</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">kv.setJSON(key, val)</td><td class="py-2 font-mono text-slate-500 text-xs">any</td><td class="py-2">Serialise and store JSON</td></tr>
+                            <tr><td class="py-2 font-mono text-emerald-400">openKV(name)</td><td class="py-2 font-mono text-slate-500 text-xs">→ KVStore</td><td class="py-2">Open a named namespace — same API as <code>kv</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="mb-12" id="nodejs">
+                <h2 class="text-2xl font-semibold text-white mb-2">Node.js Polyfills <span class="text-sm font-normal bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded ml-1">v2.2.2+</span></h2>
+                <p class="text-slate-400 mb-4">Common Node.js built-ins available via <code class="text-amber-400">require()</code>. No bundler shim needed — they are injected directly into the V8 context.</p>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">require('path')</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const path = require('path');
+
+path.join('/var', 'app', 'config.json'); // /var/app/config.json
+path.dirname('/var/app/config.json');    // /var/app
+path.basename('/var/app/config.json');   // config.json
+path.extname('/var/app/config.json');    // .json
+path.isAbsolute('/absolute');            // true
+path.normalize('/var//app/../app/f');    // /var/app/f</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">require('buffer')</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">const { from, alloc, isBuffer, concat } = require('buffer');
+
+const a = from('hello ');             // Uint8Array
+const b = from('world');
+new TextDecoder().decode(concat([a, b])); // "hello world"
+isBuffer(a);                          // true
+alloc(16);                            // zero-filled Uint8Array(16)</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">process.env + process.version</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// Set vars in app config:
+// { "apps": [{ "env_vars": { "NODE_ENV": "production" } }] }
+
+process.env.NODE_ENV;   // "production"
+process.version;        // "v18.0.0"
+process.platform;       // "linux"</pre>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
+                    <p class="text-xs text-slate-400"><strong class="text-slate-300">Security note:</strong> <code class="text-amber-400">process.env</code> exposes only the per-app <code>env_vars</code> configured by the operator — never the host process environment. Prevents accidental secret leakage between tenants.</p>
                 </div>
             </section>
 

@@ -34,6 +34,7 @@
                     <a href="docs/runtime.html" class="text-slate-400 hover:text-white transition">Runtime</a>
                     <a href="docs/architecture.html" class="text-slate-400 hover:text-white transition">Architecture</a>
                     <a href="docs/compatibility.html" class="text-slate-400 hover:text-white transition">Compatibility</a>
+                    <a href="docs/api.html#kv" class="text-slate-400 hover:text-white transition">KV &amp; Compat</a>
                     <a href="https://github.com/nano-rs/nano-rs" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition">GitHub</a>
                 </div>
             </div>
@@ -160,6 +161,81 @@
                     <p class="text-slate-400 text-sm">WebSocketPair API compatible with Cloudflare Workers. Per-connection V8 isolate with CPU/memory enforcement per frame.</p>
                     <a href="docs/websocket.html" class="inline-block mt-3 text-xs text-teal-400 hover:text-teal-300 transition">Learn more →</a>
                 </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-emerald-500 transition">
+                    <div class="w-12 h-12 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-emerald-400 font-mono text-xl">⬡</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">Persistent KV Storage <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded ml-1">nano:kv</span></h3>
+                    <p class="text-slate-400 text-sm">EdgeStore-backed key-value store per app. Hostname-namespaced, zero config. JSON helpers, named namespaces, prefix listing. <code class="text-emerald-400">import { kv, openKV } from 'nano:kv'</code></p>
+                    <a href="docs/compatibility.html#kv" class="inline-block mt-3 text-xs text-emerald-400 hover:text-emerald-300 transition">API reference →</a>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-amber-500 transition">
+                    <div class="w-12 h-12 bg-amber-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-amber-400 font-mono text-xl">⬡</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">Node.js &amp; Browser APIs</h3>
+                    <p class="text-slate-400 text-sm"><code class="text-amber-400">require('path')</code>, <code class="text-amber-400">require('buffer')</code>, <code class="text-amber-400">process.env</code>, and a <code class="text-amber-400">localStorage</code> shim built on nano:kv — so npm packages and browser code run unchanged.</p>
+                    <a href="docs/compatibility.html" class="inline-block mt-3 text-xs text-amber-400 hover:text-amber-300 transition">Compatibility matrix →</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- "Write Once" runtime modes section -->
+    <section class="py-20 px-4 sm:px-6 lg:px-8 bg-slate-900/50">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-14">
+                <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Run code written for any target</h2>
+                <p class="text-lg text-slate-400 max-w-2xl mx-auto">NANO speaks three dialects. Pick the one your code already uses.</p>
+            </div>
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- WinterTC -->
+                <div class="bg-slate-800/40 border border-slate-700 rounded-2xl p-8">
+                    <div class="text-blue-400 font-bold text-sm tracking-widest uppercase mb-3">WinterTC / Cloudflare Workers</div>
+                    <h3 class="text-xl font-semibold text-white mb-4">Edge-native handlers</h3>
+                    <p class="text-slate-400 text-sm mb-6">Standard <code class="text-blue-400">fetch()</code>, <code class="text-blue-400">Request</code>, <code class="text-blue-400">Response</code>, WebCrypto, streams. Drop-in for Workers code.</p>
+                    <pre class="bg-slate-900 rounded-lg p-4 text-xs text-slate-300 overflow-x-auto">export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    return Response.json({
+      path: url.pathname,
+    });
+  }
+};</pre>
+                </div>
+                <!-- Node.js compat -->
+                <div class="bg-slate-800/40 border border-slate-700 rounded-2xl p-8">
+                    <div class="text-amber-400 font-bold text-sm tracking-widest uppercase mb-3">Node.js packages</div>
+                    <h3 class="text-xl font-semibold text-white mb-4">npm-compatible polyfills</h3>
+                    <p class="text-slate-400 text-sm mb-6"><code class="text-amber-400">require('path')</code>, <code class="text-amber-400">require('buffer')</code>, <code class="text-amber-400">require('assert')</code>, <code class="text-amber-400">process.env</code> — common npm packages work without a bundler shim.</p>
+                    <pre class="bg-slate-900 rounded-lg p-4 text-xs text-slate-300 overflow-x-auto">const path = require('path');
+const { from } = require('buffer');
+
+export default {
+  async fetch(req) {
+    const env = process.env.NODE_ENV;
+    return new Response(env);
+  }
+};</pre>
+                </div>
+                <!-- Browser / KV -->
+                <div class="bg-slate-800/40 border border-slate-700 rounded-2xl p-8">
+                    <div class="text-emerald-400 font-bold text-sm tracking-widest uppercase mb-3">Browser APIs + KV</div>
+                    <h3 class="text-xl font-semibold text-white mb-4">Browser code + persistence</h3>
+                    <p class="text-slate-400 text-sm mb-6"><code class="text-emerald-400">localStorage</code> shim, <code class="text-emerald-400">nano:kv</code> for structured storage — front-end code and Cloudflare KV patterns work without changes.</p>
+                    <pre class="bg-slate-900 rounded-lg p-4 text-xs text-slate-300 overflow-x-auto">import { kv, openKV } from 'nano:kv';
+
+const hits = (await kv.getJSON('c')) ?? 0;
+await kv.setJSON('c', hits + 1);
+
+// Or use the localStorage shim
+await localStorage.setItem('theme', 'dark');</pre>
+                </div>
+            </div>
+            <div class="text-center mt-10">
+                <a href="docs/compatibility.html" class="text-slate-400 hover:text-white text-sm transition underline">View full compatibility matrix →</a>
             </div>
         </div>
     </section>
@@ -183,6 +259,7 @@
                     <ul class="space-y-2 text-sm text-slate-400">
                         <li><a href="docs/quickstart.html" class="hover:text-white transition">Quick Start</a></li>
                         <li><a href="docs/api.html" class="hover:text-white transition">API Reference</a></li>
+                        <li><a href="docs/api.html#kv" class="hover:text-white transition">nano:kv &amp; Node.js</a></li>
                         <li><a href="docs/websocket.html" class="hover:text-white transition">WebSocket</a></li>
                         <li><a href="docs/slivers.html" class="hover:text-white transition">Slivers</a></li>
                         <li><a href="docs/cli.html" class="hover:text-white transition">CLI</a></li>
