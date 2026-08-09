@@ -129,7 +129,8 @@ async fn run_server() -> Result<()> {
     let shared_router = Arc::new(RwLock::new(nano::http::router::VirtualHostRouter::default()));
 
     // Start HTTP server with the shared router.
-    let config = nano::http::ServerConfig::default();
+    // from_env() reads NANO_HOST and NANO_PORT; falls back to 127.0.0.1:8080.
+    let config = nano::http::ServerConfig::from_env()?;
     tracing::info!("Starting HTTP server on {}", config.socket_addr()?);
 
     let shutdown_state = shutdown.state().clone();
