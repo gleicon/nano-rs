@@ -140,10 +140,11 @@ async fn run_server() -> Result<()> {
 
     // Start Admin API server (optional)
     let admin_api_key = std::env::var("NANO_ADMIN_API_KEY").unwrap_or_default();
+    let admin_host = std::env::var("NANO_ADMIN_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let unix_socket_path = std::env::var("NANO_ADMIN_UNIX_SOCKET").ok();
 
     let admin_handle = if !admin_api_key.is_empty() {
-        let admin_config = nano::admin::server::AdminConfig::new(admin_api_key);
+        let admin_config = nano::admin::server::AdminConfig::new(admin_api_key).with_host(admin_host);
         let admin_state =
             nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
 
