@@ -132,7 +132,7 @@ dashmap = "6.1"
 lazy_static = "1.4"
 
 # Async blocking for timer callbacks
-pollster = "0.4"
+pollster = "1.0"
 
 # Signal handling for timeout timer (async-safe)
 signal-hook = "0.3"
