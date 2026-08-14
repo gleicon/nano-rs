@@ -221,6 +221,7 @@ mod tests {
         let section = ServerConfigSection {
             port: 3000,
             host: "0.0.0.0".to_string(),
+            dns_rebinding_protection: true,
         };
         let config = ServerConfig::from(section);
 
@@ -233,6 +234,7 @@ mod tests {
         let section = ServerConfigSection {
             port: 8080,
             host: "127.0.0.1".to_string(),
+            dns_rebinding_protection: true,
         };
         let config = ServerConfig::from(section);
 
@@ -245,6 +247,7 @@ mod tests {
         let section = ServerConfigSection {
             port: 9999,
             host: "192.168.1.1".to_string(),
+            dns_rebinding_protection: true,
         };
         let config = ServerConfig::from(section);
         let addr = config.socket_addr().unwrap();

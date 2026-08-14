@@ -100,6 +100,7 @@ fn create_config_with_server(port: u16, host: &str) -> nano::config::NanoConfig 
         server: nano::config::ServerConfigSection {
             port,
             host: host.to_string(),
+            dns_rebinding_protection: true,
         },
     }
 }
@@ -283,6 +284,7 @@ fn test_server_config_section_conversion() {
     let section = nano::config::ServerConfigSection {
         port: 9090,
         host: "192.168.1.100".to_string(),
+        dns_rebinding_protection: true,
     };
 
     let server_config = nano::http::ServerConfig::from(section);

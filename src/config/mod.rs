@@ -221,6 +221,14 @@ pub struct ServerConfigSection {
     /// Server bind address (default: "127.0.0.1")
     #[serde(default = "default_bind")]
     pub host: String,
+    /// Block fetch() requests to domains that resolve to private/internal IPs
+    /// at connect-time (DNS rebinding protection). Default: true.
+    ///
+    /// WARNING: setting this to false allows tenant JS to reach the host's
+    /// internal network (cloud metadata services, internal APIs) by pointing
+    /// a domain they control at a private IP via short-TTL DNS.
+    #[serde(default = "default_dns_rebinding_protection")]
+    pub dns_rebinding_protection: bool,
 }
 
 impl Default for ServerConfigSection {
@@ -228,6 +236,7 @@ impl Default for ServerConfigSection {
         Self {
             port: default_port(),
             host: default_bind(),
+            dns_rebinding_protection: default_dns_rebinding_protection(),
         }
     }
 }
@@ -238,6 +247,10 @@ fn default_bind() -> String {
 
 fn default_port() -> u16 {
     8080
+}
+
+fn default_dns_rebinding_protection() -> bool {
+    true
 }
 
 /// NANO runtime configuration

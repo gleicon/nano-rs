@@ -17,62 +17,131 @@
 //! - SSRF prevention blocks private/internal literal IPs and known internal hostnames
 //!   (DNS rebinding is not prevented — requires socket-level IP check after connect)
 //! - Response size limits prevent memory exhaustion
+//! - DNS rebinding protection (SsrfGuardResolver) blocks domains that resolve
+//!   to private IPs at connect-time — closes the gap validate_fetch_url() cannot
 //! - Timeout handling prevents hanging requests
+//!
+//! # DNS Rebinding Protection
+//!
+//! DNS rebinding lets an attacker own a public domain, serve a legitimate page,
+//! then rotate its DNS to a private IP (e.g. 192.168.1.1, 169.254.169.254).
+//! The browser re-resolves the name on the next request and the JS code can now
+//! reach internal services under the same origin.
+//!
+//! `validate_fetch_url()` only sees the hostname string — it cannot catch this.
+//! `SsrfGuardResolver` runs after DNS resolution and filters out any `SocketAddr`
+//! whose IP is in a private range, blocking the connection before TCP connect.
+//!
+//! Enabled by default. Disable only in isolated/trusted networks:
+//! ```json
+//! { "server": { "dns_rebinding_protection": false } }
+//! ```
+//!
+//! **Risk of disabling:** tenants can exfiltrate data from the host's internal
+//! network (cloud metadata at 169.254.169.254, internal APIs, etc.) via a
+//! domain they control that TTL-rotates to a private IP.
 
 use bytes::Bytes;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+/// Controls DNS rebinding protection globally. Default: true (enabled).
+/// Set once at startup via set_dns_rebinding_protection() before workers spawn.
+static DNS_REBINDING_PROTECTION: AtomicBool = AtomicBool::new(true);
+
+/// Set DNS rebinding protection. Call once before worker threads are created.
+pub fn set_dns_rebinding_protection(enabled: bool) {
+    DNS_REBINDING_PROTECTION.store(enabled, Ordering::Relaxed);
+}
+
+/// Returns true if `ip` is private, loopback, link-local, or otherwise
+/// unreachable from the public internet. Used by both validate_fetch_url()
+/// (hostname-as-literal-IP check) and SsrfGuardResolver (post-DNS check).
+fn is_private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(addr) => {
+            let o = addr.octets();
+            o[0] == 10                                        // 10.0.0.0/8
+                || (o[0] == 172 && (16..=31).contains(&o[1])) // 172.16.0.0/12
+                || (o[0] == 192 && o[1] == 168)               // 192.168.0.0/16
+                || o[0] == 127                                // 127.0.0.0/8 loopback
+                || (o[0] == 169 && o[1] == 254)               // 169.254.0.0/16 link-local
+                || o[0] == 0                                  // 0.0.0.0/8
+                || addr.is_broadcast()                        // 255.255.255.255
+                || (o[0] == 100 && (64..=127).contains(&o[1])) // 100.64.0.0/10 CGNAT
+        }
+        IpAddr::V6(addr) => {
+            // IPv4-mapped (::ffff:x.x.x.x) — is_loopback() returns false for these,
+            // so check the embedded IPv4 address instead.
+            if let Some(v4) = addr.to_ipv4_mapped() {
+                return is_private_ip(IpAddr::V4(v4));
+            }
+            let s = addr.segments();
+            addr.is_loopback()                    // ::1
+                || addr.is_multicast()            // ff00::/8
+                || (s[0] & 0xffc0) == 0xfe80      // fe80::/10 link-local
+                || (s[0] & 0xfe00) == 0xfc00      // fc00::/7  ULA
+        }
+    }
+}
+
+/// Custom reqwest DNS resolver that filters resolved IPs against the SSRF
+/// blocklist. This runs after the OS/system DNS lookup, before TCP connect —
+/// closing the DNS rebinding gap that URL-string inspection cannot catch.
+struct SsrfGuardResolver;
+
+impl reqwest::dns::Resolve for SsrfGuardResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let lookup = format!("{}:0", host);
+            let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(&lookup)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+                .filter(|addr| !is_private_ip(addr.ip()))
+                .collect();
+
+            if addrs.is_empty() {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!(
+                        "SSRF blocked: '{}' resolved only to private/internal addresses \
+                         (DNS rebinding protection active)",
+                        host
+                    ),
+                )) as Box<dyn std::error::Error + Send + Sync>);
+            }
+
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
 
 /// Validate fetch URL for SSRF. Returns parsed `url::Url` on success so the
 /// caller can hand it directly to reqwest without re-parsing.
 ///
-/// Blocks literal private IPv4/IPv6 ranges and known internal hostnames.
-/// Does NOT defend against DNS rebinding (where a public hostname resolves
-/// to a private IP after this check).
+/// Catches literal private IPs in the URL and known internal hostnames.
+/// For domains, SsrfGuardResolver provides the post-DNS rebinding check.
 fn validate_fetch_url(url_str: &str) -> Result<url::Url, String> {
     let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
 
     match parsed.host() {
         None => return Err("URL has no host".to_string()),
         Some(url::Host::Ipv4(addr)) => {
-            let o = addr.octets();
-            let blocked = o[0] == 10
-                || (o[0] == 172 && (16..=31).contains(&o[1]))
-                || (o[0] == 192 && o[1] == 168)
-                || o[0] == 127
-                || (o[0] == 169 && o[1] == 254)
-                || o[0] == 0
-                || addr.is_broadcast()
-                || (o[0] == 100 && (64..=127).contains(&o[1]));
-            if blocked {
+            if is_private_ip(IpAddr::V4(addr)) {
                 return Err(format!("SSRF blocked: private address {addr}"));
             }
         }
         Some(url::Host::Ipv6(addr)) => {
-            // IPv4-mapped (::ffff:x.x.x.x) — check the mapped IPv4 address
             if let Some(v4) = addr.to_ipv4_mapped() {
-                let o = v4.octets();
-                let blocked = o[0] == 10
-                    || (o[0] == 172 && (16..=31).contains(&o[1]))
-                    || (o[0] == 192 && o[1] == 168)
-                    || o[0] == 127
-                    || (o[0] == 169 && o[1] == 254)
-                    || o[0] == 0
-                    || v4.is_broadcast()
-                    || (o[0] == 100 && (64..=127).contains(&o[1]));
-                if blocked {
+                if is_private_ip(IpAddr::V4(v4)) {
                     return Err(format!("SSRF blocked: private address {addr}"));
                 }
-            } else {
-                let s = addr.segments();
-                let blocked = addr.is_loopback()
-                    || addr.is_multicast()
-                    || (s[0] & 0xffc0) == 0xfe80
-                    || (s[0] & 0xfe00) == 0xfc00;
-                if blocked {
-                    return Err(format!("SSRF blocked: private address {addr}"));
-                }
+            } else if is_private_ip(IpAddr::V6(addr)) {
+                return Err(format!("SSRF blocked: private address {addr}"));
             }
         }
         Some(url::Host::Domain(domain)) => {
@@ -107,11 +176,16 @@ pub struct FetchState {
 impl FetchState {
     /// Create new fetch state for an isolate
     pub fn new() -> anyhow::Result<Self> {
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
-            .pool_max_idle_per_host(10)
-            .build()?;
+            .pool_max_idle_per_host(10);
+
+        if DNS_REBINDING_PROTECTION.load(Ordering::Relaxed) {
+            builder = builder.dns_resolver(std::sync::Arc::new(SsrfGuardResolver));
+        }
+
+        let client = builder.build()?;
 
         Ok(Self {
             client,

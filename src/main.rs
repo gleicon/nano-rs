@@ -453,6 +453,19 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
 
     tracing::info!("Loaded configuration with {} app(s)", config.apps.len());
 
+    // Apply security settings before any worker threads are created.
+    nano::runtime::fetch::set_dns_rebinding_protection(
+        config.server.dns_rebinding_protection,
+    );
+    if !config.server.dns_rebinding_protection {
+        tracing::warn!(
+            "DNS rebinding protection DISABLED — tenant JS can reach internal network \
+             via domains that TTL-rotate to private IPs"
+        );
+    } else {
+        tracing::info!("DNS rebinding protection: enabled");
+    }
+
     // Check for sliver-based apps in config
     let has_sliver_apps = config.apps.iter().any(|app| app.sliver.is_some());
     let has_entrypoint_apps = config
