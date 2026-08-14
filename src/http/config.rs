@@ -222,6 +222,8 @@ mod tests {
             port: 3000,
             host: "0.0.0.0".to_string(),
             dns_rebinding_protection: true,
+            queue_depth_per_worker: 16,
+            handler_cache_refresh_ms: 1000,
         };
         let config = ServerConfig::from(section);
 
@@ -235,6 +237,8 @@ mod tests {
             port: 8080,
             host: "127.0.0.1".to_string(),
             dns_rebinding_protection: true,
+            queue_depth_per_worker: 16,
+            handler_cache_refresh_ms: 1000,
         };
         let config = ServerConfig::from(section);
 
@@ -248,6 +252,8 @@ mod tests {
             port: 9999,
             host: "192.168.1.1".to_string(),
             dns_rebinding_protection: true,
+            queue_depth_per_worker: 16,
+            handler_cache_refresh_ms: 1000,
         };
         let config = ServerConfig::from(section);
         let addr = config.socket_addr().unwrap();

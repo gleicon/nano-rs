@@ -739,28 +739,30 @@ pub async fn dispatch_to_worker_pool(
     // Get request path for access log
     let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
-    // Dispatch to WorkQueue (async Mutex lock)
-    let mut queue = state.work_queue.lock().await;
-
-    // Ensure tenant exists before validation (auto-provision first-seen hosts)
-    queue.ensure_tenant(&host);
-
-    // Validate through control plane before dispatching
-    if let Some(ref control_plane) = queue.control_plane {
-        if let Err(e) = control_plane.validate_request_ref(&task) {
-            tracing::warn!("Control plane validation failed: {}", e);
-            let response = Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "text/plain")
-                .body(Body::from(format!("Validation error: {}", e)))
-                .unwrap();
-            return response;
+    // Dispatch to WorkQueue — hold lock only through dispatch, not rx.await.
+    // Previously the MutexGuard lived through the entire rx.await (full V8 execution),
+    // serializing all tenants behind a single lock. Now the guard drops as soon as
+    // the task lands in the worker's bounded channel.
+    let dispatch_result = {
+        let mut queue = state.work_queue.lock().await;
+        queue.ensure_tenant(&host);
+        if let Some(ref control_plane) = queue.control_plane {
+            if let Err(e) = control_plane.validate_request_ref(&task) {
+                tracing::warn!("Control plane validation failed: {}", e);
+                let response = Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "text/plain")
+                    .body(Body::from(format!("Validation error: {}", e)))
+                    .unwrap();
+                return response;
+            }
         }
-    }
+        queue.dispatch(&host, task).await
+    }; // MutexGuard dropped here — concurrent requests can now be dispatched
 
-    let (response, status_code, worker_id, isolate_id) = match queue.dispatch(&host, task).await {
+    let (response, status_code, worker_id, isolate_id) = match dispatch_result {
         Ok(()) => {
-            // Wait for response from worker
+            // Wait for response from worker — lock NOT held
             match rx.await {
                 Ok(Ok(nano_response)) => {
                     let status = nano_response.status();

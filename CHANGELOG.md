@@ -3,6 +3,19 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-08-14
+
+### Fixed
+
+- **`Mutex<WorkQueue>` held through `rx.await`** (`http/router.rs`) — The async mutex guarding `WorkQueue` was acquired before calling `queue.dispatch()` and not released until the V8 worker sent its response on the oneshot channel — typically 5-30ms of JS execution time. Every concurrent request for any tenant serialized behind this single lock, making the request handler effectively single-threaded. Fixed by scoping the `MutexGuard` to end immediately after `queue.dispatch()` returns (task is now in the worker's bounded channel), so `rx.await` runs without holding the lock.
+
+### Added
+
+- **Bounded worker task queue** (`worker/pool.rs`, `worker/queue.rs`) — `WorkerPool` channels were previously unbounded (`mpsc::channel`). Under sustained overload, tasks accumulated until OOM. Changed to `mpsc::sync_channel` with a configurable per-worker depth (default 16). When a worker's queue is full, `WorkerHandle::send()` returns a typed `WorkerSendError::Full` (preserved through `anyhow` for downcast), which `EntrypointWorkerPool::try_dispatch()` maps to `QueueError::ChannelFull`. The router already had the 503 + `Retry-After: 1` response for this path; it now actually fires.
+- **Config: `server.queue_depth_per_worker`** (`config/mod.rs`) — Integer, default 16. Controls bounded channel depth per worker thread. Set via `nano::worker::pool::set_queue_depth_per_worker()`, applied at startup before worker threads are created.
+- **Per-worker mtime cache** (`worker/pool.rs`) — `std::fs::metadata()` was called synchronously on every request to build the versioned handler cache key (`entrypoint@mtime`). Under load, this is one blocking syscall per request per worker. Added a per-worker `HashMap<String, (u64, Instant)>` that caches mtime for a configurable TTL (default 1000ms). Avoids the syscall on cache-hit; falls back to `fs::metadata` on miss or expiry.
+- **Config: `server.handler_cache_refresh_ms`** (`config/mod.rs`) — Integer, default 1000. Mtime cache TTL in milliseconds. Set to 0 to check on every request (maximum deploy freshness). Wired to `nano::worker::pool::set_handler_mtime_cache_ttl_ms()`.
+
 ## [2.4.0] - 2026-08-09
 
 ### Security

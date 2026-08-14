@@ -466,6 +466,15 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
         tracing::info!("DNS rebinding protection: enabled");
     }
 
+    // Apply worker queue and mtime cache settings.
+    nano::worker::pool::set_queue_depth_per_worker(config.server.queue_depth_per_worker);
+    nano::worker::pool::set_handler_mtime_cache_ttl_ms(config.server.handler_cache_refresh_ms);
+    tracing::info!(
+        "Worker queue depth: {} tasks/worker, mtime cache TTL: {}ms",
+        config.server.queue_depth_per_worker,
+        config.server.handler_cache_refresh_ms,
+    );
+
     // Check for sliver-based apps in config
     let has_sliver_apps = config.apps.iter().any(|app| app.sliver.is_some());
     let has_entrypoint_apps = config

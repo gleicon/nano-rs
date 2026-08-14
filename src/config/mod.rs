@@ -229,6 +229,23 @@ pub struct ServerConfigSection {
     /// a domain they control at a private IP via short-TTL DNS.
     #[serde(default = "default_dns_rebinding_protection")]
     pub dns_rebinding_protection: bool,
+
+    /// Bounded task queue depth per worker thread (default: 16).
+    ///
+    /// When a worker's queue is full, the request receives HTTP 503 with
+    /// Retry-After: 1. Increase under bursty but fast workloads; lower to
+    /// shed load earlier and avoid unbounded memory growth.
+    #[serde(default = "default_queue_depth_per_worker")]
+    pub queue_depth_per_worker: usize,
+
+    /// How long (ms) each worker caches the entrypoint file's mtime (default: 1000).
+    ///
+    /// Workers check file modification time to invalidate the compiled handler
+    /// cache on deploy. Setting to 0 checks on every request (maximum freshness,
+    /// one sync syscall per request). Higher values reduce syscall overhead at
+    /// the cost of slower hot-reload detection.
+    #[serde(default = "default_handler_cache_refresh_ms")]
+    pub handler_cache_refresh_ms: u64,
 }
 
 impl Default for ServerConfigSection {
@@ -237,6 +254,8 @@ impl Default for ServerConfigSection {
             port: default_port(),
             host: default_bind(),
             dns_rebinding_protection: default_dns_rebinding_protection(),
+            queue_depth_per_worker: default_queue_depth_per_worker(),
+            handler_cache_refresh_ms: default_handler_cache_refresh_ms(),
         }
     }
 }
@@ -251,6 +270,14 @@ fn default_port() -> u16 {
 
 fn default_dns_rebinding_protection() -> bool {
     true
+}
+
+fn default_queue_depth_per_worker() -> usize {
+    16
+}
+
+fn default_handler_cache_refresh_ms() -> u64 {
+    1000
 }
 
 /// NANO runtime configuration

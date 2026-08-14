@@ -9,7 +9,41 @@ use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use crate::worker::oom::OomMonitorBuilder;
 use crate::worker::HandlerTask;
 use base64::Engine as _;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+
+/// Bounded task queue depth per worker thread. Set once at startup from config.
+pub static QUEUE_DEPTH_PER_WORKER: AtomicUsize = AtomicUsize::new(16);
+
+/// Mtime cache TTL in ms. 0 = always call fs::metadata (max freshness).
+pub static HANDLER_MTIME_CACHE_TTL_MS: AtomicU64 = AtomicU64::new(1000);
+
+pub fn set_queue_depth_per_worker(depth: usize) {
+    QUEUE_DEPTH_PER_WORKER.store(depth, Ordering::Relaxed);
+}
+
+pub fn set_handler_mtime_cache_ttl_ms(ms: u64) {
+    HANDLER_MTIME_CACHE_TTL_MS.store(ms, Ordering::Relaxed);
+}
+
+/// Concrete error type for worker send operations — preserved through anyhow for downcast.
+#[derive(Debug)]
+pub enum WorkerSendError {
+    /// Worker's bounded channel is at capacity.
+    Full,
+    /// Worker thread has exited.
+    Disconnected,
+}
+
+impl std::fmt::Display for WorkerSendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkerSendError::Full => write!(f, "worker queue full"),
+            WorkerSendError::Disconnected => write!(f, "worker channel disconnected"),
+        }
+    }
+}
+
+impl std::error::Error for WorkerSendError {}
 
 use anyhow::{anyhow, Result};
 
@@ -218,14 +252,15 @@ fn compile_classic_handler(
 pub struct WorkerHandle {
     pub id: u32,
     thread: Option<JoinHandle<()>>,
-    task_tx: mpsc::Sender<HandlerTask>,
+    task_tx: mpsc::SyncSender<HandlerTask>,
 }
 
 impl WorkerHandle {
     pub fn send(&self, task: HandlerTask) -> Result<()> {
-        self.task_tx
-            .send(task)
-            .map_err(|_| anyhow!("Worker {} channel closed", self.id))
+        self.task_tx.try_send(task).map_err(|e| match e {
+            mpsc::TrySendError::Full(_) => anyhow::Error::new(WorkerSendError::Full),
+            mpsc::TrySendError::Disconnected(_) => anyhow::Error::new(WorkerSendError::Disconnected),
+        })
     }
 
     fn take_thread(&mut self) -> Option<JoinHandle<()>> {
@@ -479,7 +514,9 @@ impl WorkerPool {
             let worker_vfs_backend = vfs_backend_for_workers.clone();
             let worker_source = source_for_workers.clone();
             let worker_env_vars = env_vars_for_workers.clone();
-            let (task_tx, task_rx) = mpsc::channel::<HandlerTask>();
+            let (task_tx, task_rx) = mpsc::sync_channel::<HandlerTask>(
+                QUEUE_DEPTH_PER_WORKER.load(Ordering::Relaxed),
+            );
 
             // Spawn unified worker thread with persistent V8 scope lifecycle.
             let thread = thread::spawn(move || {
@@ -621,6 +658,12 @@ impl WorkerPool {
                             String,
                             v8::Global<v8::Function>,
                         > = std::collections::HashMap::new();
+                        // Per-worker mtime cache: avoids a sync fs::metadata syscall per request.
+                        // Key = entrypoint path, value = (mtime_secs, last_checked_instant).
+                        let mut mtime_cache: std::collections::HashMap<
+                            String,
+                            (u64, std::time::Instant),
+                        > = std::collections::HashMap::new();
 
                         let mut served: u32 = 0;
                         let isolate_id = format!("{}:{}", worker_hostname, id);
@@ -669,14 +712,43 @@ impl WorkerPool {
 
                             // Versioned cache key: include file mtime so symlink-swap deploys
                             // get fresh compilation without restarting workers.
-                            let mtime_ver = std::fs::metadata(&entrypoint)
-                                .and_then(|m| m.modified())
-                                .map(|t| {
-                                    t.duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_secs()
-                                })
-                                .unwrap_or(0);
+                            // mtime_cache amortizes the sync syscall over handler_cache_refresh_ms.
+                            let mtime_ver = {
+                                let ttl_ms = HANDLER_MTIME_CACHE_TTL_MS.load(Ordering::Relaxed);
+                                let now = std::time::Instant::now();
+                                if let Some(&(cached_mtime, last_check)) =
+                                    mtime_cache.get(&entrypoint)
+                                {
+                                    if ttl_ms > 0
+                                        && now.duration_since(last_check).as_millis()
+                                            < ttl_ms as u128
+                                    {
+                                        cached_mtime
+                                    } else {
+                                        let fresh = std::fs::metadata(&entrypoint)
+                                            .and_then(|m| m.modified())
+                                            .map(|t| {
+                                                t.duration_since(std::time::UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_secs()
+                                            })
+                                            .unwrap_or(0);
+                                        mtime_cache.insert(entrypoint.clone(), (fresh, now));
+                                        fresh
+                                    }
+                                } else {
+                                    let fresh = std::fs::metadata(&entrypoint)
+                                        .and_then(|m| m.modified())
+                                        .map(|t| {
+                                            t.duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap_or_default()
+                                                .as_secs()
+                                        })
+                                        .unwrap_or(0);
+                                    mtime_cache.insert(entrypoint.clone(), (fresh, now));
+                                    fresh
+                                }
+                            };
                             let versioned_entrypoint = format!("{}@{}", entrypoint, mtime_ver);
 
                             // Compile + cache handler (once per entrypoint version, per isolate lifetime)

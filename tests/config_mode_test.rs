@@ -101,6 +101,8 @@ fn create_config_with_server(port: u16, host: &str) -> nano::config::NanoConfig 
             port,
             host: host.to_string(),
             dns_rebinding_protection: true,
+            queue_depth_per_worker: 16,
+            handler_cache_refresh_ms: 1000,
         },
     }
 }
@@ -285,6 +287,8 @@ fn test_server_config_section_conversion() {
         port: 9090,
         host: "192.168.1.100".to_string(),
         dns_rebinding_protection: true,
+        queue_depth_per_worker: 16,
+        handler_cache_refresh_ms: 1000,
     };
 
     let server_config = nano::http::ServerConfig::from(section);

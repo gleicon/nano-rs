@@ -239,9 +239,17 @@ impl EntrypointWorkerPool {
     /// The unified WorkerPool uses unbounded channels. This method now delegates
     /// to the standard `dispatch()` which provides equivalent functionality.
     pub fn try_dispatch(&self, task: HandlerTask) -> Result<(), QueueError> {
-        self.inner
-            .dispatch(task)
-            .map_err(|e| QueueError::SendError(e.to_string()))
+        self.inner.dispatch(task).map_err(|e| {
+            if e.downcast_ref::<crate::worker::pool::WorkerSendError>()
+                .map_or(false, |we| {
+                    matches!(we, crate::worker::pool::WorkerSendError::Full)
+                })
+            {
+                QueueError::ChannelFull
+            } else {
+                QueueError::SendError(e.to_string())
+            }
+        })
     }
 
     /// Shutdown the worker pool gracefully
