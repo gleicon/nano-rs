@@ -1,6 +1,6 @@
 [package]
 name = "nano-rs"
-version = "2.3.2"
+version = "2.4.0"
 edition = "2021"
 rust-version = "1.95"
 authors = ["Gleicon Moraes <gleicon@gmail.com>"]

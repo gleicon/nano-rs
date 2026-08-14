@@ -3,6 +3,18 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-08-09
+
+### Security
+
+- **DNS rebinding protection in `fetch()`** (`runtime/fetch.rs`) — `validate_fetch_url()` only inspects the URL hostname string; an attacker who controls a domain can TTL-rotate its DNS to a private IP after the string check passes, reaching cloud metadata services (169.254.169.254), internal APIs, or other intranet hosts from tenant JS. Added `SsrfGuardResolver`: a custom `reqwest` DNS resolver that calls `tokio::net::lookup_host`, then filters every resolved `SocketAddr` whose IP falls in a private/loopback/link-local range. If all resolved addresses are private, the connection is refused before TCP connect. Covers IPv4 private ranges, loopback, link-local, CGNAT, IPv6 loopback, multicast, ULA, and IPv4-mapped IPv6 (`::ffff:x.x.x.x`).
+- **Config flag `server.dns_rebinding_protection`** (`config/mod.rs`) — Boolean, default `true`. Set to `false` only in fully isolated/trusted networks. A `WARN`-level log line is emitted at startup when disabled so operators see the risk in logs.
+
+### Performance
+
+- **Eliminated double URL parse in `fetch()`** (`runtime/fetch.rs`) — `validate_fetch_url()` now returns `Result<url::Url, String>` instead of `Option<String>`. The caller passes the already-parsed `url::Url` directly to `reqwest::Client::request()` (which accepts `IntoUrl`), skipping reqwest's internal re-parse. One `url::Url::parse` allocation removed per `fetch()` call.
+- **Hot-path `tracing::info!` downgraded to `debug!`** (`runtime/fetch.rs`) — Three per-request log lines ("fetch() callback invoked", response status, response body size) were at `INFO` level, emitted on every outbound fetch. Downgraded to `DEBUG`; they no longer appear in default production log output.
+
 ## [2.3.0] - 2026-08-08
 
 ### Security
