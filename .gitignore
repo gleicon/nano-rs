@@ -51,3 +51,6 @@ Thumbs.db
 .planning/
 # Added by goreleaser init:
 .intentionally-empty-file.o
+# Borescope analysis tool output
+.borescope/
+borescope-map-*.html

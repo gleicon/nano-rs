@@ -24,19 +24,17 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// Block URLs that would allow SSRF to private/internal addresses.
+/// Validate fetch URL for SSRF. Returns parsed `url::Url` on success so the
+/// caller can hand it directly to reqwest without re-parsing.
 ///
 /// Blocks literal private IPv4/IPv6 ranges and known internal hostnames.
 /// Does NOT defend against DNS rebinding (where a public hostname resolves
 /// to a private IP after this check).
-fn is_ssrf_blocked(url_str: &str) -> Option<String> {
-    let parsed = match url::Url::parse(url_str) {
-        Ok(u) => u,
-        Err(e) => return Some(format!("Invalid URL: {e}")),
-    };
+fn validate_fetch_url(url_str: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
 
     match parsed.host() {
-        None => return Some("URL has no host".to_string()),
+        None => return Err("URL has no host".to_string()),
         Some(url::Host::Ipv4(addr)) => {
             let o = addr.octets();
             let blocked = o[0] == 10
@@ -48,7 +46,7 @@ fn is_ssrf_blocked(url_str: &str) -> Option<String> {
                 || addr.is_broadcast()
                 || (o[0] == 100 && (64..=127).contains(&o[1]));
             if blocked {
-                return Some(format!("SSRF blocked: private address {addr}"));
+                return Err(format!("SSRF blocked: private address {addr}"));
             }
         }
         Some(url::Host::Ipv6(addr)) => {
@@ -64,7 +62,7 @@ fn is_ssrf_blocked(url_str: &str) -> Option<String> {
                     || v4.is_broadcast()
                     || (o[0] == 100 && (64..=127).contains(&o[1]));
                 if blocked {
-                    return Some(format!("SSRF blocked: private address {addr}"));
+                    return Err(format!("SSRF blocked: private address {addr}"));
                 }
             } else {
                 let s = addr.segments();
@@ -73,7 +71,7 @@ fn is_ssrf_blocked(url_str: &str) -> Option<String> {
                     || (s[0] & 0xffc0) == 0xfe80
                     || (s[0] & 0xfe00) == 0xfc00;
                 if blocked {
-                    return Some(format!("SSRF blocked: private address {addr}"));
+                    return Err(format!("SSRF blocked: private address {addr}"));
                 }
             }
         }
@@ -86,11 +84,11 @@ fn is_ssrf_blocked(url_str: &str) -> Option<String> {
                 || lower == "metadata.google.internal"
                 || lower == "169.254.169.254";
             if blocked {
-                return Some(format!("SSRF blocked: internal hostname {domain}"));
+                return Err(format!("SSRF blocked: internal hostname {domain}"));
             }
         }
     }
-    None
+    Ok(parsed)
 }
 
 /// Per-isolate fetch state
@@ -224,7 +222,7 @@ fn fetch_callback(
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
 ) {
-    tracing::info!("fetch() callback invoked");
+    tracing::debug!("fetch() callback invoked");
 
     // Extract URL from arguments (first arg)
     let url = if args.length() > 0 {
@@ -253,11 +251,15 @@ fn fetch_callback(
         return;
     }
 
-    // Validate URL for SSRF: block private/internal addresses
-    if let Some(err) = is_ssrf_blocked(&url) {
-        reject_with_error(scope, &mut retval, &err);
-        return;
-    }
+    // Validate URL for SSRF: block private/internal addresses.
+    // Returns the already-parsed url::Url so reqwest reuses it without re-parsing.
+    let parsed_url = match validate_fetch_url(&url) {
+        Ok(u) => u,
+        Err(err) => {
+            reject_with_error(scope, &mut retval, &err);
+            return;
+        }
+    };
 
     // Parse options (second arg)
     let mut method = "GET".to_string();
@@ -344,7 +346,7 @@ fn fetch_callback(
             rt_handle.block_on(async {
                 let mut request_builder = state.client.request(
                     reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
-                    &url,
+                    parsed_url,
                 );
 
                 // Add headers
@@ -362,7 +364,7 @@ fn fetch_callback(
                     Ok(resp) => {
                         let status = resp.status().as_u16();
                         let final_url = resp.url().to_string();
-                        tracing::info!("fetch() response: status={}, url={}", status, final_url);
+                        tracing::debug!("fetch() response: status={}, url={}", status, final_url);
 
                         // Extract headers
                         let mut response_headers = Vec::new();
@@ -375,7 +377,7 @@ fn fetch_callback(
                         // Read response body
                         match resp.bytes().await {
                             Ok(body_bytes) => {
-                                tracing::info!("fetch() response body: {} bytes", body_bytes.len());
+                                tracing::debug!("fetch() response body: {} bytes", body_bytes.len());
                                 Ok((body_bytes, response_headers, status, final_url))
                             }
                             Err(e) => Err(format!("Failed to read response body: {}", e)),
