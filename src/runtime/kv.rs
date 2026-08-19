@@ -20,12 +20,16 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{OnceLock, RwLock};
 
 use edgestore::{EdgestoreConfig, Engine};
 
-// Global EdgeStore engine — initialized once, shared across worker threads via Mutex.
-static KV_ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
+// Global EdgeStore engine — initialized once, shared across worker threads.
+// RwLock allows concurrent reads (kv_get, kv_list); writes (kv_set, kv_delete) are exclusive.
+// Tenants share one engine; isolation is via the key prefix {hostname}::{kv_name}.
+// Limitation: KV-heavy workloads from multiple tenants still contend on write lock.
+// A per-tenant DashMap<String, RwLock<Engine>> would eliminate that at the cost of N open files.
+static KV_ENGINE: OnceLock<RwLock<Engine>> = OnceLock::new();
 
 thread_local! {
     // Hostname of the current worker's app — used for namespace isolation.
@@ -39,7 +43,7 @@ pub fn init_kv_engine(data_dir: impl Into<PathBuf>) {
         std::fs::create_dir_all(&path).ok();
         let config = EdgestoreConfig::new(&path);
         match Engine::open(config) {
-            Ok(engine) => Mutex::new(engine),
+            Ok(engine) => RwLock::new(engine),
             Err(e) => {
                 tracing::warn!(
                     "KV engine open failed at {:?}: {}; falling back to temp dir",
@@ -48,7 +52,7 @@ pub fn init_kv_engine(data_dir: impl Into<PathBuf>) {
                 );
                 let tmp = std::env::temp_dir().join("nano-rs-kv-fallback");
                 std::fs::create_dir_all(&tmp).ok();
-                Mutex::new(
+                RwLock::new(
                     Engine::open(EdgestoreConfig::new(tmp)).expect("KV fallback init failed"),
                 )
             }
@@ -115,7 +119,7 @@ fn kv_get(
 
     let result = KV_ENGINE
         .get()
-        .and_then(|m| m.lock().ok())
+        .and_then(|rw| rw.read().ok())
         .and_then(|e| e.get(&ns, key.as_bytes()).ok().flatten());
 
     match result {
@@ -166,7 +170,7 @@ fn kv_set(
     let ns = kv_namespace(&ns_name);
 
     if let Some(engine) = KV_ENGINE.get() {
-        if let Ok(mut e) = engine.lock() {
+        if let Ok(mut e) = engine.write() {
             let _ = e.put(&ns, key.as_bytes(), &value);
         }
     }
@@ -191,7 +195,7 @@ fn kv_delete(
     let ns = kv_namespace(&ns_name);
 
     if let Some(engine) = KV_ENGINE.get() {
-        if let Ok(mut e) = engine.lock() {
+        if let Ok(mut e) = engine.write() {
             let _ = e.delete(&ns, key.as_bytes());
         }
     }
@@ -218,7 +222,7 @@ fn kv_list(
 
     let pairs: Vec<(Vec<u8>, Vec<u8>)> = KV_ENGINE
         .get()
-        .and_then(|m| m.lock().ok())
+        .and_then(|rw| rw.read().ok())
         .and_then(|e| e.prefix(&ns, prefix.as_bytes()).ok())
         .unwrap_or_default();
 
