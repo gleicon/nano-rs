@@ -1,0 +1,15 @@
+{
+  "apps": [
+    {
+      "hostname": "localhost",
+      "entrypoint": "examples/gas-notes.gs",
+      "env_vars": {
+        "GAS_COMPAT": "true"
+      }
+    }
+  ],
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0"
+  }
+}
