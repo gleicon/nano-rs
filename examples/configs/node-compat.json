@@ -1,0 +1,9 @@
+{
+  "apps": [
+    {
+      "hostname": "localhost",
+      "entrypoint": "examples/node-compat.js"
+    }
+  ],
+  "server": { "port": 8080, "host": "0.0.0.0" }
+}

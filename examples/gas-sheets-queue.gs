@@ -9,7 +9,7 @@
  *   1. Create a Google Cloud service account and download the JSON key file.
  *   2. Share your Google Sheet with the service account email (as Editor).
  *   3. Set GOOGLE_SERVICE_ACCOUNT_KEY, SPREADSHEET_ID, and OPENAI_API_KEY in env_vars.
- *   4. Run with: nano-rs --config examples/configs/gas-sheets-queue.json
+ *   4. Run with: nano-rs run -c examples/configs/gas-sheets-queue.json
  *
  * Sheet layout (row 1 is header, skipped):
  *   Column A: input prompt

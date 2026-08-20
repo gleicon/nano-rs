@@ -4,8 +4,8 @@
  * Shows require('path'), require('buffer'), require('assert'), and process.env
  * working in a WinterTC worker — the same APIs used by common npm packages.
  *
- * Deploy:
- *   nano-rs --entrypoint examples/node-compat.js
+ * Run:
+ *   nano-rs run -c examples/configs/node-compat.json
  *
  * Test:
  *   curl http://localhost:8080/path

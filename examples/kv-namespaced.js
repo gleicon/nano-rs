@@ -3,8 +3,8 @@
  *
  * Shows openKV() for separate KV stores within one app.
  *
- * Deploy:
- *   nano-rs --entrypoint examples/kv-namespaced.js
+ * Run:
+ *   nano-rs run -c examples/configs/kv-namespaced.json
  *
  * Test:
  *   curl -X POST http://localhost:8080/set -d '{"key":"x","value":42}'

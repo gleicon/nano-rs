@@ -4,8 +4,8 @@
  * Each request increments a counter stored in EdgeStore.
  * The count persists across restarts.
  *
- * Deploy:
- *   nano-rs --entrypoint examples/kv-counter.js
+ * Run:
+ *   nano-rs run -c examples/configs/kv-counter.json
  *
  * Test:
  *   curl http://localhost:8080/

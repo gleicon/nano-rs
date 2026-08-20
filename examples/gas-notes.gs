@@ -5,7 +5,7 @@
  * and requires no Google credentials — it runs on nano:kv internally).
  *
  * Run with:
- *   nano-rs --config examples/configs/gas-notes.json
+ *   nano-rs run -c examples/configs/gas-notes.json
  *
  * Endpoints:
  *   GET  /                              — list all notes as JSON
