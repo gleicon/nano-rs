@@ -47,8 +47,13 @@ Thumbs.db
 # KV engine data (EdgeStore files created by nano:kv tests and runtime)
 .nano-kv/
 
-# GSD/planning (kept locally, not committed)
+# GSD/planning and session state (kept locally, not committed)
 .planning/
+.project/
+
+# Flamegraph profiling artifacts
+flame.svg
+docs/flame-*.svg
 # Added by goreleaser init:
 .intentionally-empty-file.o
 # Borescope analysis tool output
