@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`nano:gas` — Google Apps Script compatibility shim** (`runtime/gas.rs`) — A built-in module that provides SpreadsheetApp, DocumentApp, DriveApp, UrlFetchApp, Logger, PropertiesService, CacheService, Utilities, and stubs for GmailApp/CalendarApp/etc. Authenticates to Google APIs via a service account JWT (`RSASSA-PKCS1-v1_5` signed, exchanged at `oauth2.googleapis.com`). Token is cached for 3500s using `nano:kv`. Sheets writes are buffered and sent as a single `batchUpdate` call at handler return (or explicit `.flush()`).
-- **`GAS_COMPAT` env var mode** (`worker/pool.rs`) — Classic GAS scripts (`.gs` files, no ESM imports) run unchanged by setting `env_vars.GAS_COMPAT=true` in the app config. The runtime wraps the script with `GAS_SHIM_PREFIX` (globals setup) + user code + `GAS_SHIM_SUFFIX` (request dispatcher). Functions that call Sheets/Docs/Drive APIs must be `async`; `doGet`/`doPost`/direct `{"function":"name"}` JSON dispatch/`main()` fallback is handled automatically.
-- **`import 'nano:gas'` ESM mode** (`runtime/kv.rs`, `v8/module.rs`) — ESM scripts can `import { dispatch } from 'nano:gas'` and export `{ fetch: req => dispatch(req, { doGet, doPost }) }`. Imports the same globals as a side-effect. Registered alongside `nano:kv` in `get_nano_module_code()`.
-- **PropertiesService and CacheService are synchronous** — Unlike Google APIs which require async, `PropertiesService` and `CacheService` call `__nano_kv_*` globals directly (the V8 native bindings are synchronous), matching real GAS behavior for property storage.
-- **Required env_vars:** `GOOGLE_SERVICE_ACCOUNT_KEY` (JSON string), `SPREADSHEET_ID` (for `getActiveSpreadsheet()`). Optional: `SHEET_NAME` (active sheet name), `GAS_USER_EMAIL` (returned by `Session.getEffectiveUser().getEmail()`).
+- **`nano:gas` — Google Apps Script compatibility shim** — Run `.gs` scripts on nano-rs with `SpreadsheetApp`, `DocumentApp`, `DriveApp`, `UrlFetchApp`, `Logger`, `PropertiesService`, `CacheService`, and `Utilities` — all backed by a service account. `GmailApp`, `CalendarApp`, and `MailApp` are stubbed (throw on call). Sheets writes are batched and flushed at handler return or on explicit `SpreadsheetApp.flush()`.
+- **`GAS_COMPAT=true` env var** — Set in `env_vars` to run a `.gs` file unchanged; the runtime wraps it with the shim automatically. Dispatch order: GET→`doGet`, `{"function":"name"}` POST→direct call, POST→`doPost`, fallback→`main()`. Functions calling Google APIs must be `async`.
+- **`import 'nano:gas'` ESM mode** — `import { dispatch } from 'nano:gas'` installs GAS globals as a side-effect; named service exports (`SpreadsheetApp`, `DocumentApp`, etc.) are also importable directly. Export `{ fetch: req => dispatch(req, { doGet, doPost }) }` as the handler.
+- **`PropertiesService` and `CacheService` are synchronous** — unlike SpreadsheetApp/DriveApp/DocumentApp, these do not require `await`. Backed by nano:kv native bindings, matching real GAS property-store behavior.
+- **`btoa`/`atob` — Base64 globals added** — Now available as native V8 bindings (Latin-1 encoding per WHATWG spec). Previously undefined in the runtime context; any userland polyfill for these globals will still work but is no longer needed.
+- **Required env_vars:** `GOOGLE_SERVICE_ACCOUNT_KEY` (JSON string), `SPREADSHEET_ID` (for `getActiveSpreadsheet()`). Optional: `SHEET_NAME`, `GAS_USER_EMAIL`.
 
 ## [2.5.0] - 2026-08-14
 

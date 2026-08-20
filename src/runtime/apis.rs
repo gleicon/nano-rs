@@ -59,6 +59,7 @@ impl RuntimeAPIs {
         Self::bind_streams(scope, context);
         Self::bind_wasm(scope, context);
         Self::bind_websocket_pair(scope, context);
+        Self::bind_base64(scope, context);
         // Security hardening must run last: removes eval and blocks dynamic code generation
         Self::bind_security_hardening(scope, context);
     }
@@ -365,6 +366,26 @@ impl RuntimeAPIs {
         context: v8::Local<v8::Context>,
     ) {
         crate::runtime::buffer_api::bind_buffer(scope, context);
+    }
+
+    fn bind_base64(
+        scope: &mut v8::PinnedRef<v8::HandleScope<()>>,
+        context: v8::Local<v8::Context>,
+    ) {
+        let global = context.global(scope);
+        let mut ctx_scope = v8::ContextScope::new(scope, context);
+        if let (Some(f), Some(k)) = (
+            v8::Function::new(&mut ctx_scope, crate::runtime::web_apis::btoa_callback),
+            v8::String::new(&mut ctx_scope, "btoa"),
+        ) {
+            global.set(&mut ctx_scope, k.into(), f.into());
+        }
+        if let (Some(f), Some(k)) = (
+            v8::Function::new(&mut ctx_scope, crate::runtime::web_apis::atob_callback),
+            v8::String::new(&mut ctx_scope, "atob"),
+        ) {
+            global.set(&mut ctx_scope, k.into(), f.into());
+        }
     }
 }
 

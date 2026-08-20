@@ -36,7 +36,7 @@
     <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-5xl mx-auto">
             <h1 class="text-4xl font-bold text-white mb-4">Compatibility</h1>
-            <p class="text-lg text-slate-400 mb-8">API support matrix, WebAssembly compatibility, and polyfill status</p>
+            <p class="text-lg text-slate-400 mb-8">WinterTC web APIs, Node.js polyfills, nano: built-in modules, Google Apps Script, and framework support — what works and what's planned</p>
 
             <section class="mb-12">
                 <h2 class="text-2xl font-semibold text-white mb-4">Overview</h2>
@@ -64,30 +64,8 @@
             </section>
 
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">WebAssembly Support</h2>
-                <p class="text-slate-400 mb-4">V8 built-in WASM engine executes binary modules without external dependencies.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Example</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300">const wasmModule = await WebAssembly.compile(wasmBytes);
-const instance = await WebAssembly.instantiate(wasmModule, {
-  env: { memory: new WebAssembly.Memory({ initial: 1 }) }
-});
-const result = instance.exports.add(1, 2);</pre>
-                    </div>
-                </div>
-
-                <div class="bg-slate-800/50 rounded-lg p-6">
-                    <h3 class="text-lg font-semibold text-white mb-3">Capabilities</h3>
-                    <ul class="space-y-2 text-slate-400">
-                        <li><strong class="text-slate-300">Module Compilation:</strong> WebAssembly.compile() for binary validation</li>
-                        <li><strong class="text-slate-300">Instantiation:</strong> WebAssembly.instantiate() with import objects</li>
-                        <li><strong class="text-slate-300">Memory Management:</strong> WebAssembly.Memory for linear memory</li>
-                        <li><strong class="text-slate-300">Table Imports:</strong> WebAssembly.Table for function references</li>
-                        <li><strong class="text-slate-300">Source Integrity:</strong> Hash-based caching for verification</li>
-                    </ul>
-                </div>
+                <h2 class="text-2xl font-semibold text-white mb-4">WebAssembly</h2>
+                <p class="text-slate-400">V8's built-in WASM engine — compile, instantiate, and call exports with no external dependencies. See <a href="runtime.html" class="text-blue-400 hover:text-blue-300 underline">Runtime → WebAssembly</a> for the full capability reference and configuration.</p>
             </section>
 
             <section class="mb-12">
@@ -250,13 +228,18 @@ const entries = await kv.list('user:');</pre>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">nano:localStorage</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
-                                <td class="px-4 py-3 text-slate-400">JS shim over nano:kv. See examples/localStorage-shim.js for the current userland version.</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-slate-500/20 text-slate-400 text-xs rounded">Userland</span></td>
+                                <td class="px-4 py-3 text-slate-400">Ships today as <code>examples/localStorage-shim.js</code> — copy into your app. See <a href="storage.html#localstorage" class="text-blue-400 hover:text-blue-300 underline">Storage</a>. A built-in <code>nano:localStorage</code> module is planned.</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">nano:cache</td>
                                 <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
                                 <td class="px-4 py-3 text-slate-400">WinterTC CacheStorage — VFS-backed Response serialization.</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">nano:gas</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">Google Apps Script compatibility shim. SpreadsheetApp, DocumentApp, DriveApp, PropertiesService, CacheService backed by service account. See <a href="#gas" class="text-blue-400 hover:text-blue-300 underline">section below</a>.</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">nano:indexeddb</td>
@@ -375,20 +358,106 @@ const ver    = process.version;                         // "v18.0.0"</pre>
                 </div>
             </section>
 
-            <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">Storage Architecture</h2>
-                <p class="text-slate-400 mb-4">Two distinct storage stacks — file operations and key-value operations are separate systems with different semantics.</p>
+            <!-- ── Google Apps Script ────────────────────────────────────── -->
+            <section class="mb-12 scroll-mt-20" id="gas">
+                <div class="flex items-center gap-3 mb-4">
+                    <h2 class="text-2xl font-semibold text-white">Google Apps Script (<code class="text-green-400">nano:gas</code>)</h2>
+                    <span class="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">v2.6.0+</span>
+                </div>
+                <p class="text-slate-400 mb-6">Run <code>.gs</code> files on nano-rs with a service-account-backed shim. <code>SpreadsheetApp</code>, <code>DocumentApp</code>, <code>DriveApp</code>, <code>PropertiesService</code>, <code>CacheService</code>, <code>Logger</code>, <code>Utilities</code>, and more are available out of the box.</p>
 
-                <div class="grid md:grid-cols-2 gap-6">
-                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
-                        <h3 class="text-lg font-semibold text-white mb-2">File Storage (VFS)</h3>
-                        <p class="text-sm text-slate-400 mb-3">Named file access via <code>require('fs')</code> and <code>Nano.fs.*</code>. Memory or disk backend. Used for static assets and structured files.</p>
-                        <code class="text-xs text-slate-300">require('fs').readFileSync('/data/config.json')</code>
+                <div class="grid md:grid-cols-2 gap-5 mb-8">
+                    <div class="bg-green-500/5 border border-green-500/30 rounded-xl p-5">
+                        <div class="text-green-400 font-semibold text-sm mb-2">Classic mode — <code>GAS_COMPAT=true</code></div>
+                        <p class="text-xs text-slate-400">Set <code>GAS_COMPAT=true</code> in <code>env_vars</code>. Upload your <code>.gs</code> file unchanged. The runtime injects the shim prefix and suffix automatically — no import required.</p>
                     </div>
-                    <div class="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
-                        <h3 class="text-lg font-semibold text-white mb-2">Key-Value Storage (EdgeStore)</h3>
-                        <p class="text-sm text-slate-400 mb-3">Structured KV with namespace isolation via <code>nano:kv</code>. EdgeStore embedded engine. Hostname-prefixed so each app has its own isolated store. S3-compatible replication path available via EdgeStore tiers.</p>
-                        <code class="text-xs text-slate-300">import &#123; kv &#125; from 'nano:kv';</code>
+                    <div class="bg-blue-500/5 border border-blue-500/30 rounded-xl p-5">
+                        <div class="text-blue-400 font-semibold text-sm mb-2">ESM mode — <code>import 'nano:gas'</code></div>
+                        <p class="text-xs text-slate-400">In an ESM handler, <code>import { dispatch } from 'nano:gas'</code>. GAS globals are installed as a side-effect. Use <code>dispatch(request, { doGet, doPost })</code> as your fetch handler. Named service exports (<code>SpreadsheetApp</code>, <code>DocumentApp</code>, etc.) are also importable directly.</p>
+                    </div>
+                </div>
+
+                <h3 class="text-lg font-semibold text-white mb-3">Quick example — classic mode</h3>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-8">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">handler.gs</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">// GET / → return sheet rows as JSON
+async function doGet(e) {
+  const sheet  = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const values = await (await sheet.getDataRange()).getValues();
+  return JSON.stringify(values);
+}
+
+// POST / → append a row
+async function doPost(e) {
+  const body  = JSON.parse(e.postData.contents);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  await sheet.appendRow([body.name, body.value, new Date().toISOString()]);
+  return { ok: true };
+}
+
+// POST with {"function":"processItem","args":[42]} → direct RPC dispatch
+async function processItem(id) {
+  // PropertiesService is synchronous (backed by nano:kv)
+  PropertiesService.getScriptProperties().setProperty('last_id', String(id));
+  return { processed: id };
+}</pre>
+                    </div>
+                </div>
+
+                <h3 class="text-lg font-semibold text-white mb-3">Required env_vars</h3>
+                <div class="bg-slate-800/50 rounded-lg overflow-hidden mb-8">
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left px-4 py-2 text-white text-xs">Variable</th>
+                                <th class="text-left px-4 py-2 text-white text-xs">When</th>
+                                <th class="text-left px-4 py-2 text-white text-xs">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800 text-xs text-slate-400">
+                            <tr><td class="px-4 py-2 font-mono text-green-400">GAS_COMPAT</td><td class="px-4 py-2">Classic mode</td><td class="px-4 py-2">Set to <code>"true"</code> to enable shim injection.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono text-green-400">GOOGLE_SERVICE_ACCOUNT_KEY</td><td class="px-4 py-2 text-red-400">Required</td><td class="px-4 py-2">Full JSON string of the service account key file.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono text-green-400">SPREADSHEET_ID</td><td class="px-4 py-2">Conditional</td><td class="px-4 py-2">Needed if your script calls <code>SpreadsheetApp.getActiveSpreadsheet()</code>.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono text-green-400">SHEET_NAME</td><td class="px-4 py-2">Optional</td><td class="px-4 py-2">Active sheet for <code>getActiveSheet()</code>. Defaults to first sheet.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono text-green-400">GAS_USER_EMAIL</td><td class="px-4 py-2">Optional</td><td class="px-4 py-2">Returned by <code>Session.getEffectiveUser().getEmail()</code>.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="text-lg font-semibold text-white mb-3">Service support matrix</h3>
+                <div class="bg-slate-800/50 rounded-lg overflow-hidden mb-8">
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-slate-700">
+                            <tr>
+                                <th class="text-left px-4 py-2 text-white text-xs">Service</th>
+                                <th class="text-left px-4 py-2 text-white text-xs">Status</th>
+                                <th class="text-left px-4 py-2 text-white text-xs">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800 text-xs text-slate-400">
+                            <tr><td class="px-4 py-2 font-mono">SpreadsheetApp</td><td class="px-4 py-2"><span class="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Complete</span></td><td class="px-4 py-2">Sheets API v4. <code>setValues()</code> calls are batched and flushed at handler return.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono">DocumentApp</td><td class="px-4 py-2"><span class="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Complete</span></td><td class="px-4 py-2">Docs API v1. Read-only body + paragraph access.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono">DriveApp</td><td class="px-4 py-2"><span class="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Complete</span></td><td class="px-4 py-2">Drive API v3. File/folder listing, blob download.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono">UrlFetchApp</td><td class="px-4 py-2"><span class="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Complete</span></td><td class="px-4 py-2">Thin wrapper over <code>fetch()</code>.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono">PropertiesService</td><td class="px-4 py-2"><span class="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Complete</span></td><td class="px-4 py-2"><strong class="text-white">Synchronous</strong> — backed by <code>nano:kv</code> native bindings. No <code>await</code> needed.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono">CacheService</td><td class="px-4 py-2"><span class="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Complete</span></td><td class="px-4 py-2"><strong class="text-white">Synchronous</strong> — same as PropertiesService, <code>put(key, val, ttlSeconds)</code>.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono">Logger / Utilities / HtmlService</td><td class="px-4 py-2"><span class="bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Complete</span></td><td class="px-4 py-2">Synchronous. Logger maps to <code>console.*</code>. Utilities includes base64, UUID, CSV, Blob, formatDate.</td></tr>
+                            <tr><td class="px-4 py-2 font-mono">GmailApp / CalendarApp / MailApp</td><td class="px-4 py-2"><span class="bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">Stub</span></td><td class="px-4 py-2">Require a logged-in user account. Throw descriptive errors when called.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="text-lg font-semibold text-white mb-3">Key differences from real GAS</h3>
+                <div class="space-y-3">
+                    <div class="bg-amber-500/5 border border-amber-500/30 rounded-lg p-4">
+                        <p class="text-xs text-slate-400"><strong class="text-amber-400">Google API calls are async.</strong> Real GAS blocks synchronously. nano:gas uses async <code>fetch()</code>, so SpreadsheetApp / DriveApp / DocumentApp calls return Promises — add <code>async</code> to handler functions and <code>await</code> each API call. Exception: <code>PropertiesService</code> and <code>CacheService</code> call native V8 bindings and are genuinely synchronous.</p>
+                    </div>
+                    <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
+                        <p class="text-xs text-slate-400"><strong class="text-white">Service account only.</strong> All requests are made as the service account, not a logged-in user. Share your Spreadsheet/Document/Drive folder with the service account email (as Editor) for it to have access.</p>
+                    </div>
+                    <div class="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
+                        <p class="text-xs text-slate-400"><strong class="text-white">No GAS triggers.</strong> Use an external cron or HTTP scheduler to POST to your nano-rs endpoint on a schedule.</p>
                     </div>
                 </div>
             </section>

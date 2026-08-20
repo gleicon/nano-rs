@@ -3,6 +3,75 @@
 use std::cell::Cell;
 use std::time::Instant;
 
+// ── btoa / atob ──────────────────────────────────────────────────────────────
+// Standard Web / WinterTC globals. V8 does not include them by default.
+
+/// `btoa(str)` — Base64-encode a Latin-1 string. Throws TypeError if any character > U+00FF.
+pub fn btoa_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let input = match args.get(0).to_string(scope) {
+        Some(s) => s.to_rust_string_lossy(scope),
+        None => return,
+    };
+    let bytes: Result<Vec<u8>, ()> = input
+        .chars()
+        .map(|c| if c as u32 > 255 { Err(()) } else { Ok(c as u8) })
+        .collect();
+    match bytes {
+        Ok(b) => {
+            use base64::{engine::general_purpose, Engine as _};
+            let encoded = general_purpose::STANDARD.encode(&b);
+            if let Some(s) = v8::String::new(scope, &encoded) {
+                retval.set(s.into());
+            }
+        }
+        Err(_) => {
+            if let Some(msg) =
+                v8::String::new(scope, "btoa: input contains characters outside Latin-1 range")
+            {
+                let exc = v8::Exception::type_error(scope, msg);
+                scope.throw_exception(exc);
+            }
+        }
+    }
+}
+
+/// `atob(str)` — Decode a base64 string into a Latin-1 string. Throws TypeError on invalid input.
+pub fn atob_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let input = match args.get(0).to_string(scope) {
+        Some(s) => s.to_rust_string_lossy(scope),
+        None => return,
+    };
+    use base64::{engine::general_purpose, Engine as _};
+    // Strip ASCII whitespace per the WHATWG spec
+    let stripped: String = input
+        .chars()
+        .filter(|c| !matches!(*c, ' ' | '\t' | '\n' | '\r' | '\x0C'))
+        .collect();
+    match general_purpose::STANDARD.decode(&stripped) {
+        Ok(bytes) => {
+            // atob returns a string whose code units are the raw byte values
+            let s: String = bytes.iter().map(|&b| b as char).collect();
+            if let Some(v) = v8::String::new(scope, &s) {
+                retval.set(v.into());
+            }
+        }
+        Err(_) => {
+            if let Some(msg) = v8::String::new(scope, "atob: invalid base64 string") {
+                let exc = v8::Exception::type_error(scope, msg);
+                scope.throw_exception(exc);
+            }
+        }
+    }
+}
+
 thread_local! {
     pub(crate) static PERFORMANCE_BASELINE: Cell<Option<Instant>> = Cell::new(None);
 }

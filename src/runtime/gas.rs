@@ -345,6 +345,11 @@ globalThis.__nano_user_fetch = async function(request) {
 // Sets up the same GAS globals and exports `dispatch(request, handlers)`.
 // Arrow functions and template literals are safe in ESM context (V8 full ES2020+).
 
+/// Return GAS_MODULE_CODE — convenience alias used by get_nano_module_code().
+pub fn module_code() -> &'static str {
+    GAS_MODULE_CODE
+}
+
 pub const GAS_MODULE_CODE: &str = r#"
 const __gF = fetch;
 let __gT = null, __gTE = 0, __gW = [];
@@ -632,3 +637,87 @@ export async function dispatch(request, handlers) {
 export { SpreadsheetApp, DocumentApp, DriveApp, UrlFetchApp, Logger, PropertiesService, CacheService, Utilities };
 export default { dispatch, SpreadsheetApp, DocumentApp, DriveApp, UrlFetchApp, Logger, PropertiesService, CacheService, Utilities };
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefix_is_non_empty() {
+        assert!(!GAS_SHIM_PREFIX.is_empty());
+    }
+
+    #[test]
+    fn suffix_is_non_empty() {
+        assert!(!GAS_SHIM_SUFFIX.is_empty());
+    }
+
+    #[test]
+    fn module_code_is_non_empty() {
+        assert!(!GAS_MODULE_CODE.is_empty());
+        assert_eq!(module_code(), GAS_MODULE_CODE);
+    }
+
+    #[test]
+    fn prefix_contains_core_globals() {
+        assert!(GAS_SHIM_PREFIX.contains("SpreadsheetApp"));
+        assert!(GAS_SHIM_PREFIX.contains("PropertiesService"));
+        assert!(GAS_SHIM_PREFIX.contains("CacheService"));
+        assert!(GAS_SHIM_PREFIX.contains("Utilities"));
+        assert!(GAS_SHIM_PREFIX.contains("DocumentApp"));
+        assert!(GAS_SHIM_PREFIX.contains("DriveApp"));
+        assert!(GAS_SHIM_PREFIX.contains("UrlFetchApp"));
+        assert!(GAS_SHIM_PREFIX.contains("Logger"));
+    }
+
+    #[test]
+    fn prefix_captures_original_fetch() {
+        assert!(GAS_SHIM_PREFIX.contains("__gasFetch = fetch"));
+    }
+
+    #[test]
+    fn suffix_installs_user_fetch_handler() {
+        assert!(GAS_SHIM_SUFFIX.contains("__nano_user_fetch"));
+        assert!(GAS_SHIM_SUFFIX.contains("doGet"));
+        assert!(GAS_SHIM_SUFFIX.contains("doPost"));
+        assert!(GAS_SHIM_SUFFIX.contains("__gasFlush"));
+    }
+
+    #[test]
+    fn module_code_has_esm_exports() {
+        assert!(GAS_MODULE_CODE.contains("export async function dispatch"));
+        assert!(GAS_MODULE_CODE.contains("export default"));
+        assert!(GAS_MODULE_CODE.contains("export {"));
+    }
+
+    #[test]
+    fn stubs_defined_in_prefix() {
+        assert!(GAS_SHIM_PREFIX.contains("GmailApp"));
+        assert!(GAS_SHIM_PREFIX.contains("CalendarApp"));
+        assert!(GAS_SHIM_PREFIX.contains("FormApp"));
+        assert!(GAS_SHIM_PREFIX.contains("SlidesApp"));
+        assert!(GAS_SHIM_PREFIX.contains("MailApp"));
+    }
+
+    #[test]
+    fn token_cache_uses_correct_ttl() {
+        // 3500 seconds (slightly under 1h) to avoid serving a token right before expiry
+        assert!(GAS_SHIM_PREFIX.contains("3500000"));
+        assert!(GAS_MODULE_CODE.contains("3500000"));
+    }
+
+    #[test]
+    fn properties_service_uses_kv_globals() {
+        assert!(GAS_SHIM_PREFIX.contains("__nano_kv_get"));
+        assert!(GAS_SHIM_PREFIX.contains("__nano_kv_set"));
+        assert!(GAS_SHIM_PREFIX.contains("__nano_kv_delete"));
+        assert!(GAS_SHIM_PREFIX.contains("__nano_kv_list"));
+    }
+
+    #[test]
+    fn sheets_api_uses_batch_update() {
+        // Writes are batched, not sent one-by-one
+        assert!(GAS_SHIM_PREFIX.contains("batchUpdate"));
+        assert!(GAS_MODULE_CODE.contains("batchUpdate"));
+    }
+}
