@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "hostname": "gas.example.com",
+      "entrypoint": "examples/gas-sheets-queue.gs",
+      "env_vars": {
+        "GAS_COMPAT": "true",
+        "GOOGLE_SERVICE_ACCOUNT_KEY": "{\"type\":\"service_account\",\"project_id\":\"...\",\"private_key_id\":\"...\",\"private_key\":\"-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----\\n\",\"client_email\":\"nano@myproject.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}",
+        "SPREADSHEET_ID": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms",
+        "SHEET_NAME": "Queue",
+        "GAS_USER_EMAIL": "nano@myproject.iam.gserviceaccount.com",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  ],
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0"
+  }
+}
