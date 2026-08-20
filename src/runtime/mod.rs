@@ -23,6 +23,7 @@ pub mod crypto;
 pub mod fetch;
 pub mod fs_polyfill;
 pub mod handler;
+pub mod gas;
 pub mod kv;
 pub mod request;
 pub mod stream;

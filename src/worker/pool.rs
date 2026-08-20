@@ -762,6 +762,27 @@ impl WorkerPool {
                                 };
 
                                 let is_esm = crate::v8::module::is_esm_module(&code);
+                                // Wrap classic GAS scripts when GAS_COMPAT=true in env_vars.
+                                // ESM scripts with `import 'nano:gas'` are not wrapped here.
+                                let code = if !is_esm
+                                    && worker_env_vars
+                                        .get("GAS_COMPAT")
+                                        .map(|v| v == "true")
+                                        .unwrap_or(false)
+                                {
+                                    info!(
+                                        "Worker {}: GAS_COMPAT mode — wrapping '{}' with nano:gas shim",
+                                        id, entrypoint
+                                    );
+                                    std::sync::Arc::from(format!(
+                                        "{}{}{}",
+                                        crate::runtime::gas::GAS_SHIM_PREFIX,
+                                        &*code,
+                                        crate::runtime::gas::GAS_SHIM_SUFFIX
+                                    ))
+                                } else {
+                                    code
+                                };
                                 let cache_key =
                                     format!("{}::{}@{}", worker_hostname, entrypoint, mtime_ver);
                                 let handler_result = if is_esm {

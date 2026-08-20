@@ -3,6 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-08-20
+
+### Added
+
+- **`nano:gas` — Google Apps Script compatibility shim** (`runtime/gas.rs`) — A built-in module that provides SpreadsheetApp, DocumentApp, DriveApp, UrlFetchApp, Logger, PropertiesService, CacheService, Utilities, and stubs for GmailApp/CalendarApp/etc. Authenticates to Google APIs via a service account JWT (`RSASSA-PKCS1-v1_5` signed, exchanged at `oauth2.googleapis.com`). Token is cached for 3500s using `nano:kv`. Sheets writes are buffered and sent as a single `batchUpdate` call at handler return (or explicit `.flush()`).
+- **`GAS_COMPAT` env var mode** (`worker/pool.rs`) — Classic GAS scripts (`.gs` files, no ESM imports) run unchanged by setting `env_vars.GAS_COMPAT=true` in the app config. The runtime wraps the script with `GAS_SHIM_PREFIX` (globals setup) + user code + `GAS_SHIM_SUFFIX` (request dispatcher). Functions that call Sheets/Docs/Drive APIs must be `async`; `doGet`/`doPost`/direct `{"function":"name"}` JSON dispatch/`main()` fallback is handled automatically.
+- **`import 'nano:gas'` ESM mode** (`runtime/kv.rs`, `v8/module.rs`) — ESM scripts can `import { dispatch } from 'nano:gas'` and export `{ fetch: req => dispatch(req, { doGet, doPost }) }`. Imports the same globals as a side-effect. Registered alongside `nano:kv` in `get_nano_module_code()`.
+- **PropertiesService and CacheService are synchronous** — Unlike Google APIs which require async, `PropertiesService` and `CacheService` call `__nano_kv_*` globals directly (the V8 native bindings are synchronous), matching real GAS behavior for property storage.
+- **Required env_vars:** `GOOGLE_SERVICE_ACCOUNT_KEY` (JSON string), `SPREADSHEET_ID` (for `getActiveSpreadsheet()`). Optional: `SHEET_NAME` (active sheet name), `GAS_USER_EMAIL` (returned by `Session.getEffectiveUser().getEmail()`).
+
 ## [2.5.0] - 2026-08-14
 
 ### Fixed

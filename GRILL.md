@@ -1,126 +1,72 @@
-# nano-rs Design Decisions
+# GRILL: Google Apps Script polyfill for nano-rs
 
-Decisions recorded during `/ds-grill-me` session — 2026-08-02.
+## Resolved decisions
 
----
+### 1. Delivery mechanism
+**Q:** New runtime mode (Rust-side bindings) or pure JS shim?
+**A:** Pure JS shim — no new Rust.
+**Rationale:** nano-rs already exposes `fetch()`, `TextEncoder/Decoder`, `crypto`, `console`, `nano:kv`. A single `.js` file loaded before the user's script provides full GAS globals without touching the runtime.
 
-**Q: How should WASM workers be modelled for nano-rs users?**
-**A: Option A — WASM as a library called from a JS entrypoint.** The entrypoint is always a `.js` file; it loads the `.wasm` bytes (inline or via `Nano.fs`) and calls exports. nano-rs stays out of the question of which language produced the WASM or what the module's internal conventions are.
-*Rationale: nano-rs runs WASM through V8's browser model (WebAssembly.compile/instantiate). No WASI, no host functions beyond what JS provides. A `.wasm` first-class entrypoint would require a caller-convention contract nano-rs doesn't have. Language-agnostic: Rust, Go, AssemblyScript, C — all reduce to the same `.wasm` bytes.*
 
----
+### 2. Target use case
+**Q:** Who are the users and what's the pattern?
+**A:** Non-tech users who glue AI to spreadsheets / data pipelines / LLM document processing.
+**Rationale:** Core loop: read rows from Sheets → call LLM via UrlFetchApp → write back results. Real data, real Google APIs required.
 
-**Q: Who owns the WASM calling convention — nano-rs or the user's toolchain?**
-**A: The user's toolchain (B1).** Users ship `.wasm` + the glue `.js` their toolchain generates (wasm-bindgen for Rust, tinygo for Go). The JS glue is the entrypoint. nano-rs never touches calling conventions.
-*Rationale: owning a calling convention means owning a versioned contract. B1 keeps nano-rs language-agnostic and defers all ABI concerns to mature per-language tooling. Revisit if a language with no viable glue generator emerges.*
+### 3. SpreadsheetApp data source
+**Q:** In-memory mock, VFS-backed, or live Google API?
+**A:** Live bridge (Option C) — shim calls Google Sheets/Docs REST APIs via fetch().
+**Rationale:** Exploration project; mock data is useless for the actual use case. User confirmed willing to handle Google client library/auth complexity.
 
----
 
-**Q: Should WASM limits be compile-time constants or runtime-configurable?**
-**A: Compile-time constants in `limits.rs`, new `limits::wasm` module.** Same pattern as all other limits. Per-app overrides are the PaaS layer's responsibility (remo or equivalent), not nano-rs's.
-*Rationale: nano-rs has no runtime config loading. Adding it for WASM alone would be inconsistent and add a loading/validation layer nothing else needs.*
+### 4. Google credentials scope
+**Q:** Service account key per-tenant or global?
+**A:** Always per-tenant — each app's env_vars holds its own service account JSON.
+**Rationale:** Global credentials would let all tenants access each other's authorized sheets. Non-negotiable for multi-tenant.
 
----
+### 5. SpreadsheetApp API surface
+**Q:** getActiveSpreadsheet() only, or also openById()?
+**A:** Both. getActiveSpreadsheet() reads Nano.env.SPREADSHEET_ID. openById(id) works for any sheet the service account can access.
+**Rationale:** Non-tech users set env var once; power users call openById() per request.
 
-**Q: What are the hard WASM limit values?**
-**A:**
-- `wasm::MODULE_SIZE_BYTES_MAX` = 10 MB (matches JS script cap; >10 MB is unoptimized output)
-- `wasm::LINEAR_MEMORY_PAGES_MAX` = 512 pages = 32 MB (documents intent; enforced implicitly by 128 MB V8 heap OOM)
-- `wasm::IMPORT_COUNT_MAX` = 128 (covers wasm-bindgen glue; >128 signals a design problem)
-- `wasm::EXPORT_COUNT_MAX` = 256 (symmetric cap)
 
-*Rationale: module size and import/export counts are cheaply checked pre-instantiation. Linear memory requires WASM binary section parsing — deferred; the V8 heap hard limit already enforces it.*
+### 6. Entry point dispatch
+**Q:** How does nano-rs call into a GAS script with no fetch() handler?
+**A:** X-then-Y-then-main: shim provides fetch(request) that tries doGet/doPost first (GAS web app convention), then {"function":"name"} JSON body dispatch, then main() fallback.
+**Rationale:** Covers web app scripts unchanged, time-trigger scripts via explicit invocation, and simple scripts with a main entry point. No user code changes required for web apps.
 
----
 
-**Q: How is `LINEAR_MEMORY_PAGES_MAX` enforced without a WASM binary parser?**
-**A: Documented-only limit, enforced implicitly by the 128 MB V8 heap OOM.** When the heap limit fires, `heap_limit_hits_total` counter increments and an event is logged. A new `wasm_memory_oom_total` counter will be added to distinguish WASM OOM events from JS OOM events in metrics.
-*Rationale: writing a WASM memory-section parser adds complexity with no practical safety benefit the heap cap doesn't already provide. The counter gives observability for profiling.*
+### 7. Write-back strategy
+**Q:** Immediate Google Sheets API writes or batch-at-end?
+**A:** Batch-at-end. Collect all setValues/setValue/appendRow calls, flush with single Sheets batchUpdate on handler return. SpreadsheetApp.flush() forces early flush.
+**Rationale:** GAS itself batches internally. "Iterate 100 rows → write result" pattern hits Sheets rate limits (100 req/100s per user) with immediate writes. Batch stays within limits.
 
----
+### 8. API scope for v1
+**Q:** Which GAS services ship in v1?
+**A:** SpreadsheetApp (read/write values, getDataRange, appendRow, getSheetByName), DocumentApp (read-only — getBody().getText()), DriveApp (getFileById, getFolderById, list files — read/write basic ops), UrlFetchApp, Logger, PropertiesService (nano:kv-backed), Utilities (base64/JSON/sleep), CacheService (nano:kv + manual TTL).
+**Stubs that throw clear error:** GmailApp, CalendarApp, ScriptApp, HtmlService, UI dialogs.
+**Rationale:** Covers the "read Docs/Sheets/Drive → call LLM → write back" pipeline end-to-end. All three Google APIs use same OAuth token, same fetch() pattern, marginal extra cost. Hard cutoff at email/calendar/UI.
 
-**Q: Should nano-rs be a CLI tool, an embeddable crate, or both?**
-**A: CLI-only (D1), explicitly.** The `[lib]` target exists for internal test infrastructure, not as a public embedding surface. External systems (remo, etc.) integrate via the admin HTTP API (`:9000`) — language-agnostic, process-boundary-safe, multi-node compatible. The `pub fn run()` stub in `lib.rs` will be clarified to say this explicitly.
-*Rationale: the HTTP admin API already is the right integration boundary. In-process embedding buys nothing for the PaaS use case and creates an API surface to version and maintain. D2 (proper embedding API) is a valid future path but requires a separate design session — the public API contract, lifecycle management (NanoRuntime::start/stop), and config surface are non-trivial. Record as potential v2+ path.*
 
-**D2 (future, needs design):** `use nano::{NanoRuntime, NanoConfig}` — `NanoRuntime::builder().config(cfg).start() -> Result<NanoHandle>`. Would require: stable public API surface, versioning commitment, lifecycle contract (graceful shutdown, reload), config struct distinct from CLI args. Do not implement without a design doc.
+### 9. Loading mechanism and binary consistency
+**Q:** How is the shim loaded — VFS file, auto-prepend, or nano: built-in module?
+**A:** nano:gas built-in module — same pattern as nano:kv. JS shim embedded as pub const GAS_SHIM_CODE: &str = r#"..."# in src/runtime/gas.rs. User writes: import 'nano:gas'; at top of script.
+**Rationale:** Fully consistent with existing nano:kv pattern. Ships in single binary (no VFS file, no external dep). Rust surface: one new file, one mod declaration, one match arm in get_nano_module_code(). All runtime behavior (OAuth2 JWT, REST API calls, dispatch) is pure JS using existing fetch(), crypto.subtle, nano:kv.
 
----
+### 10. OAuth2 implementation
+**Q:** Bundle google-auth-library or implement JWT flow in JS?
+**A:** Pure JS JWT implementation using crypto.subtle (RSASSA-PKCS1-v1_5). Token cached in nano:kv per-tenant with 1-hour TTL checked manually. No external library.
+**Rationale:** google-auth-library uses Node.js APIs not available in nano-rs. crypto.subtle with RSA already works (shipped in v2.2.2). Keeps single-binary constraint.
 
-# Browser APIs, Storage, and Node.js Compat — 2026-08-06
+## Summary
 
----
+The GAS compatibility shim is:
+- A nano:gas ESM module (JS embedded in Rust const, same as nano:kv)
+- Pure JS: uses fetch(), crypto.subtle, nano:kv, console
+- Live bridge to Google APIs via service account JWT (per-tenant, from Nano.env)
+- SpreadsheetApp + DocumentApp + DriveApp + UrlFetchApp + Logger + PropertiesService + Utilities + CacheService
+- Entry point dispatch: doGet/doPost → function-name JSON body → main() fallback
+- Writes batched, flushed on handler return (or via SpreadsheetApp.flush())
+- Stubs for GmailApp, CalendarApp, ScriptApp, HtmlService that throw descriptive errors
 
-**Q: One runtime mode or two (WinterTC vs browser-compat)?**
-Two distinct modes. WinterTC stays spec-clean. Browser-compat is opt-in and injects extra globals.
-_Rationale: mixing browser globals into the WinterTC context causes spec drift and confuses users writing portable workers._
-
----
-
-**Q: What signals browser-compat mode?**
-Admin API flag (`mode: "browser"` on app registration). CLI shortcut: `--browser-app`.
-_Rationale: mode is infrastructure config, not application code. The JS file stays clean._
-
----
-
-**Q: Entry pattern for browser-compat apps?**
-Same as WinterTC: `export default { fetch(request) {} }`. Mode flag controls which extra globals get injected at bind time, not the execution model.
-_Rationale: zero new dispatch logic. Works in both modes if using `nano:` imports._
-
----
-
-**Q: Stateful persistent isolates (tab model) or stateless isolates with durable storage?**
-Stateless isolates with durable storage. The isolate is the execution context; state lives in storage backends.
-_Rationale: avoids session management, maps to existing VFS hostname-scoping, keeps isolates recyclable. In-isolate JS globals persist only within one worker thread — not consistent across the pool (N workers = N separate JS heaps)._
-
----
-
-**Q: Module namespace for built-in nano-rs APIs?**
-`nano:` prefix — e.g. `import { kv } from 'nano:kv'`. Resolved in the ESM module loader before VFS lookup (prefix check in `resolve_import_path` in `v8/module.rs`).
-_Rationale: clearly marks nano-rs specific APIs as distinct from WinterTC spec and Node.js. No collision risk._
-
----
-
-**Q: KV namespace model?**
-Named namespaces: `kv` (default, auto-scoped) + `openKV('name')` for multiple stores per app. Both hostname-scoped as `{hostname}::{kv_namespace}` via existing `IsolateVfs` prefix model.
-_Rationale: `kv` covers the simple case; `openKV` covers separation of concerns. Zero cost if only one namespace is used._
-
----
-
-**Q: KV value types?**
-Bytes (`Uint8Array`) as the Rust-side primitive. JS-side convenience wrappers: `kv.getJSON(key)` / `kv.setJSON(key, value)`.
-_Rationale: bytes are unambiguous. JSON wrapper lives in the JS module layer, not Rust._
-
----
-
-**Q: Tenant isolation across a multi-app process?**
-Free — inherited from `IsolateVfs.prefix_namespace()`. A worker only holds a reference to its own `IsolateVfs`; no cross-hostname VFS API exists. `nano:kv` routes through the same `IsolateVfs`, so isolation is automatic.
-_Rationale: no new isolation code needed._
-
----
-
-**Q: Implementation order?**
-1. Close docs/code gap: `require('path')`, `require('buffer')`, `require('assert')`, `process.env` — documented as complete, not implemented
-2. `nano:kv` — async bytes KV, EdgeStore backend, hostname-namespaced
-3. `localStorage` shim + `sessionStorage` shim — JS-only wrappers over `nano:kv` and in-isolate Map respectively
-4. `CacheStorage` — WinterTC-specified, VFS-backed Response serialization
-5. `IndexedDB` — phase 3, backend TBD
-
-_Rationale: unblocks current users first. Storage primitives before high-level shims. IndexedDB last — V8 has no built-in; full implementation required._
-
----
-
-**Q: Storage backend architecture?**
-Two separate stacks: file ops (`Nano.fs`, `require('fs')`) use VFS (memory/disk). KV ops (`nano:kv`) use EdgeStore (`gleicon/edgestore`, embedded crate, no separate process). S3 not wired now — EdgeStore handles S3 recovery through its own replication path when needed.
-_Rationale: VFS is designed for named file access; EdgeStore is designed for structured KV with namespaces. EdgeStore's `engine.get(namespace, key)` maps exactly to `openKV('name').get(key)`._
-
----
-
-**Q: Node.js compat scope?**
-Minimal first: `require('path')`, `require('buffer')`, `require('assert')`, `process.env`. `require('events')` and `require('util')` are phase 2. `http`, `https`, `net`, `child_process` out of scope permanently. Node.js `crypto` deferred — Web Crypto (`crypto.subtle`) already complete.
-_Rationale: ~80% of npm packages that run in edge runtimes need only path/buffer/assert/process._
-
----
-
-**Note — IndexedDB backend (unresolved, phase 3):**
-Options: SQLite (new dep) or structured JSON in VFS paths. Deferred until CacheStorage is done and usage patterns are clearer.
+Rust delta: ~10 lines across 3 files. JS shim: ~500 lines.

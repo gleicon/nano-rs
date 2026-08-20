@@ -299,6 +299,7 @@ export default { kv, openKV };
 pub fn get_nano_module_code(specifier: &str) -> Option<&'static str> {
     match specifier {
         "nano:kv" => Some(NANO_KV_MODULE_CODE),
+        "nano:gas" => Some(crate::runtime::gas::GAS_MODULE_CODE),
         _ => None,
     }
 }
