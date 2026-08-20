@@ -106,8 +106,8 @@ pub fn detect_entrypoint_type(path: &str) -> EntrypointType {
         .to_lowercase();
 
     match ext.as_str() {
-        // JavaScript files - execute as Worker
-        "js" | "mjs" | "ts" => EntrypointType::JavaScript(path.to_string()),
+        // JavaScript files - execute as Worker (.gs = Google Apps Script classic scripts)
+        "js" | "mjs" | "ts" | "gs" => EntrypointType::JavaScript(path.to_string()),
         // All other files - serve statically
         _ => EntrypointType::StaticFile(path.to_string()),
     }
