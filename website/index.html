@@ -185,8 +185,17 @@
                         <span class="text-amber-400 font-mono text-xl">⬡</span>
                     </div>
                     <h3 class="text-lg font-semibold text-white mb-2">Node.js &amp; Browser APIs</h3>
-                    <p class="text-slate-400 text-sm"><code class="text-amber-400">require('path')</code>, <code class="text-amber-400">require('buffer')</code>, <code class="text-amber-400">require('assert')</code>, <code class="text-amber-400">process.env</code> — common npm packages work without a bundler shim.</p>
+                    <p class="text-slate-400 text-sm"><code class="text-amber-400">require('path')</code>, <code class="text-amber-400">require('buffer')</code>, <code class="text-amber-400">require('assert')</code>, <code class="text-amber-400">process.env</code>, <code class="text-amber-400">btoa</code>/<code class="text-amber-400">atob</code> — common npm packages work without a bundler shim.</p>
                     <a href="docs/compatibility.html" class="inline-block mt-3 text-xs text-amber-400 hover:text-amber-300 transition">Compatibility matrix →</a>
+                </div>
+
+                <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-green-500 transition">
+                    <div class="w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center mb-4">
+                        <span class="text-green-400 font-mono text-xl">G</span>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white mb-2">Google Apps Script <span class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded ml-1">nano:gas</span></h3>
+                    <p class="text-slate-400 text-sm">Run <code class="text-green-400">.gs</code> files unchanged on nano-rs. <code class="text-green-400">SpreadsheetApp</code>, <code class="text-green-400">DriveApp</code>, <code class="text-green-400">PropertiesService</code>, <code class="text-green-400">Logger</code> and more — backed by a service account.</p>
+                    <a href="docs/compatibility.html#gas" class="inline-block mt-3 text-xs text-green-400 hover:text-green-300 transition">GAS reference →</a>
                 </div>
             </div>
         </div>
@@ -199,7 +208,7 @@
                 <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Run code written for any target</h2>
                 <p class="text-lg text-slate-400 max-w-2xl mx-auto">NANO speaks three dialects. Pick the one your code already uses.</p>
             </div>
-            <div class="grid md:grid-cols-3 gap-8">
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
                 <!-- WinterTC -->
                 <div class="bg-slate-800/40 border border-slate-700 rounded-2xl p-8">
                     <div class="text-blue-400 font-bold text-sm tracking-widest uppercase mb-3">WinterTC / Cloudflare Workers</div>
@@ -242,9 +251,25 @@ await kv.setJSON('c', hits + 1);
 // Or use the localStorage shim
 await localStorage.setItem('theme', 'dark');</pre>
                 </div>
+                <!-- Google Apps Script -->
+                <div class="bg-slate-800/40 border border-slate-700 rounded-2xl p-8">
+                    <div class="text-green-400 font-bold text-sm tracking-widest uppercase mb-3">Google Apps Script</div>
+                    <h3 class="text-xl font-semibold text-white mb-4">.gs files, unchanged</h3>
+                    <p class="text-slate-400 text-sm mb-6">Set <code class="text-green-400">GAS_COMPAT=true</code> and upload your <code class="text-green-400">.gs</code> file. <code class="text-green-400">SpreadsheetApp</code>, <code class="text-green-400">PropertiesService</code>, <code class="text-green-400">Logger</code> and more — backed by a service account.</p>
+                    <pre class="bg-slate-900 rounded-lg p-4 text-xs text-slate-300 overflow-x-auto">async function doGet(e) {
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getActiveSheet();
+  const rows = await (
+    await sheet.getDataRange()
+  ).getValues();
+  return JSON.stringify(rows);
+}</pre>
+                </div>
             </div>
             <div class="text-center mt-10">
-                <a href="docs/storage.html" class="text-slate-400 hover:text-white text-sm transition underline">View Storage &amp; Databases docs →</a>
+                <a href="docs/storage.html" class="text-slate-400 hover:text-white text-sm transition underline mr-6">Storage &amp; Databases →</a>
+                <a href="docs/compatibility.html#gas" class="text-slate-400 hover:text-white text-sm transition underline">Google Apps Script →</a>
             </div>
         </div>
     </section>
