@@ -15,10 +15,20 @@
  *   Column A: input prompt
  *   Column B: AI result (filled in by this script, left blank initially)
  *
- * Endpoints:
- *   GET /        — process all pending rows (empty column B), return count
- *   GET /?dry=1  — return pending rows without processing
- *   POST /reset  — clear all results (column B) so rows can be re-processed
+ * Try it:
+ *   # Dry-run: see which rows are pending without processing them
+ *   curl "http://localhost:8080/?dry=1"
+ *   → {"pending":3,"rows":[{"row":2,"prompt":"Summarise Q3 results"},…]}
+ *
+ *   # Process all pending rows (calls OpenAI, writes back to sheet)
+ *   curl http://localhost:8080/
+ *   → {"processed":3}
+ *
+ *   # Clear all results so rows can be re-processed
+ *   curl -X POST http://localhost:8080/ \
+ *        -H 'content-type: application/json' \
+ *        -d '"reset"'
+ *   → {"reset":true,"rows":3}
  */
 
 // ── helpers ──────────────────────────────────────────────────────────────────

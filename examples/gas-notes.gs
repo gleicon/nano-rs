@@ -4,15 +4,37 @@
  * A simple note store backed by PropertiesService (which is synchronous
  * and requires no Google credentials — it runs on nano:kv internally).
  *
- * Run with:
+ * Run:
  *   nano-rs run -c examples/configs/gas-notes.json
  *
- * Endpoints:
- *   GET  /                              — list all notes as JSON
- *   POST / {"title":"x","body":"y"}    — create a note, returns its id
- *   POST / {"function":"getNote","args":["<id>"]}   — fetch one note
- *   POST / {"function":"deleteNote","args":["<id>"]} — delete a note
- *   POST / {"function":"clearAll"}                   — delete everything
+ * Try it:
+ *   # Create a note
+ *   curl -X POST http://localhost:8080/ \
+ *        -H 'content-type: application/json' \
+ *        -d '{"title":"hello","body":"world"}'
+ *   → {"id":"<uuid>","note":{"id":"...","title":"hello","body":"world",...}}
+ *
+ *   # List all notes
+ *   curl http://localhost:8080/
+ *   → {"count":1,"notes":[{"id":"...","title":"hello",...}]}
+ *
+ *   # Fetch one note by id
+ *   curl -X POST http://localhost:8080/ \
+ *        -H 'content-type: application/json' \
+ *        -d '{"function":"getNote","args":["<id>"]}'
+ *   → {"id":"...","title":"hello","body":"world",...}
+ *
+ *   # Delete a note
+ *   curl -X POST http://localhost:8080/ \
+ *        -H 'content-type: application/json' \
+ *        -d '{"function":"deleteNote","args":["<id>"]}'
+ *   → {"deleted":"<id>"}
+ *
+ *   # Runtime info
+ *   curl -X POST http://localhost:8080/ \
+ *        -H 'content-type: application/json' \
+ *        -d '{"function":"status"}'
+ *   → {"notes":0,"user":"service-account@nano.local","runtime":"nano-rs"}
  *
  * This file runs unchanged in real Google Apps Script (deploy as Web App).
  * On nano-rs: set GAS_COMPAT=true in env_vars — no other config needed.

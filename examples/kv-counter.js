@@ -7,8 +7,12 @@
  * Run:
  *   nano-rs run -c examples/configs/kv-counter.json
  *
- * Test:
- *   curl http://localhost:8080/
+ * Try it:
+ *   curl http://localhost:8080/          → {"hits":1}
+ *   curl http://localhost:8080/          → {"hits":2}
+ *   curl http://localhost:8080/          → {"hits":3}
+ *
+ * Restart nano-rs and run again — the count picks up where it left off.
  */
 
 import { kv } from 'nano:kv';

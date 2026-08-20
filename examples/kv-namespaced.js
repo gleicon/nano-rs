@@ -6,9 +6,20 @@
  * Run:
  *   nano-rs run -c examples/configs/kv-namespaced.json
  *
- * Test:
- *   curl -X POST http://localhost:8080/set -d '{"key":"x","value":42}'
- *   curl "http://localhost:8080/get?key=x"
+ * Try it:
+ *   # Store a value
+ *   curl -X POST http://localhost:8080/set \
+ *        -H 'content-type: application/json' \
+ *        -d '{"key":"color","value":"blue"}'
+ *   → {"ok":true}
+ *
+ *   # Read it back
+ *   curl "http://localhost:8080/get?key=color"
+ *   → {"key":"color","value":"blue"}
+ *
+ *   # List all keys with a prefix
+ *   curl "http://localhost:8080/list?prefix=col"
+ *   → [{"key":"color","value":"blue"}]
  */
 
 import { kv, openKV } from 'nano:kv';

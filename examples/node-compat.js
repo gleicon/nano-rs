@@ -7,11 +7,18 @@
  * Run:
  *   nano-rs run -c examples/configs/node-compat.json
  *
- * Test:
+ * Try it:
  *   curl http://localhost:8080/path
+ *   → {"joined":"/var/app/config.json","dir":"/var/app","base":"config.json","ext":".json"}
+ *
  *   curl http://localhost:8080/buffer
+ *   → {"text":"hello world","isBuffer":true}
+ *
  *   curl http://localhost:8080/assert
+ *   → {"ok":true}
+ *
  *   curl http://localhost:8080/env
+ *   → {"node_env":"not set","version":"v18.0.0"}
  */
 
 const path = require('path');
