@@ -4,7 +4,7 @@
 //! including the console.log binding that redirects JavaScript console output
 //! to Rust's stdout.
 //!
-//! # HandleScope Nesting Pattern (D-04) - V147 API
+//! # HandleScope Nesting Pattern (D-04) - V150 API
 //!
 //! Critical pattern for memory safety during script execution:
 //! 1. Create HandleScope for the isolate (using pin! + init)
@@ -43,7 +43,7 @@ use anyhow::{anyhow, Result};
 /// assert_eq!(result, "2");
 /// ```
 pub fn execute_script(isolate: &mut crate::v8::isolate::NanoIsolate, code: &str) -> Result<String> {
-    // Scope 1: HandleScope for the operation (v147 API: pin! + init)
+    // Scope 1: HandleScope for the operation (v150 API: pin! + init)
     let scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
     let mut scope = scope.init();
 
@@ -51,13 +51,13 @@ pub fn execute_script(isolate: &mut crate::v8::isolate::NanoIsolate, code: &str)
     let context = v8::Context::new(&scope, Default::default());
 
     // Scope 2: ContextScope to enter the context
-    // v147 API: ContextScope does NOT need init() - use directly
+    // v150 API: ContextScope does NOT need init() - use directly
     let mut context_scope = v8::ContextScope::new(&mut scope, context);
 
     // Bind console.log to the global object
     bind_console_log(&mut context_scope, context);
 
-    // Scope 3: Compile and execute script (temporary nested scope, v147 API)
+    // Scope 3: Compile and execute script (temporary nested scope, v150 API)
     let result_string = {
         let nested_scope = std::pin::pin!(v8::HandleScope::new(&mut context_scope));
         let nested_scope = nested_scope.init();
@@ -90,21 +90,21 @@ pub fn execute_script(isolate: &mut crate::v8::isolate::NanoIsolate, code: &str)
 /// This creates a global `console` object with a `log` method that
 /// redirects JavaScript console.log calls to Rust's stdout via println!.
 ///
-/// # V147 API Note
+/// # V150 API Note
 /// Uses &**scope to dereference ContextScope to PinnedRef for V8 APIs.
 fn bind_console_log(
     scope: &mut v8::ContextScope<'_, '_, v8::HandleScope<'_, v8::Context>>,
     context: v8::Local<'_, v8::Context>,
 ) {
     // Get the global object
-    // v147 API: Dereference ContextScope to get PinnedRef
+    // v150 API: Dereference ContextScope to get PinnedRef
     let global = context.global(&**scope);
 
     // Create the console object
     let console = v8::Object::new(&**scope);
 
     // Create the log function
-    // v147 API: Function::new expects &mut PinnedRef and a callback with matching signature
+    // v150 API: Function::new expects &mut PinnedRef and a callback with matching signature
     let log_fn = v8::Function::new(scope, console_log_callback);
 
     if let Some(log_fn) = log_fn {
@@ -124,8 +124,8 @@ fn bind_console_log(
 /// It extracts all arguments, converts them to strings, and prints them
 /// to stdout via println!.
 ///
-/// # V147 API Note
-/// Callback signature uses PinnedRef<HandleScope<Context>> for v147 compatibility.
+/// # V150 API Note
+/// Callback signature uses PinnedRef<HandleScope<Context>> for v150 compatibility.
 fn console_log_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
@@ -135,7 +135,7 @@ fn console_log_callback(
     let mut output = Vec::new();
     for i in 0..args.length() {
         let arg = args.get(i);
-        // v147 API: to_string and to_rust_string_lossy expect &PinnedRef
+        // v150 API: to_string and to_rust_string_lossy expect &PinnedRef
         // PinnedRef derefs to HandleScope which derefs to Isolate
         if let Some(arg_str) = arg.to_string(scope) {
             output.push(arg_str.to_rust_string_lossy(&**scope));

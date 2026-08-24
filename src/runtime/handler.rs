@@ -9,7 +9,6 @@ use std::fs;
 
 use crate::http::v8_bridge::serialize_request_to_json;
 use crate::http::{NanoHeaders, NanoRequest, NanoResponse};
-use crate::runtime::apis::RuntimeAPIs;
 use crate::runtime::async_support;
 
 /// Context for executing a JavaScript handler
@@ -46,157 +45,6 @@ pub fn execute_handler(
     execute_in_v8(isolate, &code, &request_json)
 }
 
-/// Execute a JavaScript handler with an explicit V8 context
-///
-/// This variant is used by WorkerPool to execute handlers with a pre-existing
-/// V8 context (for context reset optimization).
-///
-/// # Arguments
-///
-/// * `isolate` - The V8 isolate
-/// * `v8_context` - The V8 context to execute in
-/// * `context` - The handler context with entrypoint and request
-///
-/// # Returns
-///
-/// Result containing NanoResponse or an error
-pub fn execute_handler_with_context(
-    isolate: &mut crate::v8::NanoIsolate,
-    v8_context: v8::Local<v8::Context>,
-    context: HandlerContext,
-) -> Result<NanoResponse> {
-    use crate::runtime::vfs_bindings;
-    use crate::v8::module::{is_esm_module, transform_module_code};
-
-    // Read the entrypoint file
-    let code = fs::read_to_string(&context.entrypoint)
-        .map_err(|e| anyhow!("Failed to read entrypoint '{}': {}", context.entrypoint, e))?;
-
-    // Check if this is an ESM module before consuming code
-    let is_esm = is_esm_module(&code);
-
-    // Transform ES6 module syntax only if this is an ESM module
-    let transformed_code = if is_esm {
-        transform_module_code(&code)
-    } else {
-        code
-    };
-
-    // Set up VFS context for Nano.fs API (must be before HandleScope borrows isolate)
-    let vfs_ref = std::sync::Arc::new(isolate.vfs().clone());
-    vfs_bindings::set_current_vfs(Some(vfs_ref));
-    // Clear CURRENT_ENV so this context does not inherit stale env from a prior
-    // isolate on the same thread (handler path has no app-specific env vars).
-    vfs_bindings::set_current_env(std::collections::HashMap::new());
-
-    // v147 API: HandleScope::new() returns ScopeStorage, need pin! + init
-    let handle_scope = v8::HandleScope::new(isolate.isolate());
-    let pinned_scope = std::pin::pin!(handle_scope);
-    let mut pinned_ref = pinned_scope.init();
-
-    // Disable eval/new Function in this context (matches worker-pool hardening)
-    v8_context.set_allow_generation_from_strings(false);
-
-    // Bind APIs first (before entering context scope)
-    // v147: bind_all now accepts PinnedRef<HandleScope>
-    RuntimeAPIs::bind_all(&mut pinned_ref, v8_context);
-
-    // Enter the provided context with ContextScope
-    let mut ctx_scope = v8::ContextScope::new(&mut pinned_ref, v8_context);
-
-    // Get global object
-    let global = v8_context.global(&ctx_scope);
-
-    // Compile and execute the script (use ctx_scope for V8 operations)
-    let code_string = v8::String::new(&ctx_scope, &transformed_code)
-        .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(&ctx_scope, code_string, None)
-        .ok_or_else(|| anyhow!("Script compilation failed"))?;
-
-    // Execute script to define the fetch function
-    script.run(&ctx_scope);
-
-    // Look for the fetch function on global scope
-    // For ESM modules, check __nano_user_fetch first (set by transform_module_code)
-    let fetch_val = if is_esm {
-        let fetch_key = v8::String::new(&ctx_scope, "__nano_user_fetch").unwrap();
-        global
-            .get(&ctx_scope, fetch_key.into())
-            .filter(|val| !val.is_undefined() && !val.is_null())
-    } else {
-        None
-    };
-
-    let fetch_val = match fetch_val {
-        Some(val) => val,
-        None => {
-            // Fall back to checking for global fetch function
-            let fetch_key = v8::String::new(&ctx_scope, "fetch").unwrap();
-            match global.get(&ctx_scope, fetch_key.into()) {
-                Some(val) if !val.is_undefined() && !val.is_null() => val,
-                _ => {
-                    // Return a default response for now - handler doesn't define fetch
-                    return Ok(NanoResponse::ok()
-                        .with_header("Content-Type", "text/plain")
-                        .with_body("Handler executed (no fetch function defined)"));
-                }
-            }
-        }
-    };
-
-    // Verify it's actually a function
-    if !fetch_val.is_function() {
-        return Ok(NanoResponse::ok()
-            .with_header("Content-Type", "text/plain")
-            .with_body("Handler executed (fetch is not a function)"));
-    }
-
-    let fetch_fn = fetch_val.cast::<v8::Function>();
-
-    // Serialize request to JSON and parse in V8
-    let request_json = serialize_request_to_json(&context.request);
-
-    // Get JSON.parse function
-    let json_key = v8::String::new(&ctx_scope, "JSON").unwrap();
-    let json_val = match global.get(&ctx_scope, json_key.into()) {
-        Some(val) => val,
-        None => return Err(anyhow!("JSON not found in global")),
-    };
-
-    let json_obj = match json_val.to_object(&ctx_scope) {
-        Some(obj) => obj,
-        None => return Err(anyhow!("JSON is not an object")),
-    };
-
-    let parse_key = v8::String::new(&ctx_scope, "parse").unwrap();
-    let parse_fn_val = match json_obj.get(&ctx_scope, parse_key.into()) {
-        Some(val) if val.is_function() => val,
-        _ => return Err(anyhow!("JSON.parse not found or not a function")),
-    };
-
-    let parse_fn = parse_fn_val.cast::<v8::Function>();
-
-    // Create the JSON string and parse it
-    let json_str = match v8::String::new(&ctx_scope, &request_json) {
-        Some(s) => s,
-        None => return Err(anyhow!("Failed to create JSON string")),
-    };
-
-    let js_request = match parse_fn.call(&ctx_scope, json_val.into(), &[json_str.into()]) {
-        Some(req) => req,
-        None => return Err(anyhow!("Failed to parse request JSON")),
-    };
-
-    // Call the fetch handler with the Request
-    let result = fetch_fn.call(&ctx_scope, global.into(), &[js_request]);
-
-    // Extract the response
-    match result {
-        Some(response) => extract_js_response(&mut ctx_scope, response),
-        None => Err(anyhow!("Handler returned None")),
-    }
-}
-
 /// Internal function to execute handler in V8
 fn execute_in_v8(
     isolate: &mut crate::v8::NanoIsolate,
@@ -222,7 +70,7 @@ fn execute_in_v8(
     vfs_bindings::set_current_vfs(Some(vfs_ref));
     vfs_bindings::set_current_env(std::collections::HashMap::new());
 
-    // v147 API: Create HandleScope using pin! + init pattern
+    // v150 API: Create HandleScope using pin! + init pattern
     // SAFETY: We transmute to erase lifetime constraints. This is sound because:
     // 1. The HandleScope borrows from the isolate
     // 2. The isolate lives for the entire function
@@ -254,7 +102,7 @@ fn execute_in_v8(
         // Bind runtime APIs first (before entering context scope)
         RuntimeAPIs::bind_all(&mut pinned_ref, v8_context);
 
-        // Enter the context with ContextScope (v147 API)
+        // Enter the context with ContextScope (v150 API)
         let mut ctx_scope = v8::ContextScope::new(&mut pinned_ref, v8_context);
 
         // Get global object
@@ -265,6 +113,16 @@ fn execute_in_v8(
             .ok_or_else(|| anyhow!("Failed to create code string"))?;
         let script = v8::Script::compile(&ctx_scope, code_string, None)
             .ok_or_else(|| anyhow!("Script compilation failed"))?;
+
+        // Capture the runtime's built-in global `fetch` (the outbound HTTP client)
+        // BEFORE running user code, so we can tell it apart from a user-defined
+        // `fetch` handler. Without this, a handler that defines no fetch would
+        // silently pick up the built-in and appear to serve — masking a broken
+        // deployment behind a 200.
+        let builtin_fetch = {
+            let k = v8::String::new(&ctx_scope, "fetch").unwrap();
+            global.get(&ctx_scope, k.into())
+        };
 
         // Execute script to define the fetch function
         script.run(&ctx_scope);
@@ -283,15 +141,22 @@ fn execute_in_v8(
         let fetch_val = match fetch_val {
             Some(val) => val,
             None => {
-                // Fall back to checking for global fetch function
+                // Fall back to a user-defined global fetch — but only if it is NOT
+                // the built-in fetch API (i.e. the user actually defined one).
                 let fetch_key = v8::String::new(&ctx_scope, "fetch").unwrap();
                 match global.get(&ctx_scope, fetch_key.into()) {
-                    Some(val) if !val.is_undefined() && !val.is_null() => val,
+                    Some(val)
+                        if !val.is_undefined()
+                            && !val.is_null()
+                            && builtin_fetch.map_or(true, |b| !val.strict_equals(b)) =>
+                    {
+                        val
+                    }
                     _ => {
-                        // Return a default response for now - handler doesn't define fetch
-                        break 'v8_block Ok(NanoResponse::ok()
+                        // Misconfigured handler (no fetch) → 500, not a masked 200.
+                        break 'v8_block Ok(NanoResponse::with_status(500)
                             .with_header("Content-Type", "text/plain")
-                            .with_body("Handler executed (no fetch function defined)"));
+                            .with_body("Handler error: no fetch function defined (expected `export default { fetch }` or a global `fetch`)"));
                     }
                 }
             }
@@ -299,9 +164,9 @@ fn execute_in_v8(
 
         // Verify it's actually a function
         if !fetch_val.is_function() {
-            break 'v8_block Ok(NanoResponse::ok()
+            break 'v8_block Ok(NanoResponse::with_status(500)
                 .with_header("Content-Type", "text/plain")
-                .with_body("Handler executed (fetch is not a function)"));
+                .with_body("Handler error: `fetch` is defined but is not a function"));
         }
 
         let fetch_fn = fetch_val.cast::<v8::Function>();

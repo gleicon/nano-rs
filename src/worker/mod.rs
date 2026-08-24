@@ -5,13 +5,15 @@
 //!
 //! ## Architecture Overview (Unified)
 //!
-//! All application types (Static, JS, WASM) flow through a single unified engine:
+//! All application types (Static, JS) flow through a single unified engine.
+//! (WebAssembly is available to JS handlers via the `WebAssembly` global, not as
+//! a standalone deployable app type — there is no `AppSource::Wasm`.)
 //!
 //! ### Unified WorkerPool with AppSource
 //!
 //! The [`WorkerPool`] now accepts an [`AppSource`] enum that unifies all app types:
 //!
-//! - **Entrypoint** ([`AppSource::Entrypoint`]): JavaScript/WASM from filesystem
+//! - **Entrypoint** ([`AppSource::Entrypoint`]): JavaScript from filesystem
 //!   - Creates fresh isolates from source files
 //!   - Full feature set: CPU limits, memory monitoring, eviction, tracing
 //!   - Use when: Config mode, development, dynamic loading
@@ -42,7 +44,7 @@
 //! ```mermaid
 //! flowchart TB
 //!     subgraph AppSource["AppSource Enum"]
-//!         EP[Entrypoint<br/>JS/WASM files]
+//!         EP[Entrypoint<br/>JS files]
 //!         SL[Sliver<br/>V8 snapshot]
 //!         ST[Static<br/>No isolate]
 //!     end
@@ -152,7 +154,6 @@
 //! via MPSC channel closure. All worker threads are joined to ensure clean isolate cleanup.
 
 pub mod app_source;
-pub mod context;
 pub mod cpu_tracker;
 pub mod eviction;
 pub mod limits;
@@ -161,13 +162,13 @@ pub mod oom;
 pub mod pool;
 pub mod queue;
 pub mod sliver_pool;
+pub mod telemetry;
 pub mod tenant_pool;
 pub mod timeout;
 pub mod r#trait;
 
 // Re-export types
 pub use app_source::AppSource;
-pub use context::ContextManager;
 pub use cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
 pub use eviction::{EvictionAction, EvictionManager, EvictionPolicy, IsolateMetadata};
 pub use limits::{HeapStatistics, MemoryLimiter, OomError, RequestMemoryTracker};
@@ -180,7 +181,7 @@ pub use queue::{
     hash_hostname, EntrypointWorkerPool, QueueError, QueueStats, StatsSnapshot, WorkQueue,
 };
 pub use r#trait::{BoxedWorkerPool, WorkerPool as WorkerPoolTrait, WorkerPoolConfig};
-pub use sliver_pool::SliverWorkerPool;
+pub use sliver_pool::{SliverPoolSlot, SliverWorkerPool};
 pub use timeout::{ExecutionTimer, TimeoutConfig, TimeoutError};
 
 use crate::http::{NanoRequest, NanoResponse};

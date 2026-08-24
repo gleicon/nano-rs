@@ -20,7 +20,7 @@
 //! **Tier 2 (Rust global — infrastructure only):** `global_wasm_cache()` in
 //! `engine.rs`. Cross-isolate `CompiledWasmModule` sharing. Not yet wired to the
 //! JS path because `v8::WasmModuleObject::compile()` returns `None` inside
-//! `FunctionCallbackArguments` in rusty_v8 v147. Will activate when V8 API
+//! `FunctionCallbackArguments` in rusty_v8 v150. Will activate when V8 API
 //! limitation is resolved (future upgrade).
 
 use crate::wasm::WasmLoader;
@@ -32,10 +32,9 @@ use v8;
 /// Map cache. After first compilation of a given WASM module, all subsequent
 /// compile calls for the same bytes return Promise.resolve(cached) immediately.
 ///
-/// This is the workaround for the v8-crate v147 limitation where
-/// WasmModuleObject::compile returns None inside FunctionCallbackArguments.
-/// The Rust-level global cache (engine.rs) remains as infrastructure for
-/// cross-isolate sharing when the V8 API limitation is resolved.
+/// Caching is done in JS because compiling WASM from inside a Rust
+/// `FunctionCallback` was found unreliable; the JS `WebAssembly.compile` path is
+/// the compilation primitive and this cache sits on top of it.
 ///
 /// Key: FNV-32 hash of bytes as hex + ':' + byte length (collision-resistant
 /// for practical WASM module sizes in edge functions).
@@ -155,11 +154,9 @@ impl WebAssemblyAPI {
                 let validate_name = v8::String::new(&mut ctx_scope, "validate").unwrap();
                 wasm_obj.set(&mut ctx_scope, validate_name.into(), validate_func.into());
 
-                // Note: WebAssembly.compile and WebAssembly.instantiate are NOT overridden here
-                // via Rust FunctionCallbacks. The rusty_v8 v147 synchronous compile API
-                // (v8::WasmModuleObject::compile) returns None in this V8 build — it is not
-                // suitable for use in FunctionCallbacks. Instead, the JS polyfill below wraps
-                // both methods with a closure-captured Map cache.
+                // WebAssembly.compile / instantiate are wrapped in JS (the polyfill
+                // below), not via Rust FunctionCallbacks: compiling from inside a
+                // callback proved unreliable, and the JS path works and is tested.
             }
         }
 

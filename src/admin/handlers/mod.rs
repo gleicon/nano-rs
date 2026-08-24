@@ -16,9 +16,7 @@ pub use apps::{
     CreateAppRequest, CreateAppResponse, ListAppsResponse, ScaleRequest, UpdateAppRequest,
     UpdateAppResponse,
 };
-pub use health::{
-    health_handler, ready_handler, ready_handler_with_state, HealthResponse, ReadyResponse,
-};
+pub use health::{health_handler, ready_handler_with_state, HealthResponse, ReadyResponse};
 pub use isolates::{
     app_metrics_handler, get_isolates_by_hostname, list_isolates, metrics_summary,
     prometheus_metrics_handler, tenant_metrics_json, AppSummary, IsolatesError,

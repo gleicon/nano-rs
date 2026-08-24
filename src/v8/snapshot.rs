@@ -24,17 +24,14 @@
 //!   → Handle Request [~1-5ms]
 
 use anyhow::{anyhow, Result};
-use std::sync::Once;
 
-static V8_INIT: Once = Once::new();
-
-/// Ensure V8 platform is initialized (idempotent)
+/// Ensure V8 platform is initialized (idempotent).
+///
+/// Delegates to the single crate-wide guard in `v8::platform` — a second,
+/// independent `Once` here would double-initialize the V8 platform, which V8
+/// forbids (it aborts the process).
 pub fn ensure_v8_initialized() {
-    V8_INIT.call_once(|| {
-        let platform = v8::new_default_platform(0, false).make_shared();
-        v8::V8::initialize_platform(platform);
-        v8::V8::initialize();
-    });
+    crate::v8::initialize_platform().expect("V8 platform initialization failed");
 }
 
 /// Cache for pre-generated runtime snapshot.
@@ -134,18 +131,25 @@ pub fn is_snapshot_valid() -> bool {
     GLOBAL_SNAPSHOT.get().map(|s| s.is_valid()).unwrap_or(false)
 }
 
-/// Build-time snapshot creation from a NanoIsolate.
+/// Serialize a snapshot-creator NanoIsolate's heap into a startup blob.
 ///
-/// # Errors
-///
-/// Returns an error because runtime snapshot extraction is not supported in
-/// the v147 V8 API. Slivers must be built with the `sliver pack` tool which
-/// uses V8's `SnapshotCreator` at build time, not at runtime.
-pub fn create_snapshot_from_nano(_isolate: crate::v8::NanoIsolate) -> anyhow::Result<Vec<u8>> {
-    anyhow::bail!(
-        "Runtime snapshot creation is not supported with the v147 V8 bindings. \
-         Use `nano sliver pack` to build slivers at compile time via V8's SnapshotCreator API."
-    )
+/// The isolate MUST have been built with `NanoIsolate::snapshot_creator*` (which
+/// sets a default context — a precondition of `create_blob`). `into_inner` releases
+/// the EPT sentinel Global and every other field, handing over a bare isolate with
+/// no live handles; `create_blob` then walks the heap and emits a loadable blob.
+/// The isolate is consumed by this call.
+pub fn create_snapshot_from_nano(isolate: crate::v8::NanoIsolate) -> anyhow::Result<Vec<u8>> {
+    let owned = isolate.into_inner();
+    let blob = owned
+        .create_blob(v8::FunctionCodeHandling::Keep)
+        .ok_or_else(|| anyhow!("create_blob returned no data (isolate had no default context?)"))?;
+    if blob.len() < 8 {
+        anyhow::bail!(
+            "create_blob produced a degenerate blob ({} bytes)",
+            blob.len()
+        );
+    }
+    Ok(blob.to_vec())
 }
 
 #[cfg(test)]
@@ -163,5 +167,85 @@ mod tests {
         let snapshot = SnapshotCache::from_data(vec![1, 2, 3, 4]);
         assert!(snapshot.is_valid());
         assert_eq!(snapshot.data().len(), 4);
+    }
+
+    /// Spike: empirically prove v8 150 can create a heap-snapshot blob at runtime.
+    /// This is the capability behind `planned: heap snapshots` (see docs/ROADMAP.md) —
+    /// verifying the API works before investing in NanoIsolate integration (the EPT
+    /// sentinel Global complicates `create_blob`, which consumes the isolate).
+    #[test]
+    fn v150_snapshot_creator_produces_blob() {
+        ensure_v8_initialized();
+
+        let mut isolate = v8::Isolate::snapshot_creator(None, None);
+        {
+            let handle_scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+            let mut handle_scope = handle_scope.init();
+            let context = v8::Context::new(&handle_scope, Default::default());
+            let mut ctx_scope = v8::ContextScope::new(&mut handle_scope, context);
+            ctx_scope.set_default_context(context);
+
+            // Bake some state into the heap so the snapshot has content.
+            let code = v8::String::new(&mut ctx_scope, "var baked = 40 + 2;").unwrap();
+            let script = v8::Script::compile(&mut ctx_scope, code, None).unwrap();
+            script.run(&mut ctx_scope);
+        }
+
+        // create_blob consumes the isolate and requires it be a snapshot_creator.
+        let blob = isolate
+            .create_blob(v8::FunctionCodeHandling::Keep)
+            .expect("v8 150 create_blob should return a snapshot blob");
+        assert!(
+            blob.len() > 8,
+            "snapshot blob should be non-trivial, got {} bytes",
+            blob.len()
+        );
+        // Sanity: the blob is loadable as a startup snapshot.
+        assert!(SnapshotCache::from_data(blob.to_vec()).is_valid());
+    }
+
+    /// End-to-end: build a NanoIsolate via the snapshot_creator constructor, then
+    /// serialize it with `create_snapshot_from_nano`. Proves the EPT-sentinel
+    /// integration path works, not just the bare-spike path.
+    #[test]
+    fn create_snapshot_from_nano_produces_loadable_blob() {
+        crate::v8::initialize_platform().expect("platform init");
+
+        let nano = crate::v8::NanoIsolate::snapshot_creator().expect("snapshot_creator isolate");
+        let blob = create_snapshot_from_nano(nano).expect("snapshot creation should succeed");
+
+        // Blob is non-trivial.
+        assert!(blob.len() > 8, "blob too small: {} bytes", blob.len());
+        eprintln!("BLOB_FIRST_8: {:02X?}", &blob[0..8]);
+
+        // The blob restores into a working isolate.
+        let restored = create_isolate_from_snapshot(&blob);
+        drop(restored);
+    }
+
+    /// The NanoIsolate-level restore primitive: a snapshot blob round-trips back
+    /// into a fully-wrapped NanoIsolate (EPT sentinel + VFS) via
+    /// `create_isolate_from_snapshot` + `NanoIsolate::from_v8_isolate`, and the
+    /// restored isolate executes JS.
+    #[test]
+    fn nano_isolate_round_trips_through_snapshot() {
+        crate::v8::initialize_platform().expect("platform init");
+
+        let nano = crate::v8::NanoIsolate::snapshot_creator().expect("snapshot_creator isolate");
+        let blob = create_snapshot_from_nano(nano).expect("snapshot creation");
+
+        let owned = create_isolate_from_snapshot(&blob);
+        let mut restored =
+            crate::v8::NanoIsolate::from_v8_isolate(owned).expect("wrap restored isolate");
+
+        // The restored isolate runs JS.
+        let scope = std::pin::pin!(v8::HandleScope::new(restored.isolate()));
+        let mut scope = scope.init();
+        let ctx = v8::Context::new(&scope, Default::default());
+        let mut cs = v8::ContextScope::new(&mut scope, ctx);
+        let code = v8::String::new(&mut cs, "6 * 7").unwrap();
+        let script = v8::Script::compile(&mut cs, code, None).unwrap();
+        let result = script.run(&mut cs).unwrap();
+        assert_eq!(result.to_rust_string_lossy(&mut cs), "42");
     }
 }

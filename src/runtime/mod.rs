@@ -22,8 +22,8 @@ pub mod console_api;
 pub mod crypto;
 pub mod fetch;
 pub mod fs_polyfill;
-pub mod handler;
 pub mod gas;
+pub mod handler;
 pub mod kv;
 pub mod request;
 pub mod stream;
@@ -37,7 +37,7 @@ pub mod web_apis;
 pub mod websocket;
 
 // Re-export handler types for convenience
-pub use handler::{execute_handler, execute_handler_with_context, HandlerContext};
+pub use handler::{execute_handler, HandlerContext};
 
 // Re-export APIs for handler
 pub use apis::RuntimeAPIs;

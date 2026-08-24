@@ -25,13 +25,6 @@ use crate::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
 use crate::{assert_negative, assert_positive, assert_precondition, assert_range};
 
 /// V8 snapshot format magic number for validation
-// V8 snapshots start with a 4-byte magic sequence: &[0xD7, 0x3C, 0xD7, 0x3C]
-// Used to validate snapshot format before attempting to load.
-// See: https://v8.dev/docs/snapshot-format
-
-/// Minimum valid snapshot size (header + at least some data)
-const MIN_SNAPSHOT_SIZE: usize = 8;
-
 /// Isolate state for lifecycle tracking and assertion validation
 ///
 /// Tracks the current state of an isolate through its lifecycle to enable
@@ -165,14 +158,13 @@ impl NanoIsolate {
     /// # Example
     /// ```
     /// use nano::v8::{initialize_platform, NanoIsolate};
-    /// use nano::vfs::{IsolateVfs, MemoryBackend, VfsNamespace};
-    /// use std::sync::Arc;
+    /// use nano::vfs::{IsolateVfs, MemoryBackend, VfsBackendEnum, VfsNamespace};
     ///
     /// initialize_platform().unwrap();
     ///
     /// let vfs = IsolateVfs::new(
     ///     VfsNamespace::from_hostname("app.example.com"),
-    ///     Arc::new(MemoryBackend::default()),
+    ///     VfsBackendEnum::memory(MemoryBackend::default()),
     /// );
     /// let isolate = NanoIsolate::new_with_vfs(vfs).unwrap();
     /// ```
@@ -221,7 +213,7 @@ impl NanoIsolate {
         isolate.set_allow_wasm_code_generation_callback(allow_wasm_code_generation);
 
         // Create the EPT fix sentinel
-        // v147 API: Create HandleScope using pin! pattern, init to get PinnedRef
+        // v150 API: Create HandleScope using pin! pattern, init to get PinnedRef
         let sentinel = {
             let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
             let scope = scope.init();
@@ -306,131 +298,6 @@ impl NanoIsolate {
         })
     }
 
-    /// Create a new V8 isolate from a snapshot blob
-    ///
-    /// This is the primary constructor for restoring isolates from
-    /// slivers. The snapshot contains the serialized V8 heap state.
-    ///
-    /// # Arguments
-    /// * `snapshot_data` - The V8 heap snapshot blob
-    /// * `vfs` - The VFS configuration for this isolate
-    ///
-    /// # Platform Requirement
-    /// The V8 platform MUST be initialized before calling this function.
-    pub fn from_snapshot(snapshot_data: &[u8], vfs: IsolateVfs) -> Result<Self> {
-        // PRECONDITION: Platform must be initialized
-        assert_precondition!(
-            crate::v8::is_initialized(),
-            "V8 platform must be initialized before creating isolates from snapshots"
-        );
-
-        // PRECONDITION: VFS namespace must be valid
-        assert_positive!(
-            !vfs.namespace().as_str().is_empty(),
-            "VFS namespace must not be empty"
-        );
-
-        // Check for legacy cold sliver marker (backward compatibility)
-        //
-        // Design Rationale: Early nano-rs versions used a marker header
-        // instead of real snapshots. This check provides graceful degradation
-        // for legacy/invalid sliver files by creating a fresh isolate.
-        // Production slivers should always contain real heap snapshots.
-        if snapshot_data == b"NANO_SNAPSHOT_PLACEHOLDER_V1" {
-            tracing::warn!("Legacy cold sliver marker detected - creating fresh isolate");
-            return Self::new_with_vfs(vfs);
-        }
-
-        // Check for invalid/empty snapshot data
-        if snapshot_data.len() < MIN_SNAPSHOT_SIZE {
-            tracing::warn!(
-                "Snapshot data too small ({} bytes, minimum {} bytes) - creating fresh isolate",
-                snapshot_data.len(),
-                MIN_SNAPSHOT_SIZE
-            );
-            return Self::new_with_vfs(vfs);
-        }
-
-        // PROPER V8 SNAPSHOT VALIDATION
-        //
-        // V8 snapshots have a specific structure that we can validate:
-        // - Magic number: 0xD7 0x3C 0xD7 0x3C (first 4 bytes, little-endian)
-        // - Version info follows magic number
-        // - Must match V8 runtime version to be usable
-        //
-        // V8 snapshot validation before loading:
-        // - Magic number validates format
-        // - StartupData::from() converts bytes for CreateParams::snapshot_blob()
-        // - rusty_v8 handles version compatibility internally
-
-        // Validate V8 snapshot magic number
-        const V8_SNAPSHOT_MAGIC: [u8; 4] = [0xD7, 0x3C, 0xD7, 0x3C];
-        let has_magic = snapshot_data.len() >= 4 && &snapshot_data[0..4] == &V8_SNAPSHOT_MAGIC[..];
-
-        if !has_magic {
-            tracing::warn!(
-                "Snapshot missing V8 magic number (first 4 bytes: {:02X?}, expected: {:02X?}) - creating fresh isolate",
-                &snapshot_data[0..4.min(snapshot_data.len())],
-                V8_SNAPSHOT_MAGIC
-            );
-            return Self::new_with_vfs(vfs);
-        }
-
-        tracing::info!("V8 snapshot magic number validated successfully");
-
-        // V8 snapshot version info is at bytes 4-7 (varies by V8 version)
-        // rusty_v8 handles version compatibility internally when snapshot API is used
-
-        // Load the snapshot into V8
-        // rusty_v8's StartupData supports From<Vec<u8>> via Cow<'static, [u8]>
-        let startup_data = v8::StartupData::from(snapshot_data.to_vec());
-
-        // Validate the snapshot data is usable
-        if !startup_data.is_valid() {
-            tracing::warn!("V8 snapshot data failed validation ({} bytes, magic validated) - creating fresh isolate", snapshot_data.len());
-            return Self::new_with_vfs(vfs);
-        }
-
-        tracing::info!(
-            "V8 snapshot validated ({} bytes), restoring isolate from snapshot",
-            snapshot_data.len()
-        );
-
-        // Create isolate params with snapshot blob
-        let params = v8::CreateParams::default().snapshot_blob(startup_data);
-
-        // Create isolate from snapshot
-        let mut isolate = v8::Isolate::new(params);
-
-        // Enable WebAssembly code generation
-        isolate.set_allow_wasm_code_generation_callback(allow_wasm_code_generation);
-
-        // Create EPT fix sentinel
-        let sentinel = {
-            let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
-            let scope = scope.init();
-            let undefined = v8::undefined(&scope);
-            let value: v8::Local<v8::Value> = undefined.into();
-            v8::Global::new(&*scope, value)
-        };
-
-        // Thread ID for affinity checks
-        let creation_thread_id = std::thread::current().id();
-
-        tracing::debug!("Restored NanoIsolate from snapshot with EPT fix sentinel and VFS");
-
-        Ok(Self {
-            sentinel,
-            isolate,
-            _not_send_sync: PhantomData,
-            vfs,
-            state: IsolateState::Ready,
-            creation_thread_id,
-            heap_limit_bytes: HEAP_SIZE_BYTES_PER_ISOLATE,
-            heap_callback_registered: false,
-        })
-    }
-
     /// Get a reference to the VFS
     pub fn vfs(&self) -> &IsolateVfs {
         &self.vfs
@@ -456,12 +323,12 @@ impl NanoIsolate {
     /// // Execute scripts in the context...
     /// ```
     pub fn create_context(&mut self) -> v8::Global<v8::Context> {
-        // v147 API: Create HandleScope using pin! pattern, init to get PinnedRef
+        // v150 API: Create HandleScope using pin! pattern, init to get PinnedRef
         let scope_storage = std::pin::pin!(v8::HandleScope::new(&mut self.isolate));
         let scope = scope_storage.init();
 
         // Create a context with default options
-        // v147 API: Context::new takes &PinnedRef
+        // v150 API: Context::new takes &PinnedRef
         let context = v8::Context::new(&scope, Default::default());
 
         // Convert to Global so it can outlive the scope
@@ -512,18 +379,14 @@ impl NanoIsolate {
     /// The isolate will have a default context automatically set up for snapshotting.
     ///
     /// # Example
-    /// ```
+    /// ```rust,no_run
     /// use nano::v8::{initialize_platform, NanoIsolate};
-    /// use nano::v8::snapshot::create_snapshot_from_nano;
     ///
     /// initialize_platform().unwrap();
     ///
-    /// // Create isolate for snapshotting with default context
+    /// // Create isolate for snapshotting with default context.
+    /// // The snapshot blob must be consumed via create_blob() before the isolate is dropped.
     /// let isolate = NanoIsolate::snapshot_creator().unwrap();
-    ///
-    /// // Create snapshot blob (required before dropping snapshot_creator isolate)
-    /// let blob = create_snapshot_from_nano(isolate).unwrap();
-    /// assert!(!blob.is_empty());
     /// ```
     pub fn snapshot_creator() -> Result<Self> {
         // Create default VFS
@@ -549,27 +412,27 @@ impl NanoIsolate {
 
         // Create a default context for the snapshot
         // V8 requires a default context to be set before create_blob() can work
-        // v147 API: Use pin! pattern and init() for HandleScope, direct creation for ContextScope
+        // v150 API: Use pin! pattern and init() for HandleScope, direct creation for ContextScope
         let sentinel = {
             let handle_scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
             let mut handle_scope = handle_scope.init();
 
             // Create a default context
-            // v147 API: Context::new takes &PinnedRef
+            // v150 API: Context::new takes &PinnedRef
             let context = v8::Context::new(&handle_scope, Default::default());
 
             // Enter the context and set it as default for snapshotting
-            // v147 API: ContextScope does NOT need pin! or init() - use directly
+            // v150 API: ContextScope does NOT need pin! or init() - use directly
             let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
 
             // Set as default context (required for snapshot creation)
             context_scope.set_default_context(context);
 
             // Create the EPT fix sentinel within the context scope
-            // v147 API: v8::undefined takes &ContextScope (which derefs to scope)
+            // v150 API: v8::undefined takes &ContextScope (which derefs to scope)
             let undefined = v8::undefined(&context_scope);
             let value: v8::Local<v8::Value> = undefined.into();
-            // v147 API: Global::new takes &Isolate, PinnedRef derefs to Isolate via Deref
+            // v150 API: Global::new takes &Isolate, PinnedRef derefs to Isolate via Deref
             let sentinel = v8::Global::new(&*context_scope, value);
 
             sentinel

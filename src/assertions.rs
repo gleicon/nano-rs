@@ -18,18 +18,10 @@
 //! ## Usage Examples
 //!
 //! ```rust
-//! use nano::assertions::*;
-//!
-//! fn process_request(request: &Request) -> Response {
-//!     // Precondition assertions
-//!     assert_precondition!(!request.script.is_empty(), "script must not be empty");//!     assert_precondition!(request.timeout_ms > 0, "timeout must be positive");//!
-//!     // Negative space
-//!     assert_negative!(request.script.len() > SCRIPT_SIZE_BYTES_MAX, "script exceeds max size");
-//!
-//!     // Process...
-//!
-//!     // Postcondition
-//!     assert_postcondition!(response.status >= 100 && response.status < 600, "valid HTTP status");//!     response
+//! fn validate(value: u32) {
+//!     nano::assert_precondition!(value > 0, "value must be positive");
+//!     nano::assert_negative!(value == 0, "value must not be zero");
+//!     nano::assert_positive!(value < 1000, "value must be below limit");
 //! }
 //! ```
 

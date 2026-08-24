@@ -17,7 +17,6 @@ use std::time::Duration;
 /// Attack: new Array(1e9) or repeated large allocations
 /// Mitigation: Memory limit with soft eviction
 #[tokio::test]
-#[ignore = "timing-sensitive: V8 startup after many sequential tests can exceed CI runner capacity"]
 async fn test_large_array_allocation() {
     let port = find_available_port();
     let js_content = br#"export default {
@@ -259,7 +258,6 @@ async fn test_closure_memory_leak() {
 /// Attack: Object graphs preventing GC
 /// Mitigation: Memory limit (GC will eventually collect, but limit prevents runaway)
 #[tokio::test]
-#[ignore = "timing-sensitive: V8 startup after many sequential tests can exceed CI runner capacity"]
 async fn test_circular_reference_bomb() {
     let port = find_available_port();
     let js_content = br#"export default {

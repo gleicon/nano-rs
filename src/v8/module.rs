@@ -1,4 +1,4 @@
-//! ESM Module Loader for V8 Module API (v147 Compatible)
+//! ESM Module Loader for V8 Module API (v150 Compatible)
 //!
 //! This module provides the infrastructure for executing ECMAScript Modules (ESM)
 //! using V8's Module API instead of the classic Script API. This enables proper
@@ -7,16 +7,13 @@
 //! The module loader integrates with the VFS for resolving relative imports
 //! within the isolate's namespace.
 //!
-//! # V147 API Changes
+//! # V150 API Changes
 //!
-//! In v147:
+//! In v150:
 //! - ContextScope requires 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
 //! - ContextScope implements Deref/DerefMut to PinnedRef<HandleScope>
 //! - When passing scope to V8 APIs, use `&**scope` to dereference through the ContextScope
 
-use crate::http::v8_bridge::serialize_request_to_json;
-use crate::http::NanoResponse;
-use crate::runtime::{async_support, HandlerContext};
 use crate::vfs::IsolateVfs;
 use anyhow::{anyhow, Result};
 use std::cell::RefCell;
@@ -64,9 +61,24 @@ pub enum ModuleType {
 
 /// Detect the type of module based on code content.
 ///
-/// Scans non-comment lines for `export` or `import` at the start (after
-/// optional whitespace). This avoids false positives from string literals
-/// like `const msg = "please export your config"`.
+/// Scans non-comment lines for `export`/`import` keywords. Each line is split on `;`
+/// so that handlers like `let counter = 0; export default { fetch }` are correctly
+/// detected even when the export keyword isn't at the very start of the first line.
+///
+/// Block comments (`/* ... */`): if `/*` and `*/` both appear on the same line the
+/// comment is treated as self-contained and that line is still scanned. A bare `/*`
+/// with no matching `*/` on the same line enters block-comment mode; subsequent lines
+/// are skipped until a line containing `*/` is found.
+///
+/// Dynamic `import()` mid-expression (`const x = await import('./m')`) is intentionally
+/// **not** detected. Dynamic import is valid in classic script mode too, so a file with
+/// only mid-line `import()` calls executes correctly whether treated as ESM or Script.
+/// Only `import(` at the start of a fragment (after trimming) is treated as an ESM marker.
+///
+/// This is a heuristic, not a full parser. Rare false positives (a string literal that
+/// starts with `export`) are accepted because misclassifying ESM as Script causes a V8
+/// SyntaxError ("Unexpected token 'export'"), while misclassifying Script as ESM is
+/// harmless — ESM mode is a strict superset for non-exporting code.
 pub fn detect_module_type(code: &str) -> ModuleType {
     let mut in_block_comment = false;
     for line in code.lines() {
@@ -81,16 +93,28 @@ pub fn detect_module_type(code: &str) -> ModuleType {
             continue;
         }
         if trimmed.contains("/*") {
-            in_block_comment = true;
+            let open = trimmed.find("/*").unwrap();
+            let close = trimmed.find("*/");
+            // Only enter block-comment mode when /* is not closed on the same line.
+            // This prevents a string like '/* comment */ code' from swallowing
+            // all subsequent lines (the string literal case).
+            if close.map(|c| c <= open).unwrap_or(true) {
+                in_block_comment = true;
+            }
         }
-        if trimmed.starts_with("export ")
-            || trimmed.starts_with("export{")
-            || trimmed.starts_with("export default")
-            || trimmed.starts_with("import ")
-            || trimmed.starts_with("import{")
-            || trimmed.starts_with("import(")
-        {
-            return ModuleType::ESM;
+        // Split on `;` so that `let x = 0; export default {...}` is detected.
+        // Each fragment is checked for ESM keywords at fragment start (after trim).
+        for fragment in trimmed.split(';') {
+            let frag = fragment.trim();
+            if frag.starts_with("export ")
+                || frag.starts_with("export{")
+                || frag.starts_with("export default")
+                || frag.starts_with("import ")
+                || frag.starts_with("import{")
+                || frag.starts_with("import(")
+            {
+                return ModuleType::ESM;
+            }
         }
     }
     ModuleType::Script
@@ -287,144 +311,6 @@ impl ModuleLoader {
     }
 }
 
-/// Execute an ESM module with proper import resolution
-///
-/// This is the main entry point for executing JavaScript handlers.
-/// It detects whether the code is ESM or classic script and routes
-/// accordingly.
-///
-/// # Arguments
-/// * `scope` - The V8 context scope (v147: ContextScope with 2 lifetimes)
-/// * `v8_context` - The V8 context to execute in
-/// * `code` - The JavaScript code to execute
-/// * `entrypoint` - The path to the entrypoint (for import resolution)
-/// * `handler_ctx` - The handler context with request information
-/// * `vfs` - The VFS for resolving module imports within the isolate's namespace
-///
-/// # V147 API Note
-/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
-/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope to the PinnedRef.
-///
-/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
-/// to `HandleScope<'a, Context>`. The type parameter reflects this.
-pub fn execute_esm_or_script<'a>(
-    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
-    v8_context: v8::Local<'a, v8::Context>,
-    code: &str,
-    entrypoint: &str,
-    handler_ctx: &HandlerContext,
-    vfs: IsolateVfs,
-) -> Result<NanoResponse> {
-    // Detect module type
-    if is_esm_module(code) {
-        // ESM path - use module loader with actual VFS
-        execute_esm_module(scope, v8_context, code, entrypoint, handler_ctx, vfs)
-    } else {
-        // Classic script path
-        execute_classic_script(scope, v8_context, code, handler_ctx)
-    }
-}
-
-/// Execute a classic script using Script API
-///
-/// This provides backward compatibility for existing handlers that
-/// don't use ESM syntax.
-///
-/// # V147 API Note
-/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
-/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
-///
-/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
-/// to `HandleScope<'a, Context>`.
-pub fn execute_classic_script<'a>(
-    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
-    v8_context: v8::Local<'a, v8::Context>,
-    code: &str,
-    handler_ctx: &HandlerContext,
-) -> Result<NanoResponse> {
-    // Transform ES6 module syntax for classic scripts
-    let transformed_code = transform_module_code(code);
-
-    // Compile and run script to define fetch function
-    // v147 API: Dereference ContextScope to get PinnedRef via &**scope
-    let code_str = v8::String::new(&**scope, &transformed_code)
-        .ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let script = v8::Script::compile(&**scope, code_str, None)
-        .ok_or_else(|| anyhow!("Script compilation failed"))?;
-    script.run(&**scope);
-
-    // Get global and look for fetch function
-    let global = v8_context.global(&**scope);
-    let fetch_key = v8::String::new(&**scope, "fetch").unwrap();
-    let fetch_val = match global.get(&**scope, fetch_key.into()) {
-        Some(val) => val,
-        None => {
-            return Ok(NanoResponse::ok()
-                .with_header("Content-Type", "text/plain")
-                .with_body("Handler executed (no fetch function defined)"));
-        }
-    };
-
-    if !fetch_val.is_function() {
-        return Ok(NanoResponse::ok()
-            .with_header("Content-Type", "text/plain")
-            .with_body("Handler executed (fetch is not a function)"));
-    }
-    let fetch_fn = fetch_val.cast::<v8::Function>();
-
-    // Create request object using full WinterTC serialization
-    let request_json = serialize_request_to_json(&handler_ctx.request);
-    let request_str = v8::String::new(&**scope, &request_json)
-        .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
-
-    // Parse JSON to create proper JS object
-    let json_key = v8::String::new(&**scope, "JSON").unwrap();
-    let json_val = global
-        .get(&**scope, json_key.into())
-        .ok_or_else(|| anyhow!("JSON not found"))?;
-    let json_obj = json_val
-        .to_object(&**scope)
-        .ok_or_else(|| anyhow!("JSON is not an object"))?;
-    let parse_key = v8::String::new(&**scope, "parse").unwrap();
-    let parse_val = json_obj
-        .get(&**scope, parse_key.into())
-        .filter(|v| v.is_function())
-        .ok_or_else(|| anyhow!("JSON.parse not found or not a function"))?;
-    let parse_fn = parse_val.cast::<v8::Function>();
-
-    let js_request = parse_fn
-        .call(&**scope, json_val.into(), &[request_str.into()])
-        .ok_or_else(|| anyhow!("Failed to parse request JSON"))?;
-
-    // Call fetch function with parsed JS object
-    let result = fetch_fn.call(&**scope, global.into(), &[js_request.into()]);
-
-    // Perform microtask checkpoint to resolve any Promises
-    scope.perform_microtask_checkpoint();
-
-    // Check if result is a Promise and resolve if needed
-    // Resolve using async event loop for Promises
-    let resolved = if let Some(response) = result {
-        if response.is_promise() {
-            let promise = response.cast::<v8::Promise>();
-            match async_support::resolve_promise_with_async(scope, promise) {
-                Ok(value) => Some(value),
-                Err(e) => return Err(e),
-            }
-        } else {
-            Some(response)
-        }
-    } else {
-        None
-    };
-
-    // Extract response
-    match resolved {
-        Some(response) => extract_js_response(scope, response),
-        None => Err(anyhow!("Handler returned None")),
-    }
-}
-
 /// Transform ES6 module syntax to be compatible with V8 Script execution
 ///
 /// Converts `export default { fetch: ... }` to `var __nano_handler = { ... };`
@@ -445,290 +331,6 @@ pub fn transform_module_code(code: &str) -> String {
     }
 }
 
-/// Extract a NanoResponse from a V8 JavaScript object
-///
-/// # V147 API Note
-/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
-/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
-///
-/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
-/// to `HandleScope<'a, Context>`.
-fn extract_js_response<'s>(
-    scope: &mut v8::ContextScope<'s, 's, v8::HandleScope<'s, v8::Context>>,
-    js_response: v8::Local<'s, v8::Value>,
-) -> Result<NanoResponse> {
-    use crate::http::NanoHeaders;
-    use bytes::Bytes;
-
-    // v147 API: Dereference ContextScope to get PinnedRef via &**scope
-
-    // Verify the response is an object
-    let obj = match js_response.to_object(&**scope) {
-        Some(o) => o,
-        None => return Err(anyhow!("Response is not an object")),
-    };
-
-    // Extract status property (default to 200)
-    let status_key = v8::String::new(&**scope, "status").unwrap();
-    let status = match obj.get(&**scope, status_key.into()) {
-        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_integer(&**scope) {
-            Some(int) => int.value() as u16,
-            None => 200,
-        },
-        _ => 200,
-    };
-
-    // Extract headers property
-    let mut nano_headers = NanoHeaders::new();
-    let headers_key = v8::String::new(&**scope, "headers").unwrap();
-
-    if let Some(headers_val) = obj.get(&**scope, headers_key.into()) {
-        if let Some(headers_obj) = headers_val.to_object(&**scope) {
-            // Headers may be stored internally in __headers__ property (for Headers class instances)
-            // or directly on the object (for plain objects used by Response)
-            let internal_headers_key = v8::String::new(&**scope, "__headers__").unwrap();
-            let headers_source = headers_obj
-                .get(&**scope, internal_headers_key.into())
-                .and_then(|v| v.to_object(&**scope))
-                .unwrap_or(headers_obj);
-
-            if let Some(names) = headers_source.get_own_property_names(&**scope, Default::default())
-            {
-                let len = names.length();
-                for i in 0..len {
-                    if let Some(key) = names.get_index(&**scope, i) {
-                        if let Some(key_str) = key.to_string(&**scope) {
-                            let key_name = key_str.to_rust_string_lossy(&**scope);
-                            // Skip internal properties and methods (functions)
-                            if key_name.starts_with("__")
-                                || key_name == "set"
-                                || key_name == "get"
-                                || key_name == "forEach"
-                            {
-                                continue;
-                            }
-                            if let Some(value) = headers_source.get(&**scope, key.into()) {
-                                // Only include string values (not functions)
-                                if !value.is_function() {
-                                    if let Some(value_str) = value.to_string(&**scope) {
-                                        let value_string = value_str.to_rust_string_lossy(&**scope);
-                                        nano_headers.set(&key_name, &value_string);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Extract body property
-    let body_key = v8::String::new(&**scope, "body").unwrap();
-    let body = match obj.get(&**scope, body_key.into()) {
-        Some(val) if !val.is_null() && !val.is_undefined() => match val.to_string(&**scope) {
-            Some(s) => Some(Bytes::from(s.to_rust_string_lossy(&**scope))),
-            None => None,
-        },
-        _ => None,
-    };
-
-    Ok(NanoResponse::new(status, nano_headers, body))
-}
-
-/// Execute an ESM module
-///
-/// Uses V8's Module API to compile and execute the module with proper
-/// import resolution.
-///
-/// # V147 API Note
-/// ContextScope now has 2 lifetime parameters: `ContextScope<'borrow, 'scope, P>`
-/// When calling V8 APIs, use `&**scope` to dereference through the ContextScope.
-///
-/// Note: After entering a context, the parent HandleScope type changes from `HandleScope<'a, ()>`
-/// to `HandleScope<'a, Context>`.
-fn execute_esm_module<'a>(
-    scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
-    _v8_context: v8::Local<'a, v8::Context>,
-    code: &str,
-    entrypoint: &str,
-    handler_ctx: &HandlerContext,
-    vfs: IsolateVfs,
-) -> Result<NanoResponse> {
-    // v147 API: Dereference ContextScope to get PinnedRef via &**scope
-
-    // Create module origin
-    let resource_name = v8::String::new(&**scope, entrypoint).unwrap();
-    let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(&**scope).into());
-    let origin = v8::ScriptOrigin::new(
-        &**scope,
-        resource_name.into(),
-        0,    // line offset
-        0,    // column offset
-        true, // is cross origin
-        -1,   // script id
-        source_map_url,
-        false, // resource_is_opaque
-        false, // is_wasm
-        true,  // is_module
-        None,  // host_defined_options
-    );
-
-    // Create source
-    let code_str =
-        v8::String::new(&**scope, code).ok_or_else(|| anyhow!("Failed to create code string"))?;
-    let mut source = v8::script_compiler::Source::new(code_str, Some(&origin));
-
-    // Compile module
-    let module = v8::script_compiler::compile_module(&**scope, &mut source)
-        .ok_or_else(|| anyhow!("Module compilation failed"))?;
-
-    // Create module loader for import resolution using the isolate's VFS
-    // The VFS is passed from the caller (WorkerPool via HandlerContext -> execute_handler)
-    let mut loader = ModuleLoader::new(vfs);
-
-    // Store loader in thread-local storage for the callback to access
-    let loader_ptr = &mut loader as *mut ModuleLoader;
-    unsafe {
-        set_current_loader(Some(loader_ptr));
-    }
-
-    // Instantiate module with import resolution callback
-    let instantiate_result = module.instantiate_module(scope, module_resolve_callback);
-
-    // Clear the loader after instantiation
-    unsafe {
-        set_current_loader(None);
-    }
-
-    if instantiate_result.is_none() {
-        return Err(anyhow!("Module instantiation failed"));
-    }
-
-    // Evaluate module
-    let eval_result = module.evaluate(scope);
-    if eval_result.is_none() {
-        return Err(anyhow!("Module evaluation failed"));
-    }
-
-    // Perform microtask checkpoint
-    scope.perform_microtask_checkpoint();
-
-    // PROPER ESM EXECUTION: Extract and call default export directly
-    // Using v8::Global to escape scope lifetime limitations
-    //
-    // Step 1: Extract fetch function and default object as v8::Global
-    let (fetch_global, default_global) = {
-        let namespace = module.get_module_namespace();
-        let obj = namespace
-            .to_object(scope)
-            .ok_or_else(|| anyhow!("Module namespace is not an object"))?;
-
-        // Get 'default' export
-        let default_key = v8::String::new(scope, "default").unwrap();
-        let default_val = obj
-            .get(scope, default_key.into())
-            .ok_or_else(|| anyhow!("No default export found"))?;
-
-        // Check if default is an object with fetch method
-        let result = if let Some(default_obj) = default_val.to_object(scope) {
-            let fetch_key = v8::String::new(scope, "fetch").unwrap();
-            if let Some(fetch_val) = default_obj.get(scope, fetch_key.into()) {
-                if fetch_val.is_function() {
-                    let fetch_fn = fetch_val.cast::<v8::Function>();
-                    Some((
-                        v8::Global::new(scope, fetch_fn),
-                        Some(v8::Global::new(scope, default_obj)),
-                    ))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        if let Some(r) = result {
-            r
-        } else if default_val.is_function() {
-            // Check if default is directly a function
-            let fetch_fn = default_val.cast::<v8::Function>();
-            (v8::Global::new(scope, fetch_fn), None)
-        } else {
-            return Err(anyhow!(
-                "Default export must be an object with fetch method or a function"
-            ));
-        }
-    };
-
-    // Step 2: Create JS Request object
-    let js_request = {
-        let global = scope.get_current_context().global(scope);
-        let request_json = serialize_request_to_json(&handler_ctx.request);
-        let request_str = v8::String::new(scope, &request_json)
-            .ok_or_else(|| anyhow!("Failed to create request JSON string"))?;
-
-        // Get JSON.parse
-        let json_key = v8::String::new(scope, "JSON").unwrap();
-        let json_val = global
-            .get(scope, json_key.into())
-            .ok_or_else(|| anyhow!("JSON not found"))?;
-        let json_obj = json_val
-            .to_object(scope)
-            .ok_or_else(|| anyhow!("JSON is not an object"))?;
-        let parse_key = v8::String::new(scope, "parse").unwrap();
-        let parse_val = json_obj
-            .get(scope, parse_key.into())
-            .filter(|v| v.is_function())
-            .ok_or_else(|| anyhow!("JSON.parse not found or not a function"))?;
-        let parse_fn = parse_val.cast::<v8::Function>();
-
-        parse_fn
-            .call(scope, json_val.into(), &[request_str.into()])
-            .ok_or_else(|| anyhow!("Failed to parse request JSON"))?
-    };
-
-    // Step 3: Call fetch function
-    let response_val = {
-        let fetch_fn = v8::Local::new(scope, fetch_global);
-        let recv: v8::Local<v8::Value> = if let Some(default_global) = default_global {
-            let default_obj = v8::Local::new(scope, default_global);
-            default_obj.into()
-        } else {
-            v8::undefined(scope).into()
-        };
-
-        fetch_fn.call(scope, recv, &[js_request.into()])
-    };
-
-    // Step 4 & 5: Resolve Promise if needed and extract response
-    // Must inline promise resolution to avoid intermediate v8::Local borrows
-    {
-        let response = match response_val {
-            Some(val) => val,
-            None => return Err(anyhow!("Handler returned None")),
-        };
-
-        // Resolve using async event loop for Promises
-        let resolved_val = if response.is_promise() {
-            let promise = response.cast::<v8::Promise>();
-            match async_support::resolve_promise_with_async(scope, promise) {
-                Ok(value) => value,
-                Err(e) => return Err(e),
-            }
-        } else {
-            response
-        };
-
-        // Convert to Global to escape borrow, then back to Local for extraction
-        let resolved_global = v8::Global::new(scope, resolved_val);
-        let resolved_local = v8::Local::new(scope, resolved_global);
-        extract_js_response(scope, resolved_local)
-    }
-}
-
 /// Module resolution callback for V8
 ///
 /// This callback is invoked by V8 when a module has import statements.
@@ -738,7 +340,7 @@ fn execute_esm_module<'a>(
 /// The signature matches V8's ResolveModuleCallback which is automatically
 /// converted via MapFnFrom trait.
 ///
-/// # V147 API Note
+/// # V150 API Note
 /// CallbackScope uses the same pin! + init() pattern as HandleScope.
 pub(crate) fn module_resolve_callback<'a>(
     context: v8::Local<'a, v8::Context>,
@@ -753,11 +355,11 @@ pub(crate) fn module_resolve_callback<'a>(
     let loader = unsafe { &mut *loader_ptr };
 
     // Convert specifier to Rust string
-    // v147 API: CallbackScope uses pin! + init() pattern
+    // v150 API: CallbackScope uses pin! + init() pattern
     let callback_scope = unsafe { v8::CallbackScope::new(context) };
     let callback_scope = std::pin::pin!(callback_scope);
     let callback_scope = callback_scope.init();
-    // v147 API: to_rust_string_lossy expects &Isolate, get via Deref from PinnedRef
+    // v150 API: to_rust_string_lossy expects &Isolate, get via Deref from PinnedRef
     // Note: CallbackScope derefs to PinnedRef<HandleScope>, which derefs to Isolate
     let specifier_str = specifier.to_rust_string_lossy(&**callback_scope);
 
@@ -821,7 +423,7 @@ pub(crate) fn module_resolve_callback<'a>(
     loader.push_loading(&resolved_path);
 
     // Create origin for the module
-    // v147 API: All V8 APIs that expect &PinnedRef<HandleScope> work with CallbackScope
+    // v150 API: All V8 APIs that expect &PinnedRef<HandleScope> work with CallbackScope
     // via Deref (CallbackScope -> PinnedRef<HandleScope>)
     let resource_name = v8::String::new(&*callback_scope, &resolved_path).unwrap();
     let source_map_url: Option<v8::Local<v8::Value>> = Some(v8::undefined(&*callback_scope).into());
@@ -850,7 +452,7 @@ pub(crate) fn module_resolve_callback<'a>(
     let mut source = v8::script_compiler::Source::new(code_str, Some(&origin));
 
     // Compile module
-    // v147 API: compile_module expects &PinnedRef<HandleScope>
+    // v150 API: compile_module expects &PinnedRef<HandleScope>
     let module = match v8::script_compiler::compile_module(&*callback_scope, &mut source) {
         Some(m) => m,
         None => {
@@ -860,7 +462,7 @@ pub(crate) fn module_resolve_callback<'a>(
     };
 
     // Cache the module
-    // v147 API: Global::new expects &Isolate (accessed via Deref from PinnedRef)
+    // v150 API: Global::new expects &Isolate (accessed via Deref from PinnedRef)
     let global_module = v8::Global::new(&**callback_scope, module);
     loader.cache_module(&resolved_path, global_module.clone());
 
@@ -868,7 +470,7 @@ pub(crate) fn module_resolve_callback<'a>(
     loader.pop_loading();
 
     // Return the module
-    // v147 API: v8::Local::new expects &PinnedRef<HandleScope>
+    // v150 API: v8::Local::new expects &PinnedRef<HandleScope>
     Some(v8::Local::new(&*callback_scope, &global_module))
 }
 
@@ -989,10 +591,153 @@ mod tests {
 
     #[test]
     fn test_detect_module_type_comment_skip() {
-        // export in a comment should not trigger ESM
+        // export in a // comment should not trigger ESM
         assert_eq!(
             detect_module_type("// export function fetch() {}\nfunction fetch(req) {}"),
             ModuleType::Script
         );
+    }
+
+    #[test]
+    fn test_block_comment_same_line_does_not_swallow_export() {
+        // /* */ open and close on the same line: block comment is self-contained,
+        // so subsequent lines must still be scanned.
+        // Regression: a string like `css: '/* styles */ body {}'` used to set
+        // in_block_comment=true and skip all following lines including `export default`.
+        let code = "const x = { css: '/* Next.js styles */ body {}' };\nexport default {};";
+        assert_eq!(detect_module_type(code), ModuleType::ESM);
+
+        // Real block comment spanning two lines still suppresses the export in between
+        let suppressed = "/*\nexport default {}\n*/\nfunction fetch() {}";
+        assert_eq!(detect_module_type(suppressed), ModuleType::Script);
+    }
+
+    #[test]
+    fn test_dynamic_import_mid_expression_not_detected() {
+        // await import() inside an assignment is intentionally NOT detected as ESM —
+        // dynamic import() is valid in classic script mode so the file runs correctly
+        // either way. This keeps the heuristic free of false positives from string
+        // literals like `const url = "see import() docs"`.
+        assert_eq!(
+            detect_module_type("const lazy = await import('./lazy');"),
+            ModuleType::Script
+        );
+        assert_eq!(
+            detect_module_type("const url = \"see import() docs\";"),
+            ModuleType::Script
+        );
+        // import() at the start of a line IS an ESM marker
+        assert_eq!(
+            detect_module_type("import('./lazy').then(m => use(m))"),
+            ModuleType::ESM
+        );
+    }
+
+    #[test]
+    fn test_mid_line_export_detected() {
+        // export default after a semicolon on the same line — the case that caused
+        // 500 errors because the handler was classified as Script and V8 threw
+        // "Unexpected token 'export'" in classic mode.
+        assert_eq!(
+            detect_module_type("let counter = 0; export default { async fetch() {} }"),
+            ModuleType::ESM
+        );
+        assert_eq!(
+            detect_module_type("const x = 1; const y = 2; export default { fetch() {} }"),
+            ModuleType::ESM
+        );
+        // Genuinely no ESM keywords — still Script
+        assert_eq!(
+            detect_module_type("function fetch() { return 'hello'; }"),
+            ModuleType::Script
+        );
+    }
+
+    #[test]
+    fn test_each_esm_keyword_form_detected_independently() {
+        // Every alternative in the detect_module_type `||` chain must be a
+        // sufficient ESM marker on its own. If any `||` flips to `&&`, one of
+        // these inputs stops being detected and this test fails.
+        for src in [
+            "export const x = 1", // export<space>
+            "export{x}",          // export{
+            "export default {}",  // export default
+            "import x from 'y'",  // import<space>
+            "import{x}from'y'",   // import{
+            "import('./m')",      // import(
+        ] {
+            assert_eq!(
+                detect_module_type(src),
+                ModuleType::ESM,
+                "should be ESM: {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_esm_module_wrapper() {
+        // Directly exercise the public bool wrapper so a constant-return mutant
+        // (always true / always false) is caught.
+        assert!(is_esm_module("export default {}"));
+        assert!(!is_esm_module("function fetch() {}"));
+    }
+
+    #[test]
+    fn test_transform_module_code_lib() {
+        // Pure string transform — lib-covered so a `-> String::new()` mutant fails.
+        let transformed = transform_module_code("export default { fetch: function() {} }");
+        assert!(transformed.contains("__nano_handler"), "got: {transformed}");
+        assert!(
+            transformed.contains("__nano_user_fetch"),
+            "got: {transformed}"
+        );
+        // A classic script is returned unchanged.
+        let classic = "function fetch() { return 1; }";
+        assert_eq!(transform_module_code(classic), classic);
+    }
+
+    // ── ModuleLoader VFS/path tests (previously uncovered) ───────────────────
+
+    fn test_vfs() -> IsolateVfs {
+        IsolateVfs::new(
+            VfsNamespace::from_hostname("test.example.com"),
+            crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
+        )
+    }
+
+    #[test]
+    fn load_module_from_vfs_reads_and_errors() {
+        let vfs = test_vfs();
+        pollster::block_on(vfs.write("/mod.js", b"export const x = 1;")).unwrap();
+        let loader = ModuleLoader::new(vfs);
+
+        // Present → returns content.
+        let content = loader.load_module_from_vfs("/mod.js").unwrap();
+        assert!(content.contains("export const x"), "got: {content}");
+
+        // Absent (not in VFS or on disk) → error, not a silent empty string.
+        assert!(loader
+            .load_module_from_vfs("/does-not-exist-xyz.js")
+            .is_err());
+    }
+
+    #[test]
+    fn resolve_import_path_appends_js_when_file_exists() {
+        let vfs = test_vfs();
+        pollster::block_on(vfs.write("/app/utils.js", b"export const y = 2;")).unwrap();
+        let loader = ModuleLoader::new(vfs);
+
+        // Bare "./utils" (no extension) resolves to the existing "/app/utils.js".
+        // Pins the `.js`-extension branch (the `if !resolved.contains('.')` logic).
+        assert_eq!(
+            loader
+                .resolve_import_path("/app/handler.js", "./utils")
+                .unwrap(),
+            "/app/utils.js"
+        );
+        // Path traversal past root is rejected.
+        assert!(loader
+            .resolve_import_path("/handler.js", "../../etc/passwd")
+            .is_err());
     }
 }

@@ -132,7 +132,7 @@ Files are verified by:
 ```
 static-site-v1-v1.0.sliver (467 KB)
 ├── meta.json          # App metadata
-├── heap.bin           # V8 heap snapshot (452 KB)
+├── bytecode.v8bc      # Precompiled V8 bytecode (optional)
 ├── manifest.txt       # Human-readable listing
 └── vfs/               # Virtual filesystem
     ├── index.html
@@ -184,7 +184,7 @@ If extraction shows no `vfs/` directory:
 
 ```
 Extracted contents:
-  ./heap.bin
+  ./bytecode.v8bc
   ./meta.json
 ```
 

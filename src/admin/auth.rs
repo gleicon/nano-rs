@@ -19,9 +19,9 @@ use axum::{
     Json,
 };
 use ring::digest::{self, SHA256};
-use subtle::ConstantTimeEq;
 use serde::Serialize;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 
 /// Admin API authentication state
 ///

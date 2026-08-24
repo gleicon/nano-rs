@@ -25,10 +25,7 @@ fn run_js(code: &str) -> Option<String> {
     run_js_with_env(code, std::collections::HashMap::new())
 }
 
-fn run_js_with_env(
-    code: &str,
-    env: std::collections::HashMap<String, String>,
-) -> Option<String> {
+fn run_js_with_env(code: &str, env: std::collections::HashMap<String, String>) -> Option<String> {
     init();
     set_current_env(env);
 
@@ -65,7 +62,10 @@ fn run_with_shim(user_code: &str, assertion: &str) -> Option<String> {
 #[test]
 fn test_gas_module_registered() {
     let code = get_nano_module_code("nano:gas");
-    assert!(code.is_some(), "nano:gas must be registered in get_nano_module_code");
+    assert!(
+        code.is_some(),
+        "nano:gas must be registered in get_nano_module_code"
+    );
     assert!(
         code.unwrap().contains("SpreadsheetApp"),
         "nano:gas module must contain SpreadsheetApp"
@@ -101,16 +101,37 @@ fn test_gas_constants_non_empty() {
 #[test]
 fn test_gas_prefix_contains_required_globals() {
     let prefix = nano::runtime::gas::GAS_SHIM_PREFIX;
-    assert!(prefix.contains("SpreadsheetApp"), "prefix must define SpreadsheetApp");
+    assert!(
+        prefix.contains("SpreadsheetApp"),
+        "prefix must define SpreadsheetApp"
+    );
     assert!(prefix.contains("Logger"), "prefix must define Logger");
-    assert!(prefix.contains("PropertiesService"), "prefix must define PropertiesService");
-    assert!(prefix.contains("CacheService"), "prefix must define CacheService");
+    assert!(
+        prefix.contains("PropertiesService"),
+        "prefix must define PropertiesService"
+    );
+    assert!(
+        prefix.contains("CacheService"),
+        "prefix must define CacheService"
+    );
     assert!(prefix.contains("Utilities"), "prefix must define Utilities");
-    assert!(prefix.contains("DocumentApp"), "prefix must define DocumentApp");
+    assert!(
+        prefix.contains("DocumentApp"),
+        "prefix must define DocumentApp"
+    );
     assert!(prefix.contains("DriveApp"), "prefix must define DriveApp");
-    assert!(prefix.contains("UrlFetchApp"), "prefix must define UrlFetchApp");
-    assert!(prefix.contains("__gasGetToken"), "prefix must define __gasGetToken");
-    assert!(prefix.contains("__gasFlush"), "prefix must define __gasFlush");
+    assert!(
+        prefix.contains("UrlFetchApp"),
+        "prefix must define UrlFetchApp"
+    );
+    assert!(
+        prefix.contains("__gasGetToken"),
+        "prefix must define __gasGetToken"
+    );
+    assert!(
+        prefix.contains("__gasFlush"),
+        "prefix must define __gasFlush"
+    );
 }
 
 #[test]
@@ -151,7 +172,10 @@ fn test_gas_classic_script_not_detected_as_esm() {
 fn test_gas_esm_script_detected_correctly() {
     // ESM scripts with import 'nano:gas' should be detected as ESM
     let esm = "import 'nano:gas';\nexport default { fetch: req => dispatch(req, {}) };";
-    assert!(is_esm_module(esm), "ESM gas script should be detected as ESM");
+    assert!(
+        is_esm_module(esm),
+        "ESM gas script should be detected as ESM"
+    );
 }
 
 // ── V8 compilation ────────────────────────────────────────────────────────────
@@ -163,7 +187,11 @@ fn test_gas_shim_prefix_compiles_without_errors() {
         "{}\n'shim_ok'",
         nano::runtime::gas::GAS_SHIM_PREFIX
     ));
-    assert_eq!(result.as_deref(), Some("shim_ok"), "GAS_SHIM_PREFIX must compile without V8 errors");
+    assert_eq!(
+        result.as_deref(),
+        Some("shim_ok"),
+        "GAS_SHIM_PREFIX must compile without V8 errors"
+    );
 }
 
 #[test]
@@ -266,8 +294,14 @@ fn test_gas_properties_service_get_all() {
     );
     // The result should contain both values in some order
     let s = result.unwrap_or_default();
-    assert!(s.contains("val_a"), "getProperties must return gas_gp_a value");
-    assert!(s.contains("val_b"), "getProperties must return gas_gp_b value");
+    assert!(
+        s.contains("val_a"),
+        "getProperties must return gas_gp_a value"
+    );
+    assert!(
+        s.contains("val_b"),
+        "getProperties must return gas_gp_b value"
+    );
 }
 
 // ── CacheService (synchronous) ────────────────────────────────────────────────
@@ -329,10 +363,7 @@ fn test_gas_utilities_base64_encode() {
 
 #[test]
 fn test_gas_utilities_base64_decode() {
-    let result = run_with_shim(
-        "",
-        r#"JSON.stringify(Utilities.base64Decode('aGVsbG8='))"#,
-    );
+    let result = run_with_shim("", r#"JSON.stringify(Utilities.base64Decode('aGVsbG8='))"#);
     // [104, 101, 108, 108, 111] = "hello"
     assert_eq!(result.as_deref(), Some("[104,101,108,108,111]"));
 }
@@ -372,7 +403,11 @@ fn test_gas_utilities_get_uuid_format() {
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid).toString()
         "#,
     );
-    assert_eq!(result.as_deref(), Some("true"), "Utilities.getUuid() must return a valid v4 UUID");
+    assert_eq!(
+        result.as_deref(),
+        Some("true"),
+        "Utilities.getUuid() must return a valid v4 UUID"
+    );
 }
 
 #[test]
@@ -407,7 +442,11 @@ fn test_gas_logger_does_not_throw() {
         "",
         r#"Logger.log('test message'); Logger.info('info'); Logger.warning('warn'); Logger.error('err'); 'logger_ok'"#,
     );
-    assert_eq!(result.as_deref(), Some("logger_ok"), "Logger methods must not throw");
+    assert_eq!(
+        result.as_deref(),
+        Some("logger_ok"),
+        "Logger methods must not throw"
+    );
 }
 
 // ── Stubs (unavailable services) ─────────────────────────────────────────────
@@ -423,7 +462,11 @@ fn test_gas_gmail_stub_throws_descriptive_error() {
         err.indexOf('GmailApp') !== -1 ? 'caught_gas_error' : 'wrong_error:' + err
         "#,
     );
-    assert_eq!(result.as_deref(), Some("caught_gas_error"), "GmailApp must throw with 'GmailApp' in message");
+    assert_eq!(
+        result.as_deref(),
+        Some("caught_gas_error"),
+        "GmailApp must throw with 'GmailApp' in message"
+    );
 }
 
 #[test]
@@ -458,10 +501,7 @@ fn test_gas_html_service_create_output() {
 
 #[test]
 fn test_gas_session_default_email() {
-    let result = run_with_shim(
-        "",
-        r#"Session.getEffectiveUser().getEmail()"#,
-    );
+    let result = run_with_shim("", r#"Session.getEffectiveUser().getEmail()"#);
     // Default when GAS_USER_EMAIL env var is not set
     assert_eq!(result.as_deref(), Some("service-account@nano.local"));
 }
@@ -502,17 +542,22 @@ fn test_gas_spreadsheet_app_throws_without_spreadsheet_id() {
         err.indexOf('SPREADSHEET_ID') !== -1 ? 'caught' : 'wrong:' + err
         "#,
     );
-    assert_eq!(result.as_deref(), Some("caught"), "must throw with SPREADSHEET_ID in message when not set");
+    assert_eq!(
+        result.as_deref(),
+        Some("caught"),
+        "must throw with SPREADSHEET_ID in message when not set"
+    );
 }
 
 #[test]
 fn test_gas_spreadsheet_app_open_by_id_returns_object() {
     // openById doesn't make a network call synchronously — it just creates a proxy object
-    let result = run_with_shim(
-        "",
-        r#"typeof SpreadsheetApp.openById('fake-sheet-id')"#,
+    let result = run_with_shim("", r#"typeof SpreadsheetApp.openById('fake-sheet-id')"#);
+    assert_eq!(
+        result.as_deref(),
+        Some("object"),
+        "openById must return a spreadsheet proxy object"
     );
-    assert_eq!(result.as_deref(), Some("object"), "openById must return a spreadsheet proxy object");
 }
 
 // ── User code survives shim injection ────────────────────────────────────────

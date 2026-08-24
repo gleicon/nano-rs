@@ -44,12 +44,13 @@
 | crypto.subtle.decrypt | ✅ Complete | AES-GCM | |
 | crypto.subtle.sign | ✅ Complete | HMAC | |
 | crypto.subtle.verify | ✅ Complete | HMAC | |
+| crypto.subtle.deriveBits | ✅ Complete | PBKDF2 (HMAC-SHA-256/384/512) | length: positive multiple of 8, ≤ 8192 bits |
 | crypto.subtle.deriveKey | ❌ Not Implemented | | Planned for v2.0 |
 | RSA key operations | ❌ Not Implemented | | Planned for v2.0 (Phase 24) |
 | ECDSA operations | ❌ Not Implemented | | Planned for v2.0 (Phase 24) |
 
-**Coverage:** 9/12 implemented (75%)  
-**v2.0 Planned:** RSA, ECDSA, deriveKey
+**Coverage:** 10/13 implemented (77%)  
+**v2.0 Planned:** RSA, ECDSA, deriveKey, deriveBits for HKDF/ECDH
 
 ---
 
@@ -219,7 +220,6 @@ globalThis.localStorage = {
 | Prometheus Export | ✅ Implemented | /admin/metrics endpoint |
 | WASM Support | ✅ Implemented | Load, compile, execute |
 | WASM JS API | ✅ Implemented | WebAssembly.* full API |
-| WASM Sliver Support | ✅ Implemented | Cached compiled modules |
 
 ---
 

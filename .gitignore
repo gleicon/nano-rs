@@ -59,3 +59,17 @@ docs/flame-*.svg
 # Borescope analysis tool output
 .borescope/
 borescope-map-*.html
+
+# Integration test suite — generated reports (track only latest.html committed manually)
+reports/suite/report-*.html
+reports/report-*.json
+reports/report-*.md
+reports/latest-report.md
+
+# Packaged website build artifact
+nano-website.tar.gz
+
+# cargo-mutants output
+mutants.out/
+mutants.out.old/
+reports/static-profile/

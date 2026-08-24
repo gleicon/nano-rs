@@ -251,11 +251,13 @@ async fn test_request_tracing_combo() {
         assert!(response.worker_id().is_some(), "worker_id should be set");
         assert!(response.isolate_id().is_some(), "isolate_id should be set");
 
-        // Verify format
+        // Verify format: isolate ids are "<hostname>:<worker_id>".
         let isolate_id = response.isolate_id().unwrap();
-        assert!(
-            isolate_id.starts_with("iso_"),
-            "isolate_id should start with 'iso_'"
+        let worker_id = response.worker_id().unwrap();
+        assert_eq!(
+            isolate_id,
+            format!("tracing-test.local:{}", worker_id),
+            "isolate_id should be '<hostname>:<worker_id>'"
         );
     }
 }

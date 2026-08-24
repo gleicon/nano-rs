@@ -83,7 +83,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
             addr.is_loopback()                    // ::1
                 || addr.is_multicast()            // ff00::/8
                 || (s[0] & 0xffc0) == 0xfe80      // fe80::/10 link-local
-                || (s[0] & 0xfe00) == 0xfc00      // fc00::/7  ULA
+                || (s[0] & 0xfe00) == 0xfc00 // fc00::/7  ULA
         }
     }
 }
@@ -112,7 +112,8 @@ impl reqwest::dns::Resolve for SsrfGuardResolver {
                          (DNS rebinding protection active)",
                         host
                     ),
-                )) as Box<dyn std::error::Error + Send + Sync>);
+                ))
+                    as Box<dyn std::error::Error + Send + Sync>);
             }
 
             Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
@@ -451,7 +452,10 @@ fn fetch_callback(
                         // Read response body
                         match resp.bytes().await {
                             Ok(body_bytes) => {
-                                tracing::debug!("fetch() response body: {} bytes", body_bytes.len());
+                                tracing::debug!(
+                                    "fetch() response body: {} bytes",
+                                    body_bytes.len()
+                                );
                                 Ok((body_bytes, response_headers, status, final_url))
                             }
                             Err(e) => Err(format!("Failed to read response body: {}", e)),
@@ -805,6 +809,21 @@ pub fn response_json_static_callback(
     let body_key = v8::String::new(scope, "body").unwrap();
     let body_val = v8::String::new(scope, &json_string).unwrap();
     response_obj.set(scope, body_key.into(), body_val.into());
+
+    // ok = status in 200-299
+    let ok_key = v8::String::new(scope, "ok").unwrap();
+    let ok_val = v8::Boolean::new(scope, status >= 200 && status <= 299);
+    response_obj.set(scope, ok_key.into(), ok_val.into());
+
+    // Attach json() and text() so callers can await r.json() on this plain object
+    if let Some(f) = v8::Function::new(scope, response_json_callback) {
+        let k = v8::String::new(scope, "json").unwrap();
+        response_obj.set(scope, k.into(), f.into());
+    }
+    if let Some(f) = v8::Function::new(scope, response_text_callback) {
+        let k = v8::String::new(scope, "text").unwrap();
+        response_obj.set(scope, k.into(), f.into());
+    }
 
     // Return the Response object
     retval.set(response_obj.into());

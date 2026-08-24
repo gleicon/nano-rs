@@ -19,10 +19,7 @@ fn run_js(code: &str) -> Option<String> {
     run_js_with_env(code, std::collections::HashMap::new())
 }
 
-fn run_js_with_env(
-    code: &str,
-    env: std::collections::HashMap<String, String>,
-) -> Option<String> {
+fn run_js_with_env(code: &str, env: std::collections::HashMap<String, String>) -> Option<String> {
     init();
     set_current_env(env);
 
@@ -343,7 +340,10 @@ fn require_assert_not_equal() {
 #[test]
 fn process_env_key_accessible() {
     let mut env = std::collections::HashMap::new();
-    env.insert("DATABASE_URL".to_string(), "postgres://localhost/db".to_string());
+    env.insert(
+        "DATABASE_URL".to_string(),
+        "postgres://localhost/db".to_string(),
+    );
     let result = run_js_with_env("process.env.DATABASE_URL", env);
     assert_eq!(result.as_deref(), Some("postgres://localhost/db"));
 }
@@ -365,9 +365,9 @@ fn process_env_multiple_vars() {
 }
 
 #[test]
-fn process_version_is_v18() {
+fn process_version_reports_node_lts() {
     let result = run_js("process.version");
-    assert_eq!(result.as_deref(), Some("v18.0.0"));
+    assert_eq!(result.as_deref(), Some("v22.11.0"));
 }
 
 #[test]

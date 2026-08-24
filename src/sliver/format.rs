@@ -68,38 +68,31 @@ impl SliverFormat {
     ///
     /// This is used for documentation and manifest generation.
     pub fn structure_documentation() -> &'static str {
-        r#"Sliver Archive Structure (v1.0)
-================================
+        r#"Sliver Archive Structure
+========================
 
-app-v1.sliver (tar archive)
+app.sliver (tar archive)
 ├── meta.json          # Metadata: hostname, created_at, version
-├── heap.bin           # V8 heap snapshot (opaque blob)
-├── vfs/               # Virtual filesystem contents
-│   ├── data/
-│   │   └── config.json
-│   └── assets/
-│       └── logo.png
-└── manifest.txt       # Human-readable manifest
+├── bytecode.v8bc      # Optional: pre-compiled V8 UnboundScript bytes
+└── vfs/               # App files (JS source, assets, modules, WASM)
+    ├── index.js
+    └── assets/
+        └── logo.png
 
 Required Files:
 - meta.json: JSON metadata with hostname, timestamps, version info
-- heap.bin: Opaque V8 heap snapshot blob
+- vfs/*: the app's files (the app runs from these)
 
 Optional Files:
-- manifest.txt: Human-readable listing (generated)
-- vfs/*: Virtual filesystem contents
+- bytecode.v8bc: pre-compiled bytecode generated at pack time (skips
+  parse+compile at load); omitted with --source-only
 
 Format Notes:
 - Archive is a standard tar file (ustar or GNU format)
-- heap.bin is an opaque blob - do not parse its contents
+- There is no heap snapshot: the app runs from its VFS source (planned: snapshots)
 - VFS entries preserve directory structure under vfs/ prefix
 - All paths use forward slashes (even on Windows)
 - Binary files stored as-is without encoding
-
-Future Extensions:
-- Delta/differential snapshots (additive format)
-- Compression layer (gzip/brotli)
-- Checksum verification per entry
 "#
     }
 }

@@ -198,7 +198,7 @@ Each app object configures one hosted application.
   - `"./app.sliver"`
   - `"/snapshots/api-v1.sliver"`
 - **Note:** Either `entrypoint` or `sliver` must be specified (not both)
-- **Benefit:** ~267µs cold start (vs ~50-100ms fresh isolate)
+- **Benefit:** first request skips JavaScript parse+compile via precompiled bytecode
 
 ### limits
 - **Type:** object

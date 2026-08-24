@@ -29,9 +29,10 @@ pub fn btoa_callback(
             }
         }
         Err(_) => {
-            if let Some(msg) =
-                v8::String::new(scope, "btoa: input contains characters outside Latin-1 range")
-            {
+            if let Some(msg) = v8::String::new(
+                scope,
+                "btoa: input contains characters outside Latin-1 range",
+            ) {
                 let exc = v8::Exception::type_error(scope, msg);
                 scope.throw_exception(exc);
             }
@@ -314,6 +315,10 @@ pub(crate) fn response_constructor(
     let status_val = v8::Number::new(scope, status as f64);
     this.set(scope, status_key.into(), status_val.into());
 
+    let ok_key = v8::String::new(scope, "ok").unwrap();
+    let ok_val = v8::Boolean::new(scope, status >= 200 && status <= 299);
+    this.set(scope, ok_key.into(), ok_val.into());
+
     let headers = v8::Object::new(scope);
     let internal_headers_key = v8::String::new(scope, "__headers__").unwrap();
     let internal_headers = v8::Object::new(scope);
@@ -347,10 +352,7 @@ pub(crate) fn response_constructor(
     let body_val = v8::String::new(scope, &body_string).unwrap();
     this.set(scope, body_key.into(), body_val.into());
 
-    let set_key = v8::String::new(scope, "set").unwrap();
-    if let Some(set_fn) = v8::Function::new(scope, crate::runtime::url_api::headers_set_callback) {
-        headers.set(scope, set_key.into(), set_fn.into());
-    }
+    crate::runtime::url_api::bind_header_methods(scope, headers);
 
     retval.set(this.into());
 }

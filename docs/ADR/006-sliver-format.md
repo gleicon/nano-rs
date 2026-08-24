@@ -1,9 +1,16 @@
 # ADR-006: Sliver Snapshot Format
 
-**Status:** Accepted  
+**Status:** Superseded (2026-08-24)  
 **Date:** 2026-04-20  
 **Deciders:** Core Team  
 **Technical Story:** Design portable format for isolate snapshots
+
+> **Superseded:** the shipped sliver format carries **no `heap.bin` heap snapshot**.
+> A sliver is `meta.json` + `vfs/` + an optional precompiled `bytecode.v8bc`; the app
+> runs from its VFS source. The ~267µs "snapshot restore" target below was never
+> realized (heap-snapshot serving needs an external-reference table — see
+> [ROADMAP](../ROADMAP.md)). Kept as a historical record; for the current format see
+> [FORMAT.md](../../src/sliver/FORMAT.md).
 
 ---
 

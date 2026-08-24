@@ -161,13 +161,11 @@ mod tests {
     /// If this test compiles, the trait is object-safe.
     #[test]
     fn test_worker_pool_object_safe() {
-        // This is a compile-time check
-        // If WorkerPool trait is object-safe, this compiles
-        #[allow(dead_code)]
-        fn assert_object_safe<T: WorkerPool>() {}
-
-        // The trait has methods that take &self (not &mut self) and don't use generics
-        // which makes it object-safe
+        // Real object-safety check: this only compiles if `dyn WorkerPool` is a
+        // valid type. The previous `fn assert_object_safe<T: WorkerPool>()` only
+        // checked the trait *bound* (always true) and would have passed even if
+        // the trait were not object-safe.
+        let _: Option<Box<dyn WorkerPool>> = None;
     }
 
     #[test]

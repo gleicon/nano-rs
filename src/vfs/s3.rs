@@ -365,12 +365,10 @@ impl VfsBackend for S3Backend {
             .last_modified
             .and_then(|ts| {
                 // Parse HTTP date format
-                chrono::DateTime::parse_from_rfc2822(&ts)
-                    .ok()
-                    .map(|dt| {
-                        let utc: chrono::DateTime<chrono::Utc> = dt.into();
-                        std::time::SystemTime::from(utc)
-                    })
+                chrono::DateTime::parse_from_rfc2822(&ts).ok().map(|dt| {
+                    let utc: chrono::DateTime<chrono::Utc> = dt.into();
+                    std::time::SystemTime::from(utc)
+                })
             })
             .unwrap_or_else(std::time::SystemTime::now);
 
@@ -479,10 +477,16 @@ mod tests {
     // (MinIO, LocalStack, or actual S3). These are marked with #[ignore]
     // and can be run with: cargo test --features vfs-s3 -- --ignored
 
+    // Verified against MinIO (docker run minio/minio) — write/exists/read/delete
+    // round-trips real objects, not mocks. Stays #[ignore] because it needs an
+    // external S3 server; the test provisions its own bucket so the documented
+    // run command works out-of-box:
+    //   docker run -d -p 9000:9000 -e MINIO_ROOT_USER=minioadmin \
+    //     -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data
+    //   cargo test --features vfs-s3 -- --ignored
     #[tokio::test]
-    #[ignore]
+    #[ignore = "requires a live S3-compatible server (MinIO/LocalStack) at localhost:9000; run with --features vfs-s3 -- --ignored"]
     async fn test_s3_backend_basic_ops() {
-        // This test requires MinIO or similar running at localhost:9000
         let config = S3Config {
             endpoint: "http://localhost:9000".to_string(),
             bucket: "test-bucket".to_string(),
@@ -492,6 +496,27 @@ mod tests {
             prefix: Some("test".to_string()),
             path_style: true,
         };
+
+        // Ensure the bucket exists (idempotent — ignore "already owned/exists").
+        let region = Region::Custom {
+            region: config.region.clone(),
+            endpoint: config.endpoint.clone(),
+        };
+        let creds = Credentials::new(
+            Some(&config.access_key),
+            Some(&config.secret_key),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let _ = Bucket::create_with_path_style(
+            &config.bucket,
+            region,
+            creds,
+            s3::BucketConfiguration::default(),
+        )
+        .await;
 
         let backend = S3Backend::new(config).await.unwrap();
         let path = VfsPath::new("app1::test.txt").unwrap();

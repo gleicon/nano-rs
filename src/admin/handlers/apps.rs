@@ -189,7 +189,7 @@ fn current_timestamp() -> String {
 }
 
 /// Convert AppConfig to AppInfo
-#[allow(dead_code)]
+/// Build the API `AppInfo` view from a registry `AppConfig`.
 fn config_to_info(config: &AppConfig, status: AppStatus, created_at: &str) -> AppInfo {
     AppInfo {
         hostname: config.hostname.clone(),
@@ -269,21 +269,16 @@ pub async fn list_apps(
 /// ```
 pub async fn get_app(
     Path(hostname): Path<String>,
-    State(http_router): State<Arc<RwLock<VirtualHostRouter>>>,
+    State(registry): State<Arc<RwLock<crate::app::registry::AppRegistry>>>,
 ) -> Result<Json<AppInfo>, (StatusCode, Json<AppError>)> {
     tracing::debug!(hostname = %hostname, "Getting app info");
 
-    let router = http_router.read().await;
-    match router.get_user_route(&hostname) {
-        Some(entrypoint) => Ok(Json(AppInfo {
-            hostname: hostname.clone(),
-            entrypoint,
-            env_vars: HashMap::new(),
-            limits: AppLimits::default(),
-            status: AppStatus::Active,
-            created_at: current_timestamp(),
-            is_active: true,
-        })),
+    // Read the real app config from the registry — env vars and limits are the
+    // configured values, not defaults.
+    match registry.read().await.get(&hostname) {
+        // The registry tracks no creation timestamp; report "unknown" rather than
+        // fabricating one.
+        Some(config) => Ok(Json(config_to_info(&config, AppStatus::Active, "unknown"))),
         None => Err(AppError::not_found(&hostname).into_response()),
     }
 }
@@ -723,6 +718,45 @@ mod tests {
         assert_eq!(error.error, "NotFound");
         assert!(error.message.contains("test.example.com"));
         assert_eq!(error.code, 404);
+    }
+
+    #[tokio::test]
+    async fn get_app_returns_real_config_not_defaults() {
+        use crate::app::registry::AppRegistry;
+        use crate::config::AppConfig;
+
+        // App with non-default limits + env vars.
+        let mut limits = AppLimits::default();
+        limits.memory_mb = 999;
+        limits.workers = 7;
+        let mut env_vars = HashMap::new();
+        env_vars.insert("API_KEY".to_string(), "secret".to_string());
+
+        let mut apps = HashMap::new();
+        apps.insert(
+            "real.example.com".to_string(),
+            AppConfig {
+                hostname: "real.example.com".to_string(),
+                entrypoint: "./real.js".to_string(),
+                sliver: None,
+                env_vars,
+                limits,
+                vfs_backend: Default::default(),
+                vfs_disk: None,
+                vfs_s3: None,
+            },
+        );
+        let registry = Arc::new(RwLock::new(AppRegistry::new(apps)));
+
+        let resp = get_app(Path("real.example.com".to_string()), State(registry))
+            .await
+            .expect("app found");
+
+        // Real configured values, not AppLimits::default() / empty env.
+        assert_eq!(resp.limits.memory_mb, 999, "real memory limit, not default");
+        assert_eq!(resp.limits.workers, 7, "real worker count, not default");
+        assert_eq!(resp.env_vars.get("API_KEY"), Some(&"secret".to_string()));
+        assert_eq!(resp.entrypoint, "./real.js");
     }
 
     #[test]

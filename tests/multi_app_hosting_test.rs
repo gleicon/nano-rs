@@ -107,16 +107,28 @@ async fn test_multi_app_hosting() {
     println!("    - Total isolates: {}", diagnostics.total_isolates);
     println!("    - Total apps: {}", diagnostics.app_stats.len());
     println!(
-        "    - Total requests (simulated): {}",
+        "    - Total requests (live): {}",
         diagnostics.total_requests
     );
 
-    // Verify expected isolate count (sum of all workers)
-    let expected_isolates = 2 + 4 + 2; // hono(2) + nextjs(4) + astro(2)
+    // Isolates are created lazily on the first request. This test generates no
+    // traffic, so there are zero *live* isolates — but all three apps still
+    // appear in app_stats with their configured worker counts.
     assert_eq!(
-        diagnostics.total_isolates, expected_isolates,
-        "Expected {} isolates (sum of workers), got {}",
-        expected_isolates, diagnostics.total_isolates
+        diagnostics.total_isolates, 0,
+        "no traffic dispatched → no live isolates yet, got {}",
+        diagnostics.total_isolates
+    );
+    assert_eq!(diagnostics.total_requests, 0, "no traffic → zero requests");
+    assert_eq!(diagnostics.app_stats.len(), 3, "all three apps listed");
+
+    // The 8 configured worker slots (hono 2 + nextjs 4 + astro 2) are visible via
+    // app config even before any isolate is spun up.
+    let configured_workers: u32 = diagnostics.app_stats.iter().map(|a| a.worker_count).sum();
+    assert_eq!(
+        configured_workers,
+        2 + 4 + 2,
+        "configured worker slots across all apps"
     );
 
     // Step 4: Print detailed `ps`-style output

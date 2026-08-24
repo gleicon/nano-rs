@@ -185,7 +185,8 @@ impl UnixSocketServer {
 /// # async fn example() {
 /// let config = UnixSocketConfig::default();
 /// let registry = Arc::new(RwLock::new(AppRegistry::default()));
-/// let state = AdminState::new(registry);
+/// let http_router = Arc::new(RwLock::new(nano::http::router::VirtualHostRouter::default()));
+/// let state = AdminState::new(registry, http_router);
 /// let auth = Arc::new(AdminAuth::new("unused-key"));
 /// let server = start_unix_socket_server(config, state, auth).await.unwrap();
 /// # }
@@ -258,7 +259,7 @@ pub fn create_unix_socket_router_no_auth(state: AdminState) -> axum::Router {
     use axum::routing::{get, post};
     use tower_http::trace::TraceLayer;
 
-    use crate::admin::handlers::{health_handler, ready_handler};
+    use crate::admin::handlers::health_handler;
 
     let state_axum = Arc::new(AdminStateAxum::new(state));
 
@@ -266,7 +267,7 @@ pub fn create_unix_socket_router_no_auth(state: AdminState) -> axum::Router {
     let router = axum::Router::new()
         // Public routes (same as TCP server)
         .route("/admin/health", get(health_handler))
-        .route("/admin/ready", get(ready_handler))
+        .route("/admin/ready", get(ready_handler_unix))
         // Protected routes on TCP become public on Unix socket
         .route("/admin/isolates", get(list_isolates_handler_unix))
         .route(
@@ -306,6 +307,14 @@ pub fn create_unix_socket_router_no_auth(state: AdminState) -> axum::Router {
 
 // Unix socket handler wrappers that extract state from Arc<AdminStateAxum>
 
+/// Readiness probe reflecting real shutdown state (returns 503 during drain),
+/// mirroring the TCP admin server. Previously routed the always-ready stub.
+async fn ready_handler_unix(
+    State(state): State<Arc<AdminStateAxum>>,
+) -> impl axum::response::IntoResponse {
+    crate::admin::handlers::ready_handler_with_state(state.inner.is_shutting_down()).await
+}
+
 async fn list_isolates_handler_unix(
     State(state): State<Arc<AdminStateAxum>>,
 ) -> impl axum::response::IntoResponse {
@@ -331,7 +340,7 @@ async fn get_app_handler_unix(
 ) -> impl axum::response::IntoResponse {
     get_app(
         axum::extract::Path(hostname),
-        axum::extract::State(state.inner.http_router.clone()),
+        axum::extract::State(state.inner.registry.clone()),
     )
     .await
 }
@@ -455,6 +464,37 @@ async fn admin_metrics_handler_unix() -> impl axum::response::IntoResponse {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn unix_ready_route_reflects_shutdown_state() {
+        use crate::app::registry::AppRegistry;
+        use crate::http::router::VirtualHostRouter;
+        use std::sync::atomic::Ordering;
+        use tokio::sync::RwLock as TokioRwLock;
+        use tower::ServiceExt; // oneshot
+
+        let registry = Arc::new(TokioRwLock::new(AppRegistry::default()));
+        let http_router = Arc::new(TokioRwLock::new(VirtualHostRouter::default()));
+        let state = AdminState::new(registry, http_router);
+        let shutting_down = state.shutting_down.clone();
+        let app = create_unix_socket_router_no_auth(state);
+
+        let make_req = || {
+            axum::http::Request::builder()
+                .uri("/admin/ready")
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+
+        // Before shutdown → 200.
+        let resp = app.clone().oneshot(make_req()).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+
+        // After shutdown → 503 (previously routed the always-ready stub and stayed 200).
+        shutting_down.store(true, Ordering::SeqCst);
+        let resp = app.oneshot(make_req()).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    }
 
     #[test]
     fn test_unix_socket_config_default() {

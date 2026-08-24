@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Architecture - NANO Documentation</title>
-    <meta name="description" content="NANO architecture overview with V8 isolates, worker pools, and sliver snapshots.">
+    <meta name="description" content="NANO architecture overview with V8 isolates, worker pools, and sliver bundles.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>body { font-family: 'Inter', sans-serif; } code, pre { font-family: 'JetBrains Mono', monospace; }</style>
@@ -74,23 +74,24 @@
                 </div>
             </section>
 
-            <!-- Sliver Snapshots -->
+            <!-- Sliver Bundles -->
             <section class="mb-12">
-                <h2 class="text-2xl font-semibold text-white mb-4">Sliver Snapshots</h2>
-                <p class="text-slate-400 mb-4">Slivers enable sub-millisecond cold starts by serializing the pre-initialized V8 isolate state.</p>
-                
-                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
-                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Sliver Creation Process</div>
-                    <div class="p-4">
-                        <pre class="text-sm text-slate-300">1. Create fresh V8 isolate
-2. Load JavaScript bundle into isolate
-3. Execute initialization code
-4. Serialize isolate state to file
-5. Compress and store as sliver
+                <h2 class="text-2xl font-semibold text-white mb-4">Sliver Bundles</h2>
+                <p class="text-slate-400 mb-4">A sliver is a portable tar bundle of an app's files plus optional V8 bytecode compiled at pack time. It carries no heap snapshot; the app runs from its VFS source and uses the bytecode to skip parse + compile when the V8 version matches.</p>
 
-Result: 267ms cold start becomes 267us</pre>
+                <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+                    <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">nano sliver create --from-dir &lt;dir&gt;</div>
+                    <div class="p-4">
+                        <pre class="text-sm text-slate-300">1. Collect the app's files into vfs/
+2. Compile the entrypoint JS to V8 bytecode
+3. Record the V8 cache-version tag in meta.json
+4. Write meta.json + vfs/ + bytecode.v8bc into a tar
+
+At serve time: if the bytecode's version tag matches the
+running V8, the first request skips JavaScript parse+compile.</pre>
                     </div>
                 </div>
+                <p class="text-slate-400 mb-4">Restoring an isolate from a baked V8 <em>heap</em> snapshot is a roadmap item — the create/restore primitives exist and are tested, but serving from a snapshot needs an external-reference table for the native runtime APIs.</p>
             </section>
 
             <!-- Worker Pool -->

@@ -283,6 +283,43 @@ pub fn create_app() -> Router {
     create_app_with_shutdown(state)
 }
 
+/// Single source of truth for the bind → serve loop shared by every
+/// `start_server_*` entry point: resolve the address, bind a reuse listener,
+/// log, and serve `app` to completion. The `start_server_*` functions differ
+/// only in how they build `app`; the orchestration lives here.
+async fn serve_app(config: &ServerConfig, app: Router) -> Result<()> {
+    let addr = config
+        .socket_addr()
+        .context("Failed to parse server address")?;
+    let listener = create_reuse_listener(&addr).await?;
+    tracing::info!("HTTP server listening on {}", addr);
+    axum::serve(listener, app).await.context("Server error")?;
+    tracing::info!("HTTP server shut down gracefully");
+    Ok(())
+}
+
+/// Like [`serve_app`], but serves with graceful shutdown driven by `shutdown_signal`.
+async fn serve_app_with_shutdown<F>(
+    config: &ServerConfig,
+    app: Router,
+    shutdown_signal: F,
+) -> Result<()>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let addr = config
+        .socket_addr()
+        .context("Failed to parse server address")?;
+    let listener = create_reuse_listener(&addr).await?;
+    tracing::info!("HTTP server listening on {}", addr);
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
+        .await
+        .context("Server error")?;
+    tracing::info!("HTTP server shut down gracefully");
+    Ok(())
+}
+
 /// Start the HTTP server
 ///
 /// Binds to the configured address and starts serving requests.
@@ -310,19 +347,7 @@ pub fn create_app() -> Router {
 /// # }
 /// ```
 pub async fn start_server(config: ServerConfig) -> Result<()> {
-    let addr = config
-        .socket_addr()
-        .context("Failed to parse server address")?;
-
-    let listener = create_reuse_listener(&addr).await?;
-
-    tracing::info!("HTTP server listening on {}", addr);
-
-    let app = create_app();
-
-    axum::serve(listener, app).await.context("Server error")?;
-
-    Ok(())
+    serve_app(&config, create_app()).await
 }
 
 /// Start the HTTP server with graceful shutdown support
@@ -362,24 +387,7 @@ pub async fn start_server_with_shutdown<F>(config: ServerConfig, shutdown_signal
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
-    let addr = config
-        .socket_addr()
-        .context("Failed to parse server address")?;
-
-    let listener = create_reuse_listener(&addr).await?;
-
-    tracing::info!("HTTP server listening on {}", addr);
-
-    let app = create_app();
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal)
-        .await
-        .context("Server error")?;
-
-    tracing::info!("HTTP server shut down gracefully");
-
-    Ok(())
+    serve_app_with_shutdown(&config, create_app(), shutdown_signal).await
 }
 
 /// Start the HTTP server with graceful shutdown and full state integration
@@ -415,14 +423,6 @@ pub async fn start_server_with_state(
     config: ServerConfig,
     shutdown_state: ShutdownState,
 ) -> Result<()> {
-    let addr = config
-        .socket_addr()
-        .context("Failed to parse server address")?;
-
-    let listener = create_reuse_listener(&addr).await?;
-
-    tracing::info!("HTTP server listening on {}", addr);
-
     // Create default handler
     let default_target = RouteTarget {
         hostname: "default".to_string(),
@@ -457,13 +457,7 @@ pub async fn start_server_with_state(
     let app_state = AppState::new(router, 4);
     let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
-    let app = create_app_with_shutdown(state);
-
-    axum::serve(listener, app).await.context("Server error")?;
-
-    tracing::info!("HTTP server shut down gracefully");
-
-    Ok(())
+    serve_app(&config, create_app_with_shutdown(state)).await
 }
 
 /// Start the HTTP server with a custom router
@@ -490,20 +484,9 @@ pub async fn start_server_with_shared_router(
     config: ServerConfig,
     shutdown_state: ShutdownState,
 ) -> Result<()> {
-    let addr = config
-        .socket_addr()
-        .context("Failed to parse server address")?;
-
-    let listener = create_reuse_listener(&addr).await?;
-    tracing::info!("HTTP server listening on {}", addr);
-
     let app_state = AppState::new_shared(router, 4);
     let state = std::sync::Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
-    let app = create_app_with_shutdown(state);
-
-    axum::serve(listener, app).await.context("Server error")?;
-    tracing::info!("HTTP server shut down gracefully");
-    Ok(())
+    serve_app(&config, create_app_with_shutdown(state)).await
 }
 
 pub async fn start_server_with_router(
@@ -511,25 +494,10 @@ pub async fn start_server_with_router(
     config: ServerConfig,
     shutdown_state: ShutdownState,
 ) -> Result<()> {
-    let addr = config
-        .socket_addr()
-        .context("Failed to parse server address")?;
-
-    let listener = create_reuse_listener(&addr).await?;
-
-    tracing::info!("HTTP server listening on {} with custom router", addr);
-
     // Create app state with the provided router
     let app_state = AppState::new(router, 4);
     let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
-
-    let app = create_app_with_shutdown(state);
-
-    axum::serve(listener, app).await.context("Server error")?;
-
-    tracing::info!("HTTP server with custom router shut down gracefully");
-
-    Ok(())
+    serve_app(&config, create_app_with_shutdown(state)).await
 }
 
 /// Start the HTTP server for sliver-based JavaScript execution
@@ -548,7 +516,7 @@ pub async fn start_server_with_router(
 ///
 /// Returns a `Result` indicating success or failure.
 pub async fn start_server_with_sliver_pool<F>(
-    worker_pool: Arc<crate::worker::SliverWorkerPool>,
+    pool_slot: Arc<crate::worker::SliverPoolSlot>,
     entrypoint: String,
     config: ServerConfig,
     shutdown_signal: F,
@@ -559,21 +527,14 @@ where
     use crate::http::sliver_handler::{sliver_js_handler, SliverHandlerState};
     use axum::routing::{any, get};
 
-    let addr = config
-        .socket_addr()
-        .context("Failed to parse server address")?;
-
-    let listener = create_reuse_listener(&addr).await?;
-
     tracing::info!(
-        "HTTP server listening on {} with sliver JS execution (entrypoint: {})",
-        addr,
+        "Starting sliver JS execution server (entrypoint: {})",
         entrypoint
     );
 
     // Create sliver handler state
     let handler_state = SliverHandlerState {
-        worker_pool,
+        pool_slot,
         entrypoint,
     };
 
@@ -604,14 +565,7 @@ where
         ))
         .layer(CompressionLayer::new());
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal)
-        .await
-        .context("Server error")?;
-
-    tracing::info!("Sliver JS server shut down gracefully");
-
-    Ok(())
+    serve_app_with_shutdown(&config, app, shutdown_signal).await
 }
 
 /// Start HTTP server with configuration from NanoConfig
@@ -847,23 +801,9 @@ pub async fn start_server_with_config(
     };
     let state = Arc::new(AppStateWithShutdown::new(app_state, shutdown_state));
 
-    // Convert server config and bind
+    // Convert server config and serve.
     let server_config = ServerConfig::from(nano_config.server);
-    let addr = server_config
-        .socket_addr()
-        .context("Failed to parse server address")?;
-
-    let listener = create_reuse_listener(&addr).await?;
-
-    tracing::info!("Config-mode HTTP server listening on {}", addr);
-
-    let app = create_app_with_shutdown(state);
-
-    axum::serve(listener, app).await.context("Server error")?;
-
-    tracing::info!("Config-mode server shut down gracefully");
-
-    Ok(())
+    serve_app(&server_config, create_app_with_shutdown(state)).await
 }
 
 #[cfg(test)]
@@ -1067,28 +1007,28 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "port-race flaky: SO_REUSEADDR timing varies by OS/CI environment"]
     async fn test_socket_reuse_addr() {
-        // Test that we can create a listener, close it, and immediately bind again
-        // This verifies SO_REUSEADDR is working correctly
-        let config = ServerConfig::default();
-        let addr = config.socket_addr().unwrap();
+        // Verify SO_REUSEADDR lets us rebind a concrete address immediately after
+        // dropping a listener on it. Use an OS-assigned ephemeral port rather than
+        // the fixed default port — the default may already be held by another
+        // process, which was the source of prior flakiness.
+        let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = probe.local_addr().unwrap();
+        drop(probe);
 
-        // First bind
+        // First bind on the concrete port.
         let listener1 = create_reuse_listener(&addr).await;
-        assert!(listener1.is_ok(), "First bind should succeed");
+        assert!(listener1.is_ok(), "First bind should succeed on {}", addr);
 
-        // Drop the first listener
+        // Drop it, then immediately rebind the same address. With SO_REUSEADDR this
+        // succeeds without waiting out TIME_WAIT — no sleep needed.
         drop(listener1);
 
-        // Small delay to let the OS clean up (but with SO_REUSEADDR this should be instant)
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-        // Second bind on same address should succeed with SO_REUSEADDR
         let listener2 = create_reuse_listener(&addr).await;
         assert!(
             listener2.is_ok(),
-            "Second bind should succeed with SO_REUSEADDR enabled"
+            "Second bind on {} should succeed with SO_REUSEADDR enabled",
+            addr
         );
     }
 }

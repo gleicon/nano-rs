@@ -69,10 +69,19 @@ async fn test_execute_handler_no_fetch() {
     .await
     .unwrap();
 
-    // Should return a placeholder response since no fetch function defined
+    // A handler with no fetch function is misconfigured and must fail loudly
+    // with 500 — not mask a broken deployment behind a 200.
     assert!(response.is_ok());
     let response = response.unwrap();
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 500);
+    let body = response
+        .body()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
+    assert!(
+        body.contains("no fetch function defined"),
+        "error body should explain the misconfiguration, got: {body}"
+    );
 }
 
 /// Test handler execution with a fetch function that returns a response

@@ -43,8 +43,8 @@ pub struct SliverMetadata {
 
     /// NANO runtime version that created this sliver
     ///
-    /// The runtime version can affect sliver compatibility due to
-    /// V8 version differences, though heap.bin is treated as opaque.
+    /// Recorded for provenance and diagnostics. Bytecode compatibility is gated
+    /// separately by `v8_cache_version`, not by this string.
     pub nano_version: String,
 
     /// Optional human-readable description

@@ -1,6 +1,6 @@
 # NANO Admin API Reference
 
-**Version:** 1.5.0  
+**Version:** 2.7.0  
 **Base URL:** `http://localhost:8889` (default)  
 **Authentication:** API Key (X-API-Key header)
 
@@ -45,29 +45,20 @@ API keys are configured in the config file:
 
 ### GET /health
 
-Check server health status.
+Liveness probe — always returns 200 while the process is running. For
+shutdown-aware draining use `GET /admin/ready` instead.
 
 **Request:**
 ```bash
-curl -H "X-API-Key: secret" http://localhost:8889/health
+curl http://localhost:8889/admin/health
 ```
 
 **Response (200 OK):**
 ```json
 {
   "status": "healthy",
-  "version": "1.5.0",
-  "uptime_seconds": 3600,
-  "apps_count": 5,
-  "isolates_count": 20
-}
-```
-
-**Response (503 Service Unavailable)** — during startup or shutdown:
-```json
-{
-  "status": "initializing",
-  "version": "1.5.0"
+  "version": "2.6.0",
+  "service": "nano-admin"
 }
 ```
 
@@ -138,60 +129,39 @@ Get details for a specific app.
 curl -H "X-API-Key: secret" http://localhost:8889/apps/api.example.com
 ```
 
-**Response:**
+**Response:** the app's configured details (from the registry).
 ```json
 {
   "hostname": "api.example.com",
   "entrypoint": "./api.js",
-  "sliver": null,
+  "env_vars": { "API_KEY": "…" },
   "limits": {
     "workers": 4,
     "memory_mb": 128,
     "timeout_secs": 30,
     "cpu_time_ms": 50
   },
-  "requests_total": 15234,
-  "errors_total": 12,
-  "avg_response_time_ms": 2.3,
-  "isolates": [
-    {
-      "id": "iso-1",
-      "status": "idle",
-      "memory_mb": 45,
-      "requests_served": 3801
-    },
-    {
-      "id": "iso-2",
-      "status": "busy",
-      "memory_mb": 67,
-      "requests_served": 3805
-    },
-    { 
-      "id": "iso-3", 
-      "status": "idle", 
-      "memory_mb": 42,
-      "requests_served": 3814
-    },
-    { 
-      "id": "iso-4", 
-      "status": "idle", 
-      "memory_mb": 38,
-      "requests_served": 3814
-    }
-  ]
+  "status": "active",
+  "created_at": "unknown",
+  "is_active": true
 }
 ```
 
-**Isolate Status Values:**
-- `idle` — Waiting for requests
-- `busy` — Processing request
-- `evicting` — Being evicted for memory pressure
+For live per-isolate runtime stats (request counts, memory, busy) use
+`GET /isolates`.
 
 ---
 
 ### GET /isolates
 
-List all active isolates across all apps.
+List all live V8 isolates across all apps, with real per-isolate telemetry
+published by the worker threads: request count, busy state, used-heap bytes,
+creation time, hostname, worker id, and env-var keys.
+
+> **Note:** isolates are created lazily on the first request, so an app that
+> has received no traffic reports zero isolates. `memory_bytes` is `null` until
+> that isolate has served at least one request. For aggregate request/latency
+> counters use `GET /admin/metrics`.
 
 **Request:**
 ```bash
@@ -201,60 +171,35 @@ curl -H "X-API-Key: secret" http://localhost:8889/isolates
 **Response:**
 ```json
 {
+  "total_isolates": 2,
+  "total_requests": 6046,
+  "app_count": 2,
   "isolates": [
     {
-      "id": "iso-1",
       "hostname": "api.example.com",
-      "status": "idle",
-      "memory_mb": 45,
-      "requests_served": 3812,
-      "created_at": "2026-04-20T14:32:11Z"
+      "worker_id": 0,
+      "created_at": "2026-04-20T14:32:11Z",
+      "uptime": "1h 13m",
+      "request_count": 3812,
+      "memory_bytes": 47185920,
+      "busy": false,
+      "env_keys": ["API_KEY"]
     },
     {
-      "id": "iso-5",
       "hostname": "blog.example.com",
-      "status": "busy",
-      "memory_mb": 89,
-      "requests_served": 2234,
-      "created_at": "2026-04-20T14:30:45Z"
+      "worker_id": 0,
+      "created_at": "2026-04-20T14:30:45Z",
+      "uptime": "1h 15m",
+      "request_count": 2234,
+      "memory_bytes": 93323264,
+      "busy": true,
+      "env_keys": []
     }
   ],
-  "total_count": 20,
-  "idle_count": 16,
-  "busy_count": 4
-}
-```
-
----
-
-### GET /isolates/{id}
-
-Get details for a specific isolate.
-
-**Request:**
-```bash
-curl -H "X-API-Key: secret" http://localhost:8889/isolates/iso-1
-```
-
-**Response:**
-```json
-{
-  "id": "iso-1",
-  "hostname": "api.example.com",
-  "status": "idle",
-  "memory_mb": 45,
-  "memory_limit_mb": 128,
-  "requests_served": 3812,
-  "errors_count": 3,
-  "avg_response_time_ms": 2.3,
-  "created_at": "2026-04-20T14:32:11Z",
-  "last_request_at": "2026-04-20T15:45:22Z",
-  "cpu_time_total_ms": 1205,
-  "limits": {
-    "cpu_time_ms": 50
-  },
-  "vfs_files_count": 23,
-  "sliver_loaded": false
+  "apps": [
+    { "hostname": "api.example.com", "worker_count": 1, "total_requests": 3812 }
+  ],
+  "timestamp": "2026-04-20T15:45:22Z"
 }
 ```
 
@@ -433,8 +378,11 @@ curl -s -H "X-API-Key: secret" http://localhost:8889/apps | \
 ### Monitor Isolate Health
 
 ```bash
-# Check memory usage
-watch -n 1 'curl -s -H "X-API-Key: secret" http://localhost:8889/isolates | jq ".isolates[] | {id: .id, memory: .memory_mb}"'
+# Live per-isolate used-heap and request counts
+watch -n 1 'curl -s -H "X-API-Key: secret" http://localhost:8889/isolates | jq ".isolates[] | {hostname, worker_id, busy, requests: .request_count, memory: .memory_bytes}"'
+
+# Aggregate request/latency counters
+curl -s http://localhost:8889/admin/metrics | grep nano_
 ```
 
 ### CPU Time Monitoring

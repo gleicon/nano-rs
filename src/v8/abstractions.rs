@@ -1,19 +1,19 @@
-//! V8 API Abstractions for v147+ Compatibility
+//! V8 API Abstractions for v150+ Compatibility
 //!
-//! This module provides helper types and functions to work with the new V8 v147
+//! This module provides helper types and functions to work with the new V8 v150
 //! API which uses Pin<ScopeStorage> and PinnedRef patterns instead of direct
 //! HandleScope references.
 //!
-//! # V147 API Pattern
+//! # V150 API Pattern
 //!
-//! The key pattern in v147:
+//! The key pattern in v150:
 //! ```rust,ignore
 //! let scope = std::pin::pin!(v8::HandleScope::new(isolate));
 //! let mut scope = scope.init();
 //! // scope is now PinnedRef<HandleScope> which can be used with V8 APIs
 //! ```
 //!
-//! Note: Many internal traits are private in v147, so we use concrete types
+//! Note: Many internal traits are private in v150, so we use concrete types
 //! and inline the pin! + init() pattern rather than trying to abstract over
 //! scope types with generics.
 
@@ -36,13 +36,13 @@ pub type PinnedHandleScope<'a, 'b> = v8::PinnedRef<'a, v8::HandleScope<'b, ()>>;
 pub fn create_context_from_scope<'s>(
     scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
 ) -> v8::Local<'s, v8::Context> {
-    // In v147, Context::new takes &PinnedRef
+    // In v150, Context::new takes &PinnedRef
     v8::Context::new(scope, Default::default())
 }
 
 /// Helper to create a Global from a pinned scope
 ///
-/// In v147, Global::new takes &Isolate directly.
+/// In v150, Global::new takes &Isolate directly.
 ///
 /// # Example
 /// ```rust,ignore
@@ -104,7 +104,7 @@ mod tests {
 
         let mut isolate = v8::Isolate::new(Default::default());
 
-        // v147 pattern: pin! + init()
+        // v150 pattern: pin! + init()
         let scope_storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
         let _scope = scope_storage.init();
         // Test that we can create a scope without crashing

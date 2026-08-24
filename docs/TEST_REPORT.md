@@ -178,15 +178,10 @@
 
 ## Performance Validation
 
-| Metric | Result | Target | Status |
-|--------|--------|--------|--------|
-| Latency | 4ms avg | <10ms | ✅ PASS |
-| Throughput | 6,250 req/s | >5,000 | ✅ PASS |
-| Sliver restore | ~267µs | <1ms | ✅ PASS |
-| Context reset | ~5ms | <10ms | ✅ PASS |
-| Process boot | ~60ms | <100ms | ✅ PASS |
-
-**All performance targets exceeded.**
+No performance benchmarks are published in this repository — the numbers a report
+like this used to show were not measured. Measure on your own hardware using the live
+admin metrics (`/metrics` histograms and `/isolates` per-isolate used-heap and request
+counts). See [PERFORMANCE.md](PERFORMANCE.md) for the tuning knobs.
 
 ---
 

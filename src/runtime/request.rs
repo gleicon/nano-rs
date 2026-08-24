@@ -63,6 +63,7 @@ pub fn bind_request_api(
                 "arrayBuffer",
                 request_arraybuffer_callback,
             );
+            bind_request_method(&mut ctx_scope, proto_obj, "clone", request_clone_callback);
         }
     }
 }
@@ -310,6 +311,52 @@ fn request_arraybuffer_callback(
     // Return empty ArrayBuffer if no body
     let empty = v8::ArrayBuffer::new(scope, 0);
     retval.set(empty.into());
+}
+
+/// Callback for Request.prototype.clone() — shallow copy of url/method/headers/body
+fn request_clone_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let clone = v8::Object::new(scope);
+
+    // Copy prototype so clone has text/json/clone methods
+    if let Some(proto) = this.get_prototype(scope) {
+        clone.set_prototype(scope, proto);
+    }
+
+    for prop in &["url", "method", "body", "bodyUsed"] {
+        if let Some(k) = v8::String::new(scope, prop) {
+            if let Some(v) = this.get(scope, k.into()) {
+                clone.set(scope, k.into(), v);
+            }
+        }
+    }
+
+    // Deep-copy headers: plain object with same keys
+    let headers_key = v8::String::new(scope, "headers").unwrap();
+    if let Some(hdrs_val) = this.get(scope, headers_key.into()) {
+        if let Some(hdrs_obj) = hdrs_val.to_object(scope) {
+            let new_hdrs = v8::Object::new(scope);
+            if let Some(names) = hdrs_obj.get_own_property_names(scope, Default::default()) {
+                for i in 0..names.length() {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(val) = hdrs_obj.get(scope, key) {
+                            new_hdrs.set(scope, key, val);
+                        }
+                    }
+                }
+            }
+            clone.set(scope, headers_key.into(), new_hdrs.into());
+        } else {
+            let empty_hdrs = v8::Object::new(scope);
+            clone.set(scope, headers_key.into(), empty_hdrs.into());
+        }
+    }
+
+    retval.set(clone.into());
 }
 
 /// Decode base64 string to bytes

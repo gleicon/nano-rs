@@ -1,15 +1,16 @@
 # NANO Runtime Technical Documentation
 
-Version: v2.3.0  
-Last Updated: 2026-08-08
+Version: v2.7.0  
+Last Updated: 2026-08-24
 
 ## Executive Summary
 
 NANO is a multi-tenant JavaScript and WASM edge runtime based on V8 isolates. One OS process hosts multiple isolated apps with:
 
-- **~267µs sliver restoration** from snapshot (new isolate ready to serve)
-- **~5ms context reset** between requests (isolation without overhead)
-- **~60ms process boot** time (one-time on server start)
+- **Precompiled-bytecode cold start** — a sliver can carry V8 bytecode built at
+  pack time, so serving skips JavaScript parse + compile
+- **Per-request isolation** — a fresh context per request without a new isolate
+- **One-time process boot** on server start
 
 See [Cold Start Guide](docs/COLD_START.md) for detailed performance characteristics.
 
@@ -17,11 +18,12 @@ See [Cold Start Guide](docs/COLD_START.md) for detailed performance characterist
 
 ### Core Components
 
-1. **V8 Platform** - Shared V8 instance with snapshot-based isolate creation
+1. **V8 Platform** - Shared V8 instance, one isolate per worker thread
 2. **Worker Pool** - Per-app worker pools with configurable size (default: 4 workers)
 3. **VFS (Virtual File System)** - Per-isolate filesystem with memory/disk/S3 backends
 4. **HTTP Router** - Virtual host routing by Host header
-5. **Sliver System** - Portable isolate snapshots for ~267µs cold starts
+5. **Sliver System** - Portable app bundles: `meta.json` + `vfs/` + optional
+   precompiled `bytecode.v8bc` (see [Slivers](#sliver-snapshot-and-encapsulation-system))
 
 ### Request Flow
 
@@ -87,6 +89,7 @@ See [Compatibility Matrix](docs/COMPATIBILITY.md) for detailed status and [Node.
 | clearTimeout | Implemented | Timer cancellation |
 | clearInterval | Implemented | Timer cancellation |
 | require('fs') | Implemented | Node.js fs polyfill via VFS |
+| require('events') | Implemented | EventEmitter (on/once/off/emit/removeAllListeners) |
 | Nano.fs.* | Implemented | Direct VFS API |
 
 ### HTTP Features
@@ -105,22 +108,25 @@ Full HTTP server and client implementation:
 | Redirect handling | Implemented | Configurable max redirects |
 | Response body limits | Implemented | 100MB default, configurable |
 | WebSocket upgrade | Implemented | Phase 23 — v2.1.x |
-| WebSocketPair API | In Progress | Cloudflare Workers compatible |
+| WebSocketPair API | Implemented | Cloudflare Workers compatible; accept/send/close/addEventListener |
 
-### Sliver snapshot and encapsulation system
+### Sliver bundle and encapsulation system
 
-Full sliver snapshot implementation:
+A sliver is a portable tar bundle — `meta.json` + `vfs/` (app files) + an optional
+precompiled `bytecode.v8bc`. It carries **no heap snapshot**; an app runs from its
+VFS source, using the embedded bytecode to skip parse+compile when the bytecode's
+V8 version tag matches the running V8. See [Slivers](docs/SLIVER_WORKFLOW.md).
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Sliver creation | Implemented | From running apps |
-| Sliver restoration | Implemented | ~267µs cold start |
-| VFS state capture | Implemented | Filesystem included |
+| Sliver creation (`nano sliver create`) | Implemented | Bundles VFS + compiles bytecode |
+| Precompiled bytecode | Implemented | Skips parse+compile; V8-version gated |
+| VFS state capture | Implemented | App files included |
 | Tar-based format | Implemented | Portable format |
 | Cross-instance migration | Implemented | Slivers portable |
-| Sliver listing | Implemented | CLI command |
-| Sliver inspection | Implemented | CLI command |
-| Sliver deletion | Implemented | CLI command |
+| Zero-downtime hot-swap | Implemented | Blue-green pool swap on SIGHUP; same host |
+| Sliver listing / inspection / deletion | Implemented | CLI commands |
+| Heap-snapshot create/restore primitives | Implemented | Tested; serving integration is [roadmap](docs/ROADMAP.md) |
 
 ### Production Multi-Tenancy
 
@@ -137,7 +143,6 @@ Full sliver snapshot implementation:
 | Admin Metrics API | Implemented | 100% | JSON endpoints for all metrics |
 | WASM Support | Working | 25%* | Load, compile, execute |
 | WASM JS API | Implemented | 100% | WebAssembly.* full API |
-| WASM Sliver Support | Implemented | 100% | Cached compiled modules |
 | Adversarial Security | Protected | 78% | 7/9 attack vectors blocked |
 | VFS Security | Verified | 100% | Traversal/path protection working |
 
@@ -175,15 +180,16 @@ Existing Cloudflare Workers can run on nano-rs with these changes:
 
 ## Performance Characteristics
 
-- Sliver restoration: ~267µs (new isolate from snapshot)
-- Context reset: ~5ms (between requests in same isolate)
-- Process boot: ~60ms (one-time on server start)
-- Fresh isolate: ~50-100ms (new isolate without snapshot)
-- HTTP request handling: <1ms (excluding JS execution)
+- Precompiled bytecode: a sliver's `bytecode.v8bc` lets the first request skip JS
+  parse + compile when its V8 version tag matches the running V8
+- One isolate per worker thread; a fresh context per request for isolation
+- Process boot is a one-time cost on server start
 - Max response body size: 100MB (configurable)
 - Default timeout: 30 seconds (configurable)
 
-See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks and tuning guide.
+Heap-snapshot serving (restoring an isolate from a baked heap blob) is a
+[roadmap](docs/ROADMAP.md) item, not the current cold-start path. See
+[Performance Documentation](docs/PERFORMANCE.md) for the tuning guide.
 
 ## Architecture
 
@@ -192,7 +198,8 @@ See [Performance Documentation](docs/PERFORMANCE.md) for benchmarks and tuning g
 - Worker pool handles requests with configurable size
 - Context reset between requests for isolation
 - VFS provides per-isolate filesystem namespaces
-- Sliver snapshots enable sub-millisecond cold starts
+- Slivers bundle app files + precompiled bytecode for fast, portable deploys
+- Zero-downtime hot-swap: SIGHUP blue-green-swaps a sliver app on the same host
 - **CPU time limits prevent runaway scripts (50ms default)**
 - **Memory pressure monitoring with automatic eviction**
 - **Per-tenant metrics with Prometheus export**

@@ -1,6 +1,6 @@
 # Node.js Compatibility and Migration Guide
 
-**Version:** 1.5.0  
+**Version:** 2.7.0  
 **Last Updated:** 2026-05-02
 
 ---
@@ -13,7 +13,7 @@ NANO provides partial Node.js compatibility for common patterns, but is **NOT a 
 - NANO is multi-tenant by design (one process, many isolated apps)
 - No npm resolution (apps must be bundled)
 - No Node.js internal modules (http, net, os, etc.)
-- Cold start optimized for edge deployment (~267µs)
+- Cold start optimized for edge deployment (precompiled bytecode)
 
 **Target Use Case:**
 - Edge functions, serverless workloads

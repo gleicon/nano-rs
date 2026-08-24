@@ -273,7 +273,7 @@ fn test_config_defaults() {
 
     // Server defaults
     assert_eq!(config.server.port, 8080);
-    assert_eq!(config.server.host, "0.0.0.0");
+    assert_eq!(config.server.host, "127.0.0.1");
 
     // App limits defaults
     assert_eq!(config.apps[0].limits.memory_mb, 128);

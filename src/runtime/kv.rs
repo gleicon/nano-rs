@@ -46,14 +46,17 @@ pub fn init_kv_engine(data_dir: impl Into<PathBuf>) {
             Ok(engine) => RwLock::new(engine),
             Err(e) => {
                 tracing::warn!(
-                    "KV engine open failed at {:?}: {}; falling back to temp dir",
+                    "KV engine open failed at {:?}: {}; falling back to per-process temp dir",
                     path,
                     e
                 );
-                let tmp = std::env::temp_dir().join("nano-rs-kv-fallback");
+                // Per-process temp dir avoids sled lock conflicts across processes.
+                let tmp = std::env::temp_dir().join(format!("nano-rs-kv-{}", std::process::id()));
                 std::fs::create_dir_all(&tmp).ok();
                 RwLock::new(
-                    Engine::open(EdgestoreConfig::new(tmp)).expect("KV fallback init failed"),
+                    Engine::open(EdgestoreConfig::new(&tmp)).unwrap_or_else(|e2| {
+                        panic!("KV fallback init failed at {:?}: {}", tmp, e2)
+                    }),
                 )
             }
         }
@@ -301,5 +304,39 @@ pub fn get_nano_module_code(specifier: &str) -> Option<&'static str> {
         "nano:kv" => Some(NANO_KV_MODULE_CODE),
         "nano:gas" => Some(crate::runtime::gas::GAS_MODULE_CODE),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kv_namespace_format() {
+        CURRENT_KV_HOSTNAME.with(|c| *c.borrow_mut() = "app.example.com".to_string());
+        let ns = kv_namespace("mystore");
+        assert_eq!(ns, b"app.example.com::mystore");
+    }
+
+    #[test]
+    fn test_kv_namespace_empty_name() {
+        CURRENT_KV_HOSTNAME.with(|c| *c.borrow_mut() = "app.example.com".to_string());
+        let ns = kv_namespace("default");
+        assert_eq!(ns, b"app.example.com::default");
+    }
+
+    #[test]
+    fn test_kv_namespace_isolation() {
+        // Two different hostnames must produce different namespace prefixes
+        CURRENT_KV_HOSTNAME.with(|c| *c.borrow_mut() = "tenant-a.example.com".to_string());
+        let ns_a = kv_namespace("cache");
+
+        CURRENT_KV_HOSTNAME.with(|c| *c.borrow_mut() = "tenant-b.example.com".to_string());
+        let ns_b = kv_namespace("cache");
+
+        assert_ne!(
+            ns_a, ns_b,
+            "different tenants must have different namespaces"
+        );
     }
 }

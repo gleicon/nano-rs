@@ -84,16 +84,26 @@ pub fn extract_bytes_from_v8_value(
     }
 
     if let Ok(arr) = val.try_cast::<v8::Uint8Array>() {
+        let len = arr.byte_length();
         if let Some(ab) = arr.buffer(scope) {
             let store = ab.get_backing_store();
             let offset = arr.byte_offset();
-            let len = arr.byte_length();
             return Some(
                 (offset..offset + len)
                     .filter_map(|i| store.get(i).map(|c| c.get()))
                     .collect(),
             );
         }
+        // Fallback: backing store unavailable in this V8 context — use element-wise access
+        let mut bytes = Vec::with_capacity(len);
+        for i in 0..len as u32 {
+            if let Some(v) = arr.get_index(scope, i) {
+                if let Some(n) = v.to_integer(scope) {
+                    bytes.push(n.value() as u8);
+                }
+            }
+        }
+        return Some(bytes);
     }
 
     if let Ok(ab) = val.try_cast::<v8::ArrayBuffer>() {

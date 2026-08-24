@@ -30,212 +30,6 @@ fn init_platform() {
     initialize_platform().expect("Failed to initialize V8 platform");
 }
 
-/// Test weak RSA key rejection
-/// Attack: RSA < 2048 bits
-/// Mitigation: Minimum key size enforced
-#[test]
-fn test_weak_rsa_key_rejected() {
-    init_platform();
-
-    let mut nano_isolate = common::create_test_isolate();
-    v8::scope!(scope, nano_isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let ctx_scope = &mut v8::ContextScope::new(scope, context);
-
-    RuntimeAPIs::bind_all(ctx_scope, context);
-
-    // Test RSA key generation
-    let code = v8::String::new(
-        ctx_scope,
-        "
-        (async function() {
-            try {
-                // Try to generate 1024-bit RSA key (weak)
-                const key = await crypto.subtle.generateKey(
-                    {
-                        name: 'RSA-OAEP',
-                        modulusLength: 1024,
-                        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-                        hash: 'SHA-256'
-                    },
-                    true,
-                    ['encrypt', 'decrypt']
-                );
-                
-                // If we get here, check the key size
-                return key ? 'weak-accepted' : 'rejected';
-            } catch (e) {
-                return 'rejected';
-            }
-        })()
-    ",
-    )
-    .unwrap();
-
-    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
-    let result = script.run(ctx_scope).unwrap();
-
-    // Check if promise resolved
-    if result.is_promise() {
-        let promise = result.cast::<v8::Promise>();
-        // Wait for promise or check state
-        // For async tests, we'd need to run the microtask queue
-        ctx_scope.perform_microtask_checkpoint();
-
-        match promise.state() {
-            v8::PromiseState::Fulfilled => {
-                let value = promise.result(ctx_scope);
-                let result_str = value
-                    .to_string(ctx_scope)
-                    .unwrap()
-                    .to_rust_string_lossy(ctx_scope);
-                println!("RSA weak key result: {}", result_str);
-            }
-            v8::PromiseState::Rejected => {
-                println!("RSA weak key rejected (promise rejected)");
-            }
-            v8::PromiseState::Pending => {
-                println!("RSA test promise pending (async operations may not complete)");
-            }
-        }
-    }
-
-    // Note: Full async testing requires microtask queue processing
-    println!("Weak RSA key test - requires full async support");
-}
-
-/// Test weak EC curve rejection
-/// Attack: secp128r1 or other weak curves
-/// Mitigation: Only NIST P-256/P-384/P-521 or Curve25519 allowed
-#[test]
-fn test_weak_ec_curve_rejected() {
-    init_platform();
-
-    let mut nano_isolate = common::create_test_isolate();
-    v8::scope!(scope, nano_isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let ctx_scope = &mut v8::ContextScope::new(scope, context);
-
-    RuntimeAPIs::bind_all(ctx_scope, context);
-
-    // Test EC key generation
-    let code = v8::String::new(
-        ctx_scope,
-        "
-        (async function() {
-            try {
-                // Try P-256 (strong, should work)
-                const keyP256 = await crypto.subtle.generateKey(
-                    { name: 'ECDSA', namedCurve: 'P-256' },
-                    true,
-                    ['sign', 'verify']
-                );
-                
-                // Try weak curve (if supported)
-                try {
-                    const keyWeak = await crypto.subtle.generateKey(
-                        { name: 'ECDSA', namedCurve: 'secp128r1' },
-                        true,
-                        ['sign', 'verify']
-                    );
-                    return 'weak-accepted';
-                } catch (weakError) {
-                    return 'strong-ok';
-                }
-            } catch (e) {
-                return 'error: ' + e.message;
-            }
-        })()
-    ",
-    )
-    .unwrap();
-
-    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
-    let result = script.run(ctx_scope).unwrap();
-
-    ctx_scope.perform_microtask_checkpoint();
-
-    if result.is_promise() {
-        let promise = result.cast::<v8::Promise>();
-        match promise.state() {
-            v8::PromiseState::Fulfilled => {
-                let value = promise.result(ctx_scope);
-                let result_str = value
-                    .to_string(ctx_scope)
-                    .unwrap()
-                    .to_rust_string_lossy(ctx_scope);
-                println!("EC curve result: {}", result_str);
-            }
-            _ => {}
-        }
-    }
-
-    println!("Weak EC curve test - requires full async crypto support");
-}
-
-/// Test weak AES key rejection
-/// Attack: AES-128 with weak keys (all zeros, all ones)
-/// Mitigation: Key validation and random generation
-#[test]
-fn test_weak_aes_key_rejected() {
-    init_platform();
-
-    let mut nano_isolate = common::create_test_isolate();
-    v8::scope!(scope, nano_isolate.isolate());
-    let context = v8::Context::new(scope, Default::default());
-    let ctx_scope = &mut v8::ContextScope::new(scope, context);
-
-    RuntimeAPIs::bind_all(ctx_scope, context);
-
-    // Test AES key generation
-    let code = v8::String::new(
-        ctx_scope,
-        "
-        (async function() {
-            try {
-                // Generate AES-256 key (strong)
-                const key256 = await crypto.subtle.generateKey(
-                    { name: 'AES-GCM', length: 256 },
-                    true,
-                    ['encrypt', 'decrypt']
-                );
-                
-                if (key256 && key256.algorithm.length === 256) {
-                    return 'strong-ok';
-                } else {
-                    return 'unexpected';
-                }
-            } catch (e) {
-                return 'error: ' + e.message;
-            }
-        })()
-    ",
-    )
-    .unwrap();
-
-    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
-    let result = script.run(ctx_scope).unwrap();
-
-    ctx_scope.perform_microtask_checkpoint();
-
-    if result.is_promise() {
-        let promise = result.cast::<v8::Promise>();
-        match promise.state() {
-            v8::PromiseState::Fulfilled => {
-                let value = promise.result(ctx_scope);
-                let result_str = value
-                    .to_string(ctx_scope)
-                    .unwrap()
-                    .to_rust_string_lossy(ctx_scope);
-                println!("AES key result: {}", result_str);
-            }
-            _ => {}
-        }
-    }
-
-    println!("AES key test - requires full async crypto support");
-}
-
 /// Test constant-time comparison
 /// Attack: Timing analysis to infer secret data
 /// Mitigation: ring crate uses constant-time comparison
@@ -432,41 +226,131 @@ fn test_digest_timing_consistency() {
     println!("Digest timing consistency: Implemented in ring crate");
 }
 
-/// Test weak password-based key derivation rejection
-/// Attack: PBKDF2 with low iteration count
-/// Mitigation: Minimum iteration count enforced
+/// PBKDF2 deriveBits known-answer test.
+///
+/// Exercises the real `crypto.subtle.importKey('raw', …, {name:'PBKDF2'})` +
+/// `deriveBits` path added in this branch. Uses the widely-published
+/// PBKDF2-HMAC-SHA256 vector: password="password", salt="salt", iterations=1,
+/// dkLen=32 → 120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b.
+/// A regression in the ring wiring, key-handle plumbing, or byte marshalling
+/// changes the output and fails this test — unlike the assertion-free tests it
+/// replaced, which could never fail.
 #[test]
-fn test_weak_pbkdf2_rejected() {
-    // This test documents the expected behavior
-    // PBKDF2 with low iterations should be rejected
-
+fn test_pbkdf2_derive_bits_known_answer() {
     init_platform();
 
-    println!("PBKDF2 security:");
-    println!("  - Minimum iterations: 100,000 (OWASP recommendation)");
-    println!("  - Lower iterations should be rejected");
-    println!("  - Implemented in crypto backend");
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    // WebCrypto doesn't expose PBKDF2 directly in subtle
-    // This would be handled by higher-level crypto APIs
+    RuntimeAPIs::bind_all(ctx_scope, context);
 
-    assert!(true, "PBKDF2 security documented");
+    let code = v8::String::new(
+        ctx_scope,
+        r#"
+        (async function() {
+            const enc = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw', enc.encode('password'), { name: 'PBKDF2' }, false, ['deriveBits']
+            );
+            const bits = await crypto.subtle.deriveBits(
+                { name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode('salt'), iterations: 1 },
+                keyMaterial,
+                256
+            );
+            const arr = new Uint8Array(bits);
+            return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+        })()
+    "#,
+    )
+    .unwrap();
+
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+
+    // Drain microtasks until the async IIFE settles (bounded).
+    let promise = result.cast::<v8::Promise>();
+    for _ in 0..100 {
+        if promise.state() != v8::PromiseState::Pending {
+            break;
+        }
+        ctx_scope.perform_microtask_checkpoint();
+    }
+
+    assert_eq!(
+        promise.state(),
+        v8::PromiseState::Fulfilled,
+        "deriveBits promise should fulfill"
+    );
+    let value = promise.result(ctx_scope);
+    let hex = value
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
+
+    assert_eq!(
+        hex, "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b",
+        "PBKDF2-HMAC-SHA256 output must match the published known-answer vector"
+    );
 }
 
-/// Test duplicate nonce detection in AES-GCM
-/// Attack: Reusing nonce with same key
-/// Mitigation: Nonce tracking or random generation
+/// deriveBits must reject an oversized `length` instead of allocating a huge
+/// host-side buffer. `length` is attacker-controlled and the output Vec bypasses
+/// the V8 heap limit, so an unbounded value would abort the shared process (DoS).
 #[test]
-fn test_aes_gcm_nonce_reuse() {
-    // This test documents that AES-GCM should prevent nonce reuse
-    // or use random nonces that make collisions statistically impossible
-
+fn test_pbkdf2_derive_bits_rejects_oversized_length() {
     init_platform();
 
-    println!("AES-GCM nonce handling:");
-    println!("  - 96-bit nonce (12 bytes)");
-    println!("  - Random generation recommended");
-    println!("  - Reuse with same key breaks confidentiality");
+    let mut nano_isolate = common::create_test_isolate();
+    v8::scope!(scope, nano_isolate.isolate());
+    let context = v8::Context::new(scope, Default::default());
+    let ctx_scope = &mut v8::ContextScope::new(scope, context);
 
-    assert!(true, "AES-GCM nonce handling documented");
+    RuntimeAPIs::bind_all(ctx_scope, context);
+
+    // 8e15 bits would be a ~1 PB allocation if unbounded.
+    let code = v8::String::new(
+        ctx_scope,
+        r#"
+        (async function() {
+            const enc = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw', enc.encode('password'), { name: 'PBKDF2' }, false, ['deriveBits']
+            );
+            try {
+                await crypto.subtle.deriveBits(
+                    { name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode('salt'), iterations: 1 },
+                    keyMaterial,
+                    8000000000000000
+                );
+                return 'accepted';
+            } catch (e) {
+                return 'rejected';
+            }
+        })()
+    "#,
+    )
+    .unwrap();
+
+    let script = v8::Script::compile(ctx_scope, code, None).unwrap();
+    let result = script.run(ctx_scope).unwrap();
+
+    let promise = result.cast::<v8::Promise>();
+    for _ in 0..100 {
+        if promise.state() != v8::PromiseState::Pending {
+            break;
+        }
+        ctx_scope.perform_microtask_checkpoint();
+    }
+
+    let value = promise.result(ctx_scope);
+    let outcome = value
+        .to_string(ctx_scope)
+        .unwrap()
+        .to_rust_string_lossy(ctx_scope);
+    assert_eq!(
+        outcome, "rejected",
+        "oversized deriveBits length must be rejected, not allocated"
+    );
 }

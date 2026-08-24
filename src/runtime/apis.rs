@@ -13,8 +13,8 @@
 //! All APIs are bound to the V8 global scope via RuntimeAPIs::bind_all().
 
 use crate::runtime::subtle_v8::{
-    subtle_decrypt, subtle_digest, subtle_encrypt, subtle_export_key, subtle_generate_key,
-    subtle_import_key, subtle_sign, subtle_verify,
+    subtle_decrypt, subtle_derive_bits, subtle_digest, subtle_encrypt, subtle_export_key,
+    subtle_generate_key, subtle_import_key, subtle_sign, subtle_verify,
 };
 
 pub(crate) use super::timers::{
@@ -32,7 +32,7 @@ impl RuntimeAPIs {
     ///
     /// This should be called once per context during handler setup.
     /// Makes all WinterTC APIs available to JavaScript.
-    /// v147 API: Accepts PinnedRef<HandleScope<()>> (before context entry)
+    /// v150 API: Accepts PinnedRef<HandleScope<()>> (before context entry)
     pub fn bind_all(
         scope: &mut v8::PinnedRef<v8::HandleScope<'_, ()>>,
         context: v8::Local<v8::Context>,
@@ -210,6 +210,10 @@ impl RuntimeAPIs {
         }
         if let Some(f) = v8::Function::new(&mut ctx_scope, subtle_digest) {
             let k = v8::String::new(&mut ctx_scope, "digest").unwrap();
+            subtle.set(&mut ctx_scope, k.into(), f.into());
+        }
+        if let Some(f) = v8::Function::new(&mut ctx_scope, subtle_derive_bits) {
+            let k = v8::String::new(&mut ctx_scope, "deriveBits").unwrap();
             subtle.set(&mut ctx_scope, k.into(), f.into());
         }
         let subtle_key = v8::String::new(&mut ctx_scope, "subtle").unwrap();

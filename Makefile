@@ -1,4 +1,4 @@
-.PHONY: build test clean check fmt lint doc run help
+.PHONY: build test clean check fmt lint audit static-profile coverage coverage-gate mutants mutants-changed doc run help
 
 BINARY = nano-rs
 CONFIG = config.json
@@ -29,6 +29,44 @@ fmt:
 
 lint:
 	cargo clippy --lib --bins --tests --all-features -- -D warnings
+
+audit:
+	./scripts/honesty-audit.sh
+
+# Static serving "profile": a flamegraph synthesized from borescope's call graph
+# (no runtime data). Confirms which subsystems are on the most code paths.
+# Requires: `borescope index --no-git` + `cargo install inferno`.
+static-profile:
+	./scripts/static-profile.sh
+
+# Line-coverage report across the whole codebase (the denominator for "what's
+# untested"). Open target/llvm-cov/html/index.html after running with `--html`.
+coverage:
+	cargo llvm-cov --summary-only --ignore-filename-regex 'tests/'
+
+# Regression gate: fail if line coverage drops below the established baseline.
+# Raise COVERAGE_MIN as coverage improves so it ratchets up, never down.
+COVERAGE_MIN ?= 68
+coverage-gate:
+	cargo llvm-cov --summary-only --ignore-filename-regex 'tests/' --fail-under-lines $(COVERAGE_MIN)
+
+# Mutation testing — finds tests that assert nothing meaningful (false-green).
+# Scope to a module: `make mutants FILE=src/admin/diagnostics.rs`.
+# Runs lib tests only (fast); a surviving mutant means missing/weak assertions.
+FILE ?= src/admin/diagnostics.rs
+mutants:
+	cargo mutants --file $(FILE) -- --lib
+
+# Per-release mutation testing scoped to files changed since a git ref (default:
+# the latest tag). Fast, targeted — mutation-tests only what a release touched.
+# Override the ref: `make mutants-changed REF=origin/main`.
+REF ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo origin/main)
+mutants-changed:
+	@files=$$(git diff --name-only $(REF)...HEAD -- 'src/**/*.rs' | grep -E '\.rs$$' || true); \
+	if [ -z "$$files" ]; then echo "No changed src/*.rs files since $(REF) — nothing to mutate."; exit 0; fi; \
+	echo "Mutating files changed since $(REF):"; echo "$$files" | sed 's/^/  /'; \
+	args=$$(echo "$$files" | sed 's/^/--file /' | tr '\n' ' '); \
+	cargo mutants $$args -- --lib
 
 clean:
 	cargo clean
@@ -77,3 +115,16 @@ security-update-db:
 # Full test suite including security
 test-all: test test-security test-cve-check
 	@echo "✅ All tests passed including security"
+
+# ── Integration test suite (HTTP black-box, generates HTML report) ─────────────
+.PHONY: test-suite test-suite-build test-suite-report
+
+test-suite:
+	@./tests/suite/run.sh
+
+test-suite-build:
+	@./tests/suite/run.sh --build
+
+test-suite-report:
+	@echo "Latest report: reports/suite/latest.html"
+	@ls -lh reports/suite/latest.html 2>/dev/null || echo "(no report yet — run make test-suite)"

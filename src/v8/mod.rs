@@ -21,9 +21,7 @@ pub mod snapshot;
 // Re-export key functions and types for convenience
 pub use context::create_context;
 pub use isolate::NanoIsolate;
-pub use module::{
-    execute_esm_or_script, is_esm_module, transform_module_code, ModuleLoader, ModuleType,
-};
+pub use module::{is_esm_module, transform_module_code, ModuleLoader, ModuleType};
 pub use platform::{initialize_platform, is_initialized, shutdown_platform};
 pub use script::execute_script;
 pub use snapshot::{

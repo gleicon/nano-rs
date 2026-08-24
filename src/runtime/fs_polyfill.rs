@@ -27,7 +27,50 @@ thread_local! {
     static PATH_MODULE: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
     static BUFFER_MODULE: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
     static ASSERT_MODULE: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
+    static EVENTS_MODULE: RefCell<Option<v8::Global<v8::Object>>> = RefCell::new(None);
 }
+
+const EVENTS_MODULE_SRC: &str = r#"
+(function() {
+  function EventEmitter() { this._events = Object.create(null); }
+  EventEmitter.prototype.on = function(ev, fn) {
+    if (!this._events[ev]) this._events[ev] = [];
+    this._events[ev].push(fn);
+    return this;
+  };
+  EventEmitter.prototype.addListener = EventEmitter.prototype.on;
+  EventEmitter.prototype.once = function(ev, fn) {
+    var self = this;
+    function wrapper() { fn.apply(this, arguments); self.off(ev, wrapper); }
+    wrapper._fn = fn;
+    return this.on(ev, wrapper);
+  };
+  EventEmitter.prototype.off = function(ev, fn) {
+    if (this._events[ev]) {
+      this._events[ev] = this._events[ev].filter(function(l) {
+        return l !== fn && l._fn !== fn;
+      });
+    }
+    return this;
+  };
+  EventEmitter.prototype.removeListener = EventEmitter.prototype.off;
+  EventEmitter.prototype.emit = function(ev) {
+    var listeners = this._events[ev] || [];
+    var args = Array.prototype.slice.call(arguments, 1);
+    listeners.slice().forEach(function(fn) { fn.apply(null, args); });
+    return listeners.length > 0;
+  };
+  EventEmitter.prototype.removeAllListeners = function(ev) {
+    if (ev) delete this._events[ev];
+    else this._events = Object.create(null);
+    return this;
+  };
+  EventEmitter.prototype.listeners = function(ev) {
+    return (this._events[ev] || []).slice();
+  };
+  return { EventEmitter: EventEmitter };
+})()
+"#;
 
 /// Set the fs polyfill module for the current context
 pub fn set_fs_polyfill(polyfill: Option<v8::Global<v8::Object>>) {
@@ -118,6 +161,21 @@ fn extract_bytes_arg(
             .filter_map(|i| store.get(i).map(|cell| cell.get()))
             .collect();
         return Some(bytes);
+    }
+
+    // Try plain Array (e.g. Buffer.from([0xde, 0xad]))
+    if arg.is_array() {
+        let arr = arg.cast::<v8::Array>();
+        let len = arr.length() as usize;
+        let mut vec = Vec::with_capacity(len);
+        for i in 0..len {
+            if let Some(val) = arr.get_index(scope, i as u32) {
+                if let Some(n) = val.to_integer(scope) {
+                    vec.push((n.value() & 0xFF) as u8);
+                }
+            }
+        }
+        return Some(vec);
     }
 
     // Try string last (for text data)
@@ -344,7 +402,21 @@ fn buffer_from(
         }
     }
     if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, bytes.len()) {
+        attach_buffer_tostring(scope, arr);
         retval.set(arr.into());
+    }
+}
+
+/// Attach a `toString(encoding)` method to a Uint8Array so Buffer instances
+/// support `.toString('hex' | 'base64' | 'utf8')`.
+fn attach_buffer_tostring(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    arr: v8::Local<v8::Uint8Array>,
+) {
+    if let Some(f) = v8::Function::new(scope, buffer_tostring_callback) {
+        if let Some(k) = v8::String::new(scope, "toString") {
+            arr.set(scope, k.into(), f.into());
+        }
     }
 }
 
@@ -408,7 +480,48 @@ fn buffer_concat(
         }
     }
     if let Some(arr) = v8::Uint8Array::new(scope, ab, 0, all_bytes.len()) {
+        attach_buffer_tostring(scope, arr);
         retval.set(arr.into());
+    }
+}
+
+/// toString(encoding) method attached directly to Uint8Array instances returned by buffer_from/buffer_concat
+fn buffer_tostring_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let encoding = if args.length() > 0 {
+        args.get(0)
+            .to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
+            .unwrap_or_else(|| "utf8".to_string())
+    } else {
+        "utf8".to_string()
+    };
+
+    let bytes: Vec<u8> =
+        crate::runtime::v8_helpers::extract_bytes_from_v8_value(scope, this.into())
+            .unwrap_or_default();
+
+    let result = match encoding.as_str() {
+        "hex" => bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>(),
+        "base64" => {
+            use base64::{engine::general_purpose, Engine as _};
+            general_purpose::STANDARD.encode(&bytes)
+        }
+        _ => {
+            // utf8 / latin1 / ascii — all default to UTF-8 lossy
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+    };
+
+    if let Some(s) = v8::String::new(scope, &result) {
+        retval.set(s.into());
     }
 }
 
@@ -682,6 +795,18 @@ pub fn bind_fs_polyfill(
     };
     ASSERT_MODULE.with(|cell| *cell.borrow_mut() = Some(assert_mod));
 
+    // === events module (pure-JS EventEmitter) ===
+    if let Some(src) = v8::String::new(&mut ctx_scope, EVENTS_MODULE_SRC) {
+        if let Some(script) = v8::Script::compile(&mut ctx_scope, src, None) {
+            if let Some(result) = script.run(&mut ctx_scope) {
+                if let Some(obj) = result.to_object(&mut ctx_scope) {
+                    let global_mod = v8::Global::new(&mut ctx_scope, obj);
+                    EVENTS_MODULE.with(|cell| *cell.borrow_mut() = Some(global_mod));
+                }
+            }
+        }
+    }
+
     // === process global ===
     {
         let process = v8::Object::new(&mut ctx_scope);
@@ -702,10 +827,10 @@ pub fn bind_fs_polyfill(
             process.set(&mut ctx_scope, env_key.into(), env_obj.into());
         }
 
-        // process.version (mock Node.js compat version)
+        // process.version — reported Node.js compat version (current LTS)
         if let (Some(k), Some(v)) = (
             v8::String::new(&mut ctx_scope, "version"),
-            v8::String::new(&mut ctx_scope, "v18.0.0"),
+            v8::String::new(&mut ctx_scope, "v22.11.0"),
         ) {
             process.set(&mut ctx_scope, k.into(), v.into());
         }
@@ -786,6 +911,18 @@ fn require_callback(
                     retval.set(local.into());
                 } else {
                     let msg = v8::String::new(scope, "assert module not initialized").unwrap();
+                    let error = v8::Exception::error(scope, msg);
+                    scope.throw_exception(error);
+                }
+            });
+        }
+        "events" | "node:events" => {
+            EVENTS_MODULE.with(|cell| {
+                if let Some(ref global_mod) = *cell.borrow() {
+                    let local = v8::Local::new(scope, global_mod);
+                    retval.set(local.into());
+                } else {
+                    let msg = v8::String::new(scope, "events module not initialized").unwrap();
                     let error = v8::Exception::error(scope, msg);
                     scope.throw_exception(error);
                 }

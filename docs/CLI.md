@@ -1,6 +1,6 @@
 # NANO CLI Reference
 
-**Version:** 1.5.0  
+**Version:** 2.7.0  
 **Last Updated:** 2026-05-02
 
 ---
@@ -443,7 +443,7 @@ curl -H "X-API-Key: secret" http://localhost:8889/isolates
 
 ```bash
 # Use sliver instead of entrypoint
-nano-rs run --sliver app.sliver  # 267µs
+nano-rs run --sliver app.sliver  # serves from a sliver bundle
 # vs
 nano-rs run --entrypoint app.js    # 50-100ms
 ```

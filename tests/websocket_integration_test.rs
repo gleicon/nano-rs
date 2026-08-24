@@ -3,19 +3,12 @@
 //! Verifies the full WebSocket stack: HTTP upgrade, JS handler dispatch,
 //! message echo, close, 32 MiB size limit enforcement, and accept guard.
 //!
-//! Tests that require a running HTTP server with a full AppState are marked
-//! #[ignore] — they require the `NANO_WS_TESTS=1` env var to run since they
-//! exercise the complete upgrade path through `dispatch_to_worker_pool`.
-//!
-//! Tests without server setup (unit-style) run normally.
-//!
-//! # Running WS server tests
-//!
-//! ```bash
-//! NANO_WS_TESTS=1 cargo test --test websocket_integration_test -- --nocapture
-//! ```
+//! All tests spin up a self-contained HTTP server and run by default — they
+//! exercise the complete upgrade path through `dispatch_to_worker_pool`, which
+//! is exactly where the "WS handler received a URL string instead of a Request"
+//! regression hid. `ws_size_limit` allocates ~33 MiB but still runs by default.
 
-use std::sync::Once;
+use std::sync::{Mutex, Once};
 
 static INIT_V8: Once = Once::new();
 
@@ -26,6 +19,17 @@ fn init_v8_once() {
     });
 }
 
+/// Serializes the tests that spin up a real WS server. They share process-global
+/// runtime state (worker pools, V8 message pump, WS thread-locals), so running
+/// two live WebSocket connections concurrently makes them interfere. Each
+/// server-based test holds this lock for its duration. Poison-tolerant so one
+/// test's panic doesn't cascade into the others.
+static SERVER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn serialize_server_test() -> std::sync::MutexGuard<'static, ()> {
+    SERVER_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Write JS to a temp file and return the path.
 fn write_js(name: &str, code: &str) -> String {
     let dir = std::env::temp_dir().join("nano_ws_tests");
@@ -33,13 +37,6 @@ fn write_js(name: &str, code: &str) -> String {
     let path = dir.join(name);
     std::fs::write(&path, code).unwrap();
     path.to_str().unwrap().to_string()
-}
-
-/// Whether full WS server tests are enabled.
-fn ws_tests_enabled() -> bool {
-    std::env::var("NANO_WS_TESTS")
-        .map(|v| v == "1")
-        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -82,9 +79,6 @@ async function fetch(request) {
 
 /// Start a minimal axum server with the WS dispatch handler on an ephemeral
 /// port. Returns the bound socket address.
-///
-/// This is used by tests that require a running server. Only called when
-/// `ws_tests_enabled()` returns true.
 async fn start_ws_test_server(js_code: &str) -> (std::net::SocketAddr, ()) {
     use std::sync::Arc;
 
@@ -135,11 +129,8 @@ async fn start_ws_test_server(js_code: &str) -> (std::net::SocketAddr, ()) {
 /// Verifies: axum WebSocketUpgrade extractor performs 101 handshake,
 /// Upgrade detection branch fires before body consumption.
 #[tokio::test]
-#[ignore = "requires NANO_WS_TESTS=1 and full V8 server setup"]
 async fn ws_upgrade() {
-    if !ws_tests_enabled() {
-        return;
-    }
+    let _serial = serialize_server_test();
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
@@ -158,14 +149,11 @@ async fn ws_upgrade() {
 /// Verifies: relay task forwards inbound frames to worker, worker calls JS
 /// message handler, server.send() pushes outbound, relay returns to client.
 #[tokio::test]
-#[ignore = "requires NANO_WS_TESTS=1 and full V8 server setup"]
 async fn ws_message_echo() {
     use futures_util::{SinkExt, StreamExt};
     use tungstenite::Message;
 
-    if !ws_tests_enabled() {
-        return;
-    }
+    let _serial = serialize_server_test();
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
@@ -190,14 +178,11 @@ async fn ws_message_echo() {
 /// Verifies: Close frame handled by worker ws_messages loop, JS close handler
 /// fires, relay task cleans up, no panic or resource leak.
 #[tokio::test]
-#[ignore = "requires NANO_WS_TESTS=1 and full V8 server setup"]
 async fn ws_close() {
     use futures_util::{SinkExt, StreamExt};
     use tungstenite::Message;
 
-    if !ws_tests_enabled() {
-        return;
-    }
+    let _serial = serialize_server_test();
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
@@ -231,14 +216,11 @@ async fn ws_close() {
 /// Verifies: ws_relay_task enforces MAX_WS_MESSAGE_BYTES constant,
 /// server sends Close frame with code 1009 (Message Too Big).
 #[tokio::test]
-#[ignore = "requires NANO_WS_TESTS=1, full V8 server setup, and ~33 MiB heap"]
 async fn ws_size_limit() {
     use futures_util::{SinkExt, StreamExt};
     use tungstenite::Message;
 
-    if !ws_tests_enabled() {
-        return;
-    }
+    let _serial = serialize_server_test();
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_ECHO_JS).await;
@@ -296,11 +278,8 @@ async fn ws_size_limit() {
 /// Verifies: ws_send_callback checks WS_ACCEPTED thread-local, throws TypeError
 /// before server.accept() is called. Connection should not return 101.
 #[tokio::test]
-#[ignore = "requires NANO_WS_TESTS=1 and full V8 server setup"]
 async fn ws_accept_guard() {
-    if !ws_tests_enabled() {
-        return;
-    }
+    let _serial = serialize_server_test();
     init_v8_once();
 
     let (addr, _shutdown) = start_ws_test_server(WS_SEND_BEFORE_ACCEPT_JS).await;

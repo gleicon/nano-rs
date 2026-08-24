@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NANO - Multi-tenant JavaScript Edge Runtime</title>
-    <meta name="description" content="NANO is a multi-tenant JavaScript edge runtime using V8 isolates with sub-millisecond cold starts via sliver snapshots.">
+    <meta name="description" content="NANO is a multi-tenant JavaScript edge runtime using V8 isolates, with portable sliver bundles, precompiled bytecode, and zero-downtime hot-swap.">
     
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -49,7 +49,7 @@
                     <span class="text-blue-500">Edge Runtime</span>
                 </h1>
                 <p class="text-xl text-slate-400 mb-8 leading-relaxed">
-                    One OS process. Many isolated apps. Sub-millisecond cold starts with V8 isolates and sliver snapshots. <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> compatible.
+                    One OS process. Many isolated apps on V8 isolates. Portable sliver bundles with precompiled bytecode and zero-downtime hot-swap. <a href="https://wintertc.org/" class="text-blue-400 hover:text-blue-300 underline" target="_blank">WinterTC</a> compatible.
                 </p>
                 <div class="flex flex-wrap gap-4 mb-12">
                     <a href="docs/quickstart.html" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-lg font-semibold transition">Get Started</a>
@@ -57,15 +57,15 @@
                 </div>
                 <div class="flex gap-8 text-sm">
                     <div>
-                        <div class="text-3xl font-bold text-blue-500 font-mono">267µs</div>
-                        <div class="text-slate-500">Cold Start</div>
+                        <div class="text-3xl font-bold text-blue-500 font-mono">0-downtime</div>
+                        <div class="text-slate-500">Hot-swap</div>
                     </div>
                     <div>
                         <div class="text-3xl font-bold text-green-500 font-mono">100%</div>
                         <div class="text-slate-500">Test Pass</div>
                     </div>
                     <div>
-                        <div class="text-3xl font-bold text-purple-500 font-mono">v2.6.0</div>
+                        <div class="text-3xl font-bold text-purple-500 font-mono">v2.7.0</div>
                         <div class="text-slate-500">Current</div>
                     </div>
                 </div>
@@ -85,8 +85,8 @@
                     <div class="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center mb-4">
                         <span class="text-blue-400 font-mono text-xl">⚡</span>
                     </div>
-                    <h3 class="text-lg font-semibold text-white mb-2">Sub-millisecond Cold Starts</h3>
-                    <p class="text-slate-400 text-sm">~267µs cold starts with sliver snapshots. 187x faster than fresh V8 isolates.</p>
+                    <h3 class="text-lg font-semibold text-white mb-2">Precompiled Bytecode</h3>
+                    <p class="text-slate-400 text-sm">Slivers carry V8 bytecode built at pack time, so the first request skips JavaScript parse and compile.</p>
                 </div>
                 
                 <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-green-500 transition">
@@ -149,8 +149,8 @@
                     <div class="w-12 h-12 bg-red-500/20 rounded-lg flex items-center justify-center mb-4">
                         <span class="text-red-400 font-mono text-xl">S</span>
                     </div>
-                    <h3 class="text-lg font-semibold text-white mb-2">Sliver Snapshots</h3>
-                    <p class="text-slate-400 text-sm">Portable isolate snapshots with VFS state. Deploy once, run anywhere. Tar-based format with integrity validation.</p>
+                    <h3 class="text-lg font-semibold text-white mb-2">Sliver Bundles</h3>
+                    <p class="text-slate-400 text-sm">Portable tar bundles: app files + precompiled bytecode. Deploy once, run anywhere. Zero-downtime hot-swap on SIGHUP.</p>
                 </div>
 
                 <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-6 hover:border-teal-500 transition">

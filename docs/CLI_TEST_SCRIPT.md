@@ -81,7 +81,7 @@ STEP 3: Validating Sliver
 ========================================
 ✓ Sliver is a valid tar archive
 ✓ Contains meta.json
-✓ Contains heap.bin
+✓ Contains bytecode.v8bc (when not --source-only)
 ✓ Heap snapshot is substantial (452783 bytes)
 
 ========================================
@@ -136,7 +136,7 @@ nano-rs sliver create test.example.com \
 Checks:
 - ✓ Valid tar archive format
 - ✓ Contains `meta.json` (hostname, version, timestamps)
-- ✓ Contains `heap.bin` (>100KB indicates real snapshot)
+- ✓ Contains `bytecode.v8bc` when packed with bytecode (omitted for --source-only)
 - ✓ JSON metadata is valid
 
 ### Step 4: Listing

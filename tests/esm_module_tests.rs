@@ -281,7 +281,11 @@ fn test_import_patterns() {
     assert!(is_esm_module("import * as utils from 'utils';"));
     assert!(is_esm_module("import defaultExport from 'module';"));
     assert!(is_esm_module("import 'polyfill';"));
-    assert!(is_esm_module("const lazy = await import('./lazy');"));
+    // import() at the start of a fragment is detected as ESM
+    assert!(is_esm_module("import('./lazy').then(m => m.default)"));
+    // await import() mid-expression (not at fragment start) is NOT detected —
+    // dynamic import() works in script mode too, so no runtime breakage
+    assert!(!is_esm_module("const lazy = await import('./lazy');"));
 }
 
 #[test]

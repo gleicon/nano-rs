@@ -1,23 +1,27 @@
-//! Sliver Format Module
+//! Sliver — a self-contained app bundle.
 //!
-//! A sliver is a versioned deployment artifact for nano edge apps:
-//! - **Metadata**: JSON with hostname, timestamps, V8 cache version
-//! - **Bytecode** (optional): Pre-compiled V8 UnboundScript bytes; skips parse+compile on load
-//! - **VFS**: All files — JS source, assets, modules, WASM binaries
+//! A sliver is a **tarball** that packages everything an edge app needs to run:
+//! its files and a bit of metadata. It's the deployable unit — build once, ship
+//! the one archive.
 //!
-//! Format v2.0: no heap snapshot, source lives in VFS, bytecode is optional optimization.
+//! - **Metadata** (`meta.json`): hostname, timestamps, V8 cache version.
+//! - **VFS** (`vfs/`): every file — JS source, assets, modules, WASM binaries.
+//! - **Bytecode** (`bytecode.v8bc`, optional): pre-compiled V8 `UnboundScript`
+//!   bytes produced at pack time by `nano sliver create` (`packager`); consumed at
+//!   load to skip parse+compile. Absent with `--source-only`.
+//!
+//! There is no heap snapshot — the app runs from its VFS source (with bytecode
+//! caching when present). planned: heap snapshots — see docs/ROADMAP.md.
 //!
 //! ```text
-//! app-v2.sliver (tar)
+//! app.sliver (tar)
 //! ├── meta.json        # hostname, nano_version, v8_cache_version
 //! ├── bytecode.v8bc    # optional — UnboundScript bytes
-//! └── vfs/             # all files
+//! └── vfs/             # all app files
 //!     ├── index.js
 //!     └── config.json
 //! ```
 
-pub mod auto_cache;
-pub mod benchmark;
 mod error;
 pub mod extractor;
 mod format;

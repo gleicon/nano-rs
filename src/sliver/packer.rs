@@ -1,7 +1,7 @@
 //! Sliver Packer
 //!
 //! Implements tar archive creation for slivers.
-//! Packs metadata, heap blob, and VFS contents into a single archive.
+//! Packs metadata, optional bytecode, and VFS contents into a single archive.
 
 use tar::{Builder, Header};
 

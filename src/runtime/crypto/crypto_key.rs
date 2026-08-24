@@ -37,6 +37,8 @@ pub enum AlgorithmIdentifier {
     },
     /// ECDH key agreement
     Ecdh { named_curve: String },
+    /// PBKDF2 key derivation
+    Pbkdf2,
 }
 
 impl AlgorithmIdentifier {
@@ -50,6 +52,7 @@ impl AlgorithmIdentifier {
             AlgorithmIdentifier::RsaSsaPkcs1V1_5 { .. } => "RSASSA-PKCS1-v1_5",
             AlgorithmIdentifier::Ecdsa { .. } => "ECDSA",
             AlgorithmIdentifier::Ecdh { .. } => "ECDH",
+            AlgorithmIdentifier::Pbkdf2 => "PBKDF2",
         }
     }
 
@@ -58,7 +61,7 @@ impl AlgorithmIdentifier {
         match self {
             AlgorithmIdentifier::AesGcm { length } => Some(*length),
             AlgorithmIdentifier::Hmac { length, .. } => length.map(|l| l as u16),
-            _ => None, // Asymmetric keys don't have fixed lengths
+            _ => None,
         }
     }
 }
@@ -164,6 +167,8 @@ pub enum CryptoKeyHandle {
     EcdsaPrivateKey(Vec<u8>),
     /// ECDSA public key in SPKI DER format
     EcdsaPublicKey(Vec<u8>),
+    /// PBKDF2 password/key material (raw bytes)
+    Pbkdf2Key(Box<[u8]>),
 }
 
 impl CryptoKeyHandle {
@@ -176,6 +181,7 @@ impl CryptoKeyHandle {
             CryptoKeyHandle::RsaPublicKey(bytes) => bytes,
             CryptoKeyHandle::EcdsaPrivateKey(bytes) => bytes,
             CryptoKeyHandle::EcdsaPublicKey(bytes) => bytes,
+            CryptoKeyHandle::Pbkdf2Key(bytes) => bytes,
         }
     }
 
@@ -188,6 +194,7 @@ impl CryptoKeyHandle {
             CryptoKeyHandle::RsaPublicKey(_) => "RSA",
             CryptoKeyHandle::EcdsaPrivateKey(_) => "ECDSA",
             CryptoKeyHandle::EcdsaPublicKey(_) => "ECDSA",
+            CryptoKeyHandle::Pbkdf2Key(_) => "PBKDF2",
         }
     }
 }
@@ -202,6 +209,7 @@ impl Drop for CryptoKeyHandle {
             CryptoKeyHandle::RsaPublicKey(bytes) => bytes.zeroize(),
             CryptoKeyHandle::EcdsaPrivateKey(bytes) => bytes.zeroize(),
             CryptoKeyHandle::EcdsaPublicKey(bytes) => bytes.zeroize(),
+            CryptoKeyHandle::Pbkdf2Key(bytes) => bytes.zeroize(),
         }
     }
 }
@@ -251,6 +259,7 @@ impl CryptoKey {
             CryptoKeyHandle::RsaPublicKey(_) => "public",
             CryptoKeyHandle::EcdsaPrivateKey(_) => "private",
             CryptoKeyHandle::EcdsaPublicKey(_) => "public",
+            CryptoKeyHandle::Pbkdf2Key(_) => "secret",
         }
     }
 

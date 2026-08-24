@@ -1,29 +1,32 @@
-# Sliver Format Specification v1.0
+# Sliver Format Specification
 
 ## Overview
 
-Sliver is a tar-based archive format for JavaScript isolate snapshots in NANO. It captures the complete state of a V8 isolate including the heap snapshot and virtual filesystem contents, enabling fast cold starts and migration between NANO instances.
+A sliver is a **tar-based archive** that bundles a JavaScript edge app — its files
+plus a bit of metadata — into a single, portable deployment artifact. The app runs
+from the bundled files (VFS); there is no heap snapshot.
 
 ## Design Goals
 
 - **Simplicity**: Standard tar format, inspectable with standard tools
-- **Opacity**: V8 heap is an opaque blob, never parsed by NANO
 - **Portability**: No host-specific paths or identifiers
-- **Evolvability**: Format supports future extensions (deltas, compression)
+- **Evolvability**: Format supports future extensions (bytecode, snapshots, compression)
 
 ## Archive Structure
 
 ```
-app-v1.sliver (tar archive)
+app.sliver (tar archive)
 ├── meta.json          # Required: JSON metadata
-├── heap.bin           # Required: V8 heap snapshot (opaque)
-├── vfs/               # Optional: Virtual filesystem
-│   ├── data/
-│   │   └── config.json
-│   └── assets/
-│       └── logo.png
-└── manifest.txt       # Generated: Human-readable listing
+├── bytecode.v8bc      # Optional: pre-compiled V8 UnboundScript bytes
+└── vfs/               # Required: app files (JS source, assets, modules, WASM)
+    ├── index.js
+    └── assets/
+        └── logo.png
 ```
+
+> Earlier drafts of this spec required a `heap.bin` V8 heap snapshot. That is not
+> produced today (runtime snapshot generation is unimplemented on v8 150 — see
+> docs/ROADMAP.md); a sliver runs from its VFS source.
 
 ## File Specifications
 
@@ -53,11 +56,15 @@ JSON metadata describing the snapshot:
 - `description` (string, optional): Human-readable description
 - `custom` (object, optional): Application-specific key-value pairs
 
-### heap.bin (Required)
+### bytecode.v8bc (Optional)
 
-Opaque binary blob containing the V8 heap snapshot. Created by V8's SnapshotCreator API.
+Opaque binary blob of pre-compiled V8 `UnboundScript` bytecode. Generated at pack
+time by `nano sliver create` (via `UnboundScript::create_code_cache`) and tagged with
+the V8 cache-version; the runtime consumes it at load (`Source::new_with_cached_data`)
+to skip parse+compile when the version matches. Omitted with `--source-only`; a
+sliver runs from its VFS source when absent.
 
-**Important:** The contents of heap.bin are version-specific to the V8 version used. NANO treats this as an opaque blob and does not parse or interpret its contents.
+**Important:** The bytecode is version-specific to the V8 build. NANO treats it as an opaque blob and validates the version tag before use, falling back to source compilation on mismatch.
 
 **Size:** Variable (typically 100KB - 10MB depending on isolate state)
 
@@ -91,7 +98,7 @@ Human-readable listing of all archive entries. Generated automatically during pa
 # =========================
 
 meta.json
-heap.bin
+bytecode.v8bc
 vfs/data/config.json
 vfs/assets/logo.png
 ```
@@ -129,7 +136,7 @@ NANO supports both approaches during unpacking.
 ### Current Version: 1.0
 
 Version 1.0 defines the basic structure:
-- Required: meta.json, heap.bin
+- Required: meta.json, vfs/ (app files)
 - Optional: vfs/* entries
 - No compression
 - No delta support
@@ -199,7 +206,7 @@ While NANO provides `nano-rs snapshot create`, manual creation is possible:
 
 ```bash
 # Create archive manually
-tar -cf app-v1.sliver meta.json heap.bin vfs/
+tar -cf app-v1.sliver meta.json bytecode.v8bc vfs/
 ```
 
 ### Validating Archives
@@ -210,7 +217,7 @@ tar -tf app-v1.sliver > /dev/null && echo "Valid tar"
 
 # Check required files exist
 tar -tf app-v1.sliver | grep -q "^meta.json$" && echo "Has metadata"
-tar -tf app-v1.sliver | grep -q "^heap.bin$" && echo "Has heap"
+tar -tf app-v1.sliver | grep -q "^bytecode.v8bc$" && echo "Has bytecode"
 ```
 
 ## Security Considerations
@@ -237,7 +244,7 @@ tar -tf app-v1.sliver | grep -q "^heap.bin$" && echo "Has heap"
 
 Before loading, NANO validates:
 1. Tar structure is valid
-2. Required files (meta.json, heap.bin) exist
+2. Required files (meta.json) exist
 3. Format version is supported
 4. Metadata JSON is valid
 5. Heap blob is non-empty
@@ -249,7 +256,7 @@ Before loading, NANO validates:
 ```
 test.sliver
 ├── meta.json (96 bytes)
-└── heap.bin (1024 bytes)
+└── bytecode.v8bc (1024 bytes)
 ```
 
 ### Full Sliver with VFS
@@ -257,7 +264,7 @@ test.sliver
 ```
 production-v1.sliver (245 KB)
 ├── meta.json (156 bytes)
-├── heap.bin (241,234 bytes)
+├── bytecode.v8bc (241,234 bytes)
 ├── manifest.txt (89 bytes)
 └── vfs/
     ├── data/

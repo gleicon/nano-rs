@@ -399,4 +399,88 @@ mod tests {
 
         handle.join().unwrap();
     }
+
+    // ── signal_cpu_async_waiting + AsyncWaitGuard tests ───────────────────────
+
+    #[test]
+    fn signal_cpu_async_waiting_no_panic_without_guard() {
+        // Calling signal_cpu_async_waiting when no CpuTimeoutGuard is active
+        // must be a no-op (no panic, no effect).
+        signal_cpu_async_waiting(true);
+        signal_cpu_async_waiting(false);
+    }
+
+    #[test]
+    fn async_wait_guard_sets_and_clears_flag() {
+        // Manually install a flag in the thread-local slot to observe changes.
+        let flag = Arc::new(AtomicBool::new(false));
+        CPU_ASYNC_WAIT_FLAG.with(|cell| {
+            *cell.borrow_mut() = Some(flag.clone());
+        });
+
+        assert!(!flag.load(Ordering::Relaxed), "flag starts false");
+
+        {
+            let _guard = AsyncWaitGuard::begin();
+            assert!(flag.load(Ordering::Relaxed), "flag true while guard alive");
+        }
+
+        assert!(
+            !flag.load(Ordering::Relaxed),
+            "flag false after guard dropped"
+        );
+
+        // Clean up thread-local so subsequent tests are not affected.
+        CPU_ASYNC_WAIT_FLAG.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+    }
+
+    #[test]
+    fn async_wait_guard_panic_safe() {
+        let flag = Arc::new(AtomicBool::new(false));
+        CPU_ASYNC_WAIT_FLAG.with(|cell| {
+            *cell.borrow_mut() = Some(flag.clone());
+        });
+
+        let result = std::panic::catch_unwind(|| {
+            let _guard = AsyncWaitGuard::begin();
+            assert!(flag.load(Ordering::Relaxed));
+            panic!("intentional panic to test Drop");
+        });
+
+        assert!(result.is_err(), "panic should propagate");
+        assert!(
+            !flag.load(Ordering::Relaxed),
+            "flag must be cleared even on panic unwind"
+        );
+
+        CPU_ASYNC_WAIT_FLAG.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+    }
+
+    #[test]
+    fn cpu_timeout_guard_registers_and_deregisters_flag() {
+        // Requires V8 platform to create a real isolate.
+        crate::v8::platform::initialize_platform().expect("platform init");
+
+        let flag_before = CPU_ASYNC_WAIT_FLAG.with(|cell| cell.borrow().clone());
+        assert!(flag_before.is_none(), "no flag before guard creation");
+
+        let mut isolate = v8::Isolate::new(Default::default());
+        let guard = CpuTimeoutGuard::new(&mut isolate, 10_000); // long limit so timer doesn't fire
+
+        // After creation the thread-local should reference the guard's flag.
+        let flag_during = CPU_ASYNC_WAIT_FLAG.with(|cell| cell.borrow().clone());
+        assert!(
+            flag_during.is_some(),
+            "flag registered during guard lifetime"
+        );
+
+        drop(guard);
+
+        let flag_after = CPU_ASYNC_WAIT_FLAG.with(|cell| cell.borrow().clone());
+        assert!(flag_after.is_none(), "flag deregistered after guard drop");
+    }
 }

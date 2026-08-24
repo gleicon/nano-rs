@@ -10,8 +10,8 @@ const MAX_PROMISE_WAIT_TIME: Duration = Duration::from_secs(30);
 /// async operations like WebAssembly.compile/instantiate and async JavaScript
 /// handlers to complete.
 ///
-/// # V147 API Note
-/// In v147, we accept ContextScope directly which callers have.
+/// # V150 API Note
+/// In v150, we accept ContextScope directly which callers have.
 /// ContextScope derefs to the inner HandleScope which we use for API calls.
 ///
 /// # Arguments
@@ -26,22 +26,17 @@ const MAX_PROMISE_WAIT_TIME: Duration = Duration::from_secs(30);
 ///
 /// # Example
 ///
-/// ```rust
-/// // v147 API pattern
-/// let ctx_scope = v8::ContextScope::new(&mut scope, context);
-/// let mut ctx_scope = ctx_scope.init();
-///
-/// // Execute JS that returns a Promise
-/// let result = script.run(&mut ctx_scope).unwrap();
-///
-/// // If it's a Promise, resolve it
-/// if result.is_promise() {
-///     let promise = result.cast::<v8::Promise>();
-///     match resolve_promise_with_async(&mut ctx_scope, promise) {
-///         Ok(value) => { /* use resolved value */ }
-///         Err(e) => { /* handle error */ }
-///     }
-/// }
+/// ```rust,ignore
+/// // Requires an active V8 ContextScope — called internally by the isolate executor.
+/// // Usage (inside a function that holds a ContextScope):
+/// //
+/// //   let result = script.run(ctx_scope).unwrap();
+/// //   if result.is_promise() {
+/// //       let promise = result.cast::<v8::Promise>();
+/// //       let resolved = resolve_promise_with_async(ctx_scope, promise)?;
+/// //   }
+/// //
+/// // Tested via integration tests (tests/worker_pool_dispatch_tests.rs).
 /// ```
 pub fn resolve_promise_with_async<'a>(
     scope: &mut v8::ContextScope<'a, 'a, v8::HandleScope<'a, v8::Context>>,
@@ -70,7 +65,7 @@ pub fn resolve_promise_with_async<'a>(
         // multiple times to ensure the compilation completes.
         let platform = v8::V8::get_current_platform();
         for _ in 0..5 {
-            // v147 API: pump_message_loop expects &Isolate
+            // v150 API: pump_message_loop expects &Isolate
             // ContextScope derefs to HandleScope<Context>, which derefs to Isolate
             let isolate: &v8::Isolate = &**scope;
             v8::Platform::pump_message_loop(&platform, isolate, false);
@@ -78,7 +73,7 @@ pub fn resolve_promise_with_async<'a>(
 
         // Perform microtask checkpoint to execute queued JavaScript microtasks
         // This handles Promise callbacks and other async JavaScript operations
-        // v147 API: perform_microtask_checkpoint on ContextScope through DerefMut
+        // v150 API: perform_microtask_checkpoint on ContextScope through DerefMut
         scope.perform_microtask_checkpoint();
 
         match promise.state() {
@@ -134,13 +129,13 @@ pub fn resolve_promise_with_timeout<'a>(
         // WASM compilation can require multiple pumps, so we pump multiple times.
         let platform = v8::V8::get_current_platform();
         for _ in 0..5 {
-            // v147 API: pump_message_loop expects &Isolate
+            // v150 API: pump_message_loop expects &Isolate
             // ContextScope derefs to HandleScope<Context>, which derefs to Isolate
             let isolate: &v8::Isolate = &**scope;
             v8::Platform::pump_message_loop(&platform, isolate, false);
         }
 
-        // v147 API: perform_microtask_checkpoint on ContextScope through DerefMut
+        // v150 API: perform_microtask_checkpoint on ContextScope through DerefMut
         scope.perform_microtask_checkpoint();
 
         match promise.state() {
@@ -173,8 +168,8 @@ pub fn resolve_promise_with_timeout<'a>(
 /// and resolves it using the async event loop. If the value is not a Promise,
 /// it's returned as-is.
 ///
-/// # V147 API Note
-/// In v147, we accept ContextScope directly which callers have.
+/// # V150 API Note
+/// In v150, we accept ContextScope directly which callers have.
 ///
 /// # Arguments
 ///

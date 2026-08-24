@@ -51,7 +51,7 @@ Each app in the `apps` array defines a hosted application:
 
 ### App Type Fields (one required)
 
-- **sliver** (string, optional): Path to sliver file for snapshot-based loading. Enables ~267µs cold starts.
+- **sliver** (string, optional): Path to a sliver bundle. The app loads from the bundle's VFS, using precompiled bytecode when its V8 version matches.
 - **entrypoint** (string, optional): Path to JavaScript entrypoint file. Creates fresh isolates per request.
 
 ### Optional Fields

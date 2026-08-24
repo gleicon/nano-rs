@@ -199,15 +199,38 @@ impl EntrypointWorkerPool {
         memory_limit_mb: u32,
         vfs_backend: crate::vfs::VfsBackendEnum,
     ) -> Self {
+        Self::with_backend_and_env(
+            hostname,
+            worker_count,
+            memory_limit_mb,
+            vfs_backend,
+            std::collections::HashMap::new(),
+        )
+    }
+
+    /// Create a pool with an explicit VFS backend and environment variables.
+    ///
+    /// `env_vars` propagates runtime feature flags into each worker thread.
+    /// The canonical consumer is `GAS_COMPAT=true`, which switches the JS compile
+    /// path to wrap `.gs` source in the GAS shim before execution.
+    /// `with_backend` delegates here with an empty map.
+    pub fn with_backend_and_env(
+        hostname: &str,
+        worker_count: u32,
+        memory_limit_mb: u32,
+        vfs_backend: crate::vfs::VfsBackendEnum,
+        env_vars: std::collections::HashMap<String, String>,
+    ) -> Self {
         use crate::worker::AppSource;
 
         let source = AppSource::entrypoint("index.js");
-        let inner = crate::worker::pool::WorkerPool::with_source_and_backend(
+        let inner = crate::worker::pool::WorkerPool::with_source_backend_and_env(
             hostname.to_string(),
             worker_count,
             memory_limit_mb,
             vfs_backend,
             source,
+            env_vars,
         );
 
         tracing::info!(
@@ -316,7 +339,7 @@ pub struct WorkQueue {
     vfs_disk_config: Option<VfsDiskConfig>,
     /// AppRegistry for per-app configuration lookup (optional)
     app_registry: Option<Arc<AppRegistry>>,
-    /// Control plane for request validation and batching
+    /// Per-tenant limits registry + request validation (see `control_plane`).
     pub control_plane: Option<ControlPlane>,
 }
 
@@ -429,6 +452,16 @@ impl WorkQueue {
             let pool = if let Some(ref registry) = self.app_registry {
                 if let Some(app_config) = registry.get(hostname) {
                     let memory_mb = app_config.limits.memory_mb;
+                    let env_vars = app_config.env_vars.clone();
+                    let mk_pool = |backend| {
+                        EntrypointWorkerPool::with_backend_and_env(
+                            hostname,
+                            self.workers_per_pool,
+                            memory_mb,
+                            backend,
+                            env_vars.clone(),
+                        )
+                    };
                     match app_config.vfs_backend {
                         VfsBackendType::Disk => {
                             if let Some(ref disk_config) = app_config.vfs_disk {
@@ -442,12 +475,7 @@ impl WorkQueue {
                                             hostname,
                                             disk_config.base_path
                                         );
-                                        EntrypointWorkerPool::with_backend(
-                                            hostname,
-                                            self.workers_per_pool,
-                                            memory_mb,
-                                            backend,
-                                        )
+                                        mk_pool(backend)
                                     }
                                     Err(e) => {
                                         tracing::warn!(
@@ -455,14 +483,9 @@ impl WorkQueue {
                                             hostname,
                                             e
                                         );
-                                        EntrypointWorkerPool::with_backend(
-                                            hostname,
-                                            self.workers_per_pool,
-                                            memory_mb,
-                                            crate::vfs::VfsBackendEnum::memory(
-                                                MemoryBackend::default(),
-                                            ),
-                                        )
+                                        mk_pool(crate::vfs::VfsBackendEnum::memory(
+                                            MemoryBackend::default(),
+                                        ))
                                     }
                                 }
                             } else {
@@ -470,10 +493,7 @@ impl WorkQueue {
                                     "App {} has vfs_backend=disk but no vfs_disk config, using memory",
                                     hostname
                                 );
-                                EntrypointWorkerPool::with_backend(
-                                    hostname,
-                                    self.workers_per_pool,
-                                    memory_mb,
+                                mk_pool(
                                     crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
                                 )
                             }
@@ -514,46 +534,30 @@ impl WorkQueue {
                                                 "Auto-created disk backend for entrypoint app at hostname: {} with base_path: {:?}",
                                                 hostname, base_path
                                             );
-                                            EntrypointWorkerPool::with_backend(
-                                                hostname,
-                                                self.workers_per_pool,
-                                                memory_mb,
-                                                backend,
-                                            )
+                                            mk_pool(backend)
                                         }
                                         Err(e) => {
                                             tracing::warn!(
                                                 "Failed to auto-create disk backend for entrypoint app at {:?}, falling back to memory: {}",
                                                 base_path, e
                                             );
-                                            EntrypointWorkerPool::with_backend(
-                                                hostname,
-                                                self.workers_per_pool,
-                                                memory_mb,
-                                                crate::vfs::VfsBackendEnum::memory(
-                                                    MemoryBackend::default(),
-                                                ),
-                                            )
+                                            mk_pool(crate::vfs::VfsBackendEnum::memory(
+                                                MemoryBackend::default(),
+                                            ))
                                         }
                                     }
                                 } else {
                                     tracing::debug!("No parent directory for entrypoint, using memory backend for hostname: {}", hostname);
-                                    EntrypointWorkerPool::with_backend(
-                                        hostname,
-                                        self.workers_per_pool,
-                                        memory_mb,
-                                        crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
-                                    )
+                                    mk_pool(crate::vfs::VfsBackendEnum::memory(
+                                        MemoryBackend::default(),
+                                    ))
                                 }
                             } else {
                                 tracing::debug!(
                                     "Using memory backend for hostname: {} (no entrypoint)",
                                     hostname
                                 );
-                                EntrypointWorkerPool::with_backend(
-                                    hostname,
-                                    self.workers_per_pool,
-                                    memory_mb,
+                                mk_pool(
                                     crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
                                 )
                             }
@@ -563,12 +567,7 @@ impl WorkQueue {
                                 "Using default memory backend for hostname: {}",
                                 hostname
                             );
-                            EntrypointWorkerPool::with_backend(
-                                hostname,
-                                self.workers_per_pool,
-                                memory_mb,
-                                crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()),
-                            )
+                            mk_pool(crate::vfs::VfsBackendEnum::memory(MemoryBackend::default()))
                         }
                     }
                 } else {
@@ -886,5 +885,49 @@ mod tests {
                 .tenant_exists("new.host.local"),
             "idempotent: already-registered hostname must still exist"
         );
+    }
+
+    #[test]
+    fn test_with_backend_and_env_propagates_flags() {
+        // Verify that with_backend_and_env constructs a pool without panic
+        // and that env_vars reach the inner WorkerPool (tested end-to-end
+        // by the GAS integration suite; here we test the construction path).
+        let env_vars: std::collections::HashMap<String, String> =
+            [("GAS_COMPAT".to_string(), "true".to_string())]
+                .into_iter()
+                .collect();
+
+        let pool = EntrypointWorkerPool::with_backend_and_env(
+            "gas.test.local",
+            1,
+            0,
+            crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::new()),
+            env_vars,
+        );
+
+        assert_eq!(pool.hostname, "gas.test.local");
+        assert_eq!(pool.worker_count, 1);
+    }
+
+    #[test]
+    fn test_with_backend_delegates_to_with_backend_and_env() {
+        // with_backend must produce a pool equivalent to with_backend_and_env
+        // with an empty env_vars — same hostname and worker_count.
+        let pool_a = EntrypointWorkerPool::with_backend(
+            "delegate.test.local",
+            2,
+            0,
+            crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::new()),
+        );
+        let pool_b = EntrypointWorkerPool::with_backend_and_env(
+            "delegate.test.local",
+            2,
+            0,
+            crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::new()),
+            std::collections::HashMap::new(),
+        );
+
+        assert_eq!(pool_a.hostname, pool_b.hostname);
+        assert_eq!(pool_a.worker_count, pool_b.worker_count);
     }
 }

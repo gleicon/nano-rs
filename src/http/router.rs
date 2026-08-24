@@ -881,8 +881,6 @@ pub async fn dispatch_to_worker_pool(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[allow(unused_imports)]
-    use crate::http::NanoUrl;
 
     #[tokio::test]
     async fn test_handle_ws_upgrade_forbidden_for_static_handler() {

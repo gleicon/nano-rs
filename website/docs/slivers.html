@@ -34,18 +34,18 @@
 
     <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-4xl mx-auto">
-            <h1 class="text-4xl font-bold text-white mb-4">Sliver Snapshots</h1>
-            <p class="text-lg text-slate-400 mb-8">Portable isolate snapshots for sub-millisecond cold starts</p>
+            <h1 class="text-4xl font-bold text-white mb-4">Slivers</h1>
+            <p class="text-lg text-slate-400 mb-8">Portable app bundles with precompiled bytecode and zero-downtime hot-swap</p>
 
             <div class="mb-8">
                 <h2 class="text-2xl font-semibold text-white mb-4">What are Slivers?</h2>
-                <p class="text-slate-400 mb-4">Slivers are portable snapshots of JavaScript isolates. They capture the complete state of an isolate including:</p>
+                <p class="text-slate-400 mb-4">A sliver is a portable tar bundle of an application. It contains:</p>
                 <ul class="list-disc list-inside space-y-2 text-slate-400 mb-4">
-                    <li>Compiled JavaScript code</li>
-                    <li>VFS filesystem state</li>
-                    <li>Global object state</li>
-                    <li>Context bindings</li>
+                    <li><code>meta.json</code> — hostname, timestamps, and the V8 bytecode version tag</li>
+                    <li><code>vfs/</code> — the app's JavaScript, modules, WASM, and assets</li>
+                    <li><code>bytecode.v8bc</code> — optional V8 bytecode compiled at pack time</li>
                 </ul>
+                <p class="text-slate-400 mb-4">A sliver carries no heap snapshot. The app runs from its VFS source; when the embedded bytecode's version tag matches the running V8, the first request skips JavaScript parse and compile.</p>
             </div>
 
             <div class="mb-8">

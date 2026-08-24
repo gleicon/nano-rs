@@ -95,7 +95,7 @@ fn test_server_config() {
 fn test_server_config_defaults() {
     let config = ServerConfig::default();
     assert_eq!(config.port, 8080);
-    assert_eq!(config.host, "0.0.0.0");
+    assert_eq!(config.host, "127.0.0.1");
 
     let addr = config.socket_addr().unwrap();
     assert_eq!(addr.port(), 8080);

@@ -378,16 +378,14 @@ fn test_6_v8_typedarray_byte_extraction() {
     });
 }
 
-/// Test 7: Use V8's native WasmModuleObject::compile() API
+/// Test 7: Use V8's native WasmModuleObject::compile() API end-to-end.
 ///
-/// This test demonstrates direct usage of V8's Rust WASM API.
-/// The WebAssembly.compile() JS API uses this internally.
-///
-/// Note: WasmModuleObject::compile may return None in some V8 builds.
-/// The JavaScript WebAssembly API (WebAssembly.compile) is the supported
-/// method for WASM compilation. This test is kept for diagnostic purposes.
+/// Exercises the full native path: compile WASM bytes to a module via
+/// `v8::WasmModuleObject::compile`, construct a `WebAssembly.Instance` from it
+/// with `new_instance` (it's a constructor), and call the exported `add(5, 3)`,
+/// asserting the result is 8. The `WebAssembly.compile()` JS API uses this same
+/// native machinery internally.
 #[test]
-#[ignore = "V8 internal WasmModuleObject::compile API may not be fully exposed - use JS WebAssembly API instead"]
 fn test_7_webassembly_compile() {
     let _ = initialize_platform();
 
@@ -399,7 +397,7 @@ fn test_7_webassembly_compile() {
     let mut isolate = NanoIsolate::new().expect("Failed to create isolate");
     let isolate_ptr = isolate.isolate();
 
-    // v147 API: Create HandleScope using scope! macro for PinScope
+    // Create HandleScope using the scope! macro for PinScope.
     v8::scope!(handle_scope, isolate_ptr);
     let context = v8::Context::new(handle_scope, Default::default());
 
@@ -436,59 +434,54 @@ fn test_7_webassembly_compile() {
             // Create empty imports object
             let imports_obj = v8::Object::new(ctx_scope);
 
-            // Create instance from module
-            let instance_result = instance_ctor.call(
-                ctx_scope,
-                instance_ctor.into(),
-                &[module_obj.into(), imports_obj.into()],
-            );
+            // WebAssembly.Instance is a constructor — it must be invoked with `new`,
+            // so use new_instance(), not call(). Calling it as a plain function throws
+            // "TypeError: WebAssembly.Instance must be invoked with 'new'".
+            let instance_result =
+                instance_ctor.new_instance(ctx_scope, &[module_obj.into(), imports_obj.into()]);
 
             match instance_result {
-                Some(instance_val) => {
-                    if instance_val.is_object() {
-                        let instance = instance_val.to_object(ctx_scope).unwrap();
-                        let exports_key = v8::String::new(ctx_scope, "exports").unwrap();
-                        if let Some(exports) = instance.get(ctx_scope, exports_key.into()) {
-                            let exports_obj = exports.to_object(ctx_scope).unwrap();
-                            let add_key = v8::String::new(ctx_scope, "add").unwrap();
-                            if let Some(add_fn) = exports_obj.get(ctx_scope, add_key.into()) {
-                                if add_fn.is_function() {
-                                    let add = add_fn.cast::<v8::Function>();
-                                    let five = v8::Integer::new(ctx_scope, 5);
-                                    let three = v8::Integer::new(ctx_scope, 3);
-                                    match add.call(
-                                        ctx_scope,
-                                        exports.into(),
-                                        &[five.into(), three.into()],
-                                    ) {
-                                        Some(result) => {
-                                            let result_i32 = result
-                                                .to_integer(ctx_scope)
-                                                .map(|i| i.value() as i32)
-                                                .unwrap_or(-1);
-                                            println!("   add(5, 3) = {}", result_i32);
-                                            assert_eq!(
-                                                result_i32, 8,
-                                                "WASM add function should return 8"
-                                            );
-                                            println!("✅ Full WASM execution works!");
-                                        }
-                                        None => {
-                                            println!("❌ Failed to call add function");
-                                            panic!("Failed to call add function");
-                                        }
+                Some(instance) => {
+                    println!("✅ WebAssembly.Instance created via new_instance()");
+                    let exports_key = v8::String::new(ctx_scope, "exports").unwrap();
+                    if let Some(exports) = instance.get(ctx_scope, exports_key.into()) {
+                        let exports_obj = exports.to_object(ctx_scope).unwrap();
+                        let add_key = v8::String::new(ctx_scope, "add").unwrap();
+                        if let Some(add_fn) = exports_obj.get(ctx_scope, add_key.into()) {
+                            if add_fn.is_function() {
+                                let add = add_fn.cast::<v8::Function>();
+                                let five = v8::Integer::new(ctx_scope, 5);
+                                let three = v8::Integer::new(ctx_scope, 3);
+                                match add.call(
+                                    ctx_scope,
+                                    exports.into(),
+                                    &[five.into(), three.into()],
+                                ) {
+                                    Some(result) => {
+                                        let result_i32 = result
+                                            .to_integer(ctx_scope)
+                                            .map(|i| i.value() as i32)
+                                            .unwrap_or(-1);
+                                        println!("   add(5, 3) = {}", result_i32);
+                                        assert_eq!(
+                                            result_i32, 8,
+                                            "WASM add function should return 8"
+                                        );
+                                        println!("✅ Full WASM execution works!");
                                     }
-                                } else {
-                                    panic!("add export is not a function");
+                                    None => {
+                                        println!("❌ Failed to call add function");
+                                        panic!("Failed to call add function");
+                                    }
                                 }
                             } else {
-                                panic!("add export not found");
+                                panic!("add export is not a function");
                             }
                         } else {
-                            panic!("exports not found");
+                            panic!("add export not found");
                         }
                     } else {
-                        panic!("Instance is not an object");
+                        panic!("exports not found");
                     }
                 }
                 None => {

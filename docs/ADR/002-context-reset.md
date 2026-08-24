@@ -5,6 +5,11 @@
 **Deciders:** Core Team  
 **Technical Story:** Need per-request isolation without 50-100ms isolate creation overhead
 
+> **Note (2026-08-24):** the "~267µs sliver restore" figures in the comparison below
+> refer to a heap-snapshot restore path that was never shipped (see
+> [ROADMAP](../ROADMAP.md)). The context-reset decision itself stands; treat those
+> specific timings as historical/aspirational, not measured.
+
 ---
 
 ## Context and Problem Statement

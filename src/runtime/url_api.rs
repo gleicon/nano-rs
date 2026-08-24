@@ -357,38 +357,123 @@ fn usp_delete_callback(
     retval.set_undefined();
 }
 
-/// URLSearchParams.toString() callback
-fn usp_tostring_callback(
+/// URLSearchParams.forEach(callback) — calls callback(value, name, searchParams) per entry
+fn usp_foreach_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
-    _args: v8::FunctionCallbackArguments,
-    mut retval: v8::ReturnValue,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
 ) {
-    let this = _args.this();
+    let this = args.this();
+    if args.length() < 1 {
+        return;
+    }
+    let cb = args.get(0);
+    if !cb.is_function() {
+        return;
+    }
+    let cb_fn = cb.cast::<v8::Function>();
 
     let params_key = v8::String::new(scope, "__params__").unwrap();
-    let entries_key = v8::String::new(scope, "entries").unwrap();
-
     if let Some(params_val) = this.get(scope, params_key.into()) {
-        if let Some(params_map) = params_val.to_object(scope) {
-            // Get entries from the Map
-            if let Some(entries_fn) = params_map.get(scope, entries_key.into()) {
-                if entries_fn.is_function() {
-                    let entries_func = entries_fn.cast::<v8::Function>();
-                    if let Some(_iterator) = entries_func.call(scope, params_val, &[]) {
-                        // Note: Full implementation would iterate the iterator
-                        // and build query string from entries
-                        // For now, return empty string as basic implementation
-                        let result = v8::String::new(scope, "").unwrap();
-                        retval.set(result.into());
-                        return;
+        if let Some(params_obj) = params_val.to_object(scope) {
+            if let Some(names) = params_obj.get_own_property_names(scope, Default::default()) {
+                for i in 0..names.length() {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(val) = params_obj.get(scope, key) {
+                            // callback(value, name, searchParams) per WHATWG spec
+                            let _ = cb_fn.call(scope, this.into(), &[val, key, this.into()]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// URLSearchParams.entries() — returns array of [name, value] pairs
+fn usp_entries_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+    let result = v8::Array::new(scope, 0);
+    let mut idx = 0u32;
+    if let Some(params_val) = this.get(scope, params_key.into()) {
+        if let Some(params_obj) = params_val.to_object(scope) {
+            if let Some(names) = params_obj.get_own_property_names(scope, Default::default()) {
+                for i in 0..names.length() {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(val) = params_obj.get(scope, key) {
+                            let pair = v8::Array::new(scope, 2);
+                            pair.set_index(scope, 0, key);
+                            pair.set_index(scope, 1, val);
+                            result.set_index(scope, idx, pair.into());
+                            idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    retval.set(result.into());
+}
+
+/// URLSearchParams.toString() callback — serialize `__params__` as `k=v&k=v`.
+///
+/// `__params__` is a plain object (see the constructor), so we iterate its own
+/// property names and join them. Keys/values are form-urlencoded so the output
+/// round-trips through the constructor and is a valid query string.
+fn usp_tostring_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let params_key = v8::String::new(scope, "__params__").unwrap();
+
+    let mut pairs: Vec<String> = Vec::new();
+    if let Some(params_val) = this.get(scope, params_key.into()) {
+        if let Some(params_obj) = params_val.to_object(scope) {
+            if let Some(names) = params_obj.get_own_property_names(scope, Default::default()) {
+                for i in 0..names.length() {
+                    if let Some(key) = names.get_index(scope, i) {
+                        if let Some(val) = params_obj.get(scope, key) {
+                            let k = key
+                                .to_string(scope)
+                                .map(|s| s.to_rust_string_lossy(scope))
+                                .unwrap_or_default();
+                            let v = val
+                                .to_string(scope)
+                                .map(|s| s.to_rust_string_lossy(scope))
+                                .unwrap_or_default();
+                            pairs.push(format!("{}={}", form_urlencode(&k), form_urlencode(&v)));
+                        }
                     }
                 }
             }
         }
     }
 
-    let empty = v8::String::new(scope, "").unwrap();
-    retval.set(empty.into());
+    let result = v8::String::new(scope, &pairs.join("&")).unwrap();
+    retval.set(result.into());
+}
+
+/// Encode a URLSearchParams key or value per the WHATWG form-urlencoded rules:
+/// space → `+`, and anything outside the unreserved set is percent-encoded.
+fn form_urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => {
+                out.push(b as char)
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
 }
 
 /// Headers constructor implementation (simplified v1)
@@ -431,29 +516,37 @@ fn headers_constructor(
         }
     }
 
-    // Add get method
-    let get_key = v8::String::new(scope, "get").unwrap();
-    if let Some(get_fn) = v8::Function::new(scope, headers_get_callback) {
-        this.set(scope, get_key.into(), get_fn.into());
-    }
-
-    // Add set method
-    let set_key = v8::String::new(scope, "set").unwrap();
-    if let Some(set_fn) = v8::Function::new(scope, headers_set_callback_v2) {
-        this.set(scope, set_key.into(), set_fn.into());
-    }
-
-    // Add forEach method
-    let foreach_key = v8::String::new(scope, "forEach").unwrap();
-    if let Some(foreach_fn) = v8::Function::new(scope, headers_foreach_callback) {
-        this.set(scope, foreach_key.into(), foreach_fn.into());
-    }
+    bind_header_methods(scope, this);
 
     retval.set(this.into());
 }
 
+/// Bind the Fetch-spec Headers methods (get/set/has/delete/append/forEach) onto
+/// a headers object. Single source of truth for both the `Headers` constructor
+/// and the `Response` constructor's inline headers object.
+pub(crate) fn bind_header_methods(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    obj: v8::Local<v8::Object>,
+) {
+    macro_rules! bind {
+        ($name:expr, $cb:expr) => {
+            if let (Some(f), Some(k)) =
+                (v8::Function::new(scope, $cb), v8::String::new(scope, $name))
+            {
+                obj.set(scope, k.into(), f.into());
+            }
+        };
+    }
+    bind!("get", headers_get_callback);
+    bind!("set", headers_set_callback);
+    bind!("has", headers_has_callback);
+    bind!("delete", headers_delete_callback);
+    bind!("append", headers_append_callback);
+    bind!("forEach", headers_foreach_callback);
+}
+
 /// Callback for Headers.get() method
-fn headers_get_callback(
+pub(crate) fn headers_get_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     mut retval: v8::ReturnValue,
@@ -489,40 +582,8 @@ fn headers_get_callback(
 }
 
 /// Callback for Headers.set() method (version for Headers object)
-fn headers_set_callback_v2(
-    scope: &mut v8::PinnedRef<v8::HandleScope>,
-    args: v8::FunctionCallbackArguments,
-    _retval: v8::ReturnValue,
-) {
-    let this = args.this();
-
-    if args.length() >= 2 {
-        // Normalize header name to lowercase (per Fetch spec)
-        let name = args
-            .get(0)
-            .to_string(scope)
-            .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
-            .unwrap_or_default();
-        let value = args
-            .get(1)
-            .to_string(scope)
-            .map(|s| s.to_rust_string_lossy(scope))
-            .unwrap_or_default();
-
-        // Get the internal headers store
-        let headers_key = v8::String::new(scope, "__headers__").unwrap();
-        if let Some(headers_val) = this.get(scope, headers_key.into()) {
-            if let Some(headers_obj) = headers_val.to_object(scope) {
-                let name_key = v8::String::new(scope, &name).unwrap();
-                let val_str = v8::String::new(scope, &value).unwrap();
-                headers_obj.set(scope, name_key.into(), val_str.into());
-            }
-        }
-    }
-}
-
 /// Callback for Headers.forEach() method
-fn headers_foreach_callback(
+pub(crate) fn headers_foreach_callback(
     scope: &mut v8::PinnedRef<v8::HandleScope>,
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
@@ -563,6 +624,109 @@ fn headers_foreach_callback(
                     }
                 }
             }
+        }
+    }
+}
+
+/// Callback for Headers.append() — adds value, comma-joining if header already exists
+pub(crate) fn headers_append_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    if args.length() < 2 {
+        return;
+    }
+    let name = args
+        .get(0)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
+        .unwrap_or_default();
+    let value = args
+        .get(1)
+        .to_string(scope)
+        .map(|s| s.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+
+    let headers_key = v8::String::new(scope, "__headers__").unwrap();
+    if let Some(headers_val) = this.get(scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(scope) {
+            let name_key = v8::String::new(scope, &name).unwrap();
+            let new_val = if let Some(existing) = headers_obj.get(scope, name_key.into()) {
+                if !existing.is_null() && !existing.is_undefined() {
+                    let existing_str = existing
+                        .to_string(scope)
+                        .map(|s| s.to_rust_string_lossy(scope))
+                        .unwrap_or_default();
+                    format!("{}, {}", existing_str, value)
+                } else {
+                    value
+                }
+            } else {
+                value
+            };
+            let val_str = v8::String::new(scope, &new_val).unwrap();
+            headers_obj.set(scope, name_key.into(), val_str.into());
+        }
+    }
+}
+
+/// Callback for Headers.has() — returns boolean
+pub(crate) fn headers_has_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    mut retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let name = if args.length() > 0 {
+        args.get(0)
+            .to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let headers_key = v8::String::new(scope, "__headers__").unwrap();
+    let found = if let Some(headers_val) = this.get(scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(scope) {
+            let name_key = v8::String::new(scope, &name).unwrap();
+            headers_obj
+                .get(scope, name_key.into())
+                .map(|v| !v.is_null() && !v.is_undefined())
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    retval.set(v8::Boolean::new(scope, found).into());
+}
+
+/// Callback for Headers.delete() — removes a header
+pub(crate) fn headers_delete_callback(
+    scope: &mut v8::PinnedRef<v8::HandleScope>,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    let this = args.this();
+    let name = if args.length() > 0 {
+        args.get(0)
+            .to_string(scope)
+            .map(|s| s.to_rust_string_lossy(scope).to_lowercase())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let headers_key = v8::String::new(scope, "__headers__").unwrap();
+    if let Some(headers_val) = this.get(scope, headers_key.into()) {
+        if let Some(headers_obj) = headers_val.to_object(scope) {
+            let name_key = v8::String::new(scope, &name).unwrap();
+            headers_obj.delete(scope, name_key.into());
         }
     }
 }
@@ -611,6 +775,16 @@ pub(crate) fn bind_url(
                 {
                     let tostring_key = v8::String::new(&mut ctx_scope, "toString").unwrap();
                     proto_obj.set(&mut ctx_scope, tostring_key.into(), tostring_fn.into());
+                }
+                // Bind forEach method
+                if let Some(foreach_fn) = v8::Function::new(&mut ctx_scope, usp_foreach_callback) {
+                    let foreach_key = v8::String::new(&mut ctx_scope, "forEach").unwrap();
+                    proto_obj.set(&mut ctx_scope, foreach_key.into(), foreach_fn.into());
+                }
+                // Bind entries method
+                if let Some(entries_fn) = v8::Function::new(&mut ctx_scope, usp_entries_callback) {
+                    let entries_key = v8::String::new(&mut ctx_scope, "entries").unwrap();
+                    proto_obj.set(&mut ctx_scope, entries_key.into(), entries_fn.into());
                 }
             }
         }
@@ -665,4 +839,42 @@ pub(crate) fn bind_headers(
     // Attach to global
     let key = v8::String::new(&mut ctx_scope, "Headers").unwrap();
     global.set(&mut ctx_scope, key.into(), ctor.into());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::v8::{initialize_platform, NanoIsolate};
+
+    #[test]
+    fn form_urlencode_encodes_reserved_chars() {
+        assert_eq!(form_urlencode("a b"), "a+b");
+        assert_eq!(form_urlencode("a&b=c"), "a%26b%3Dc");
+        assert_eq!(form_urlencode("plain-Text_1.*"), "plain-Text_1.*");
+    }
+
+    #[test]
+    fn url_search_params_tostring_round_trips() {
+        initialize_platform().expect("platform init");
+        let mut isolate = NanoIsolate::new().expect("isolate");
+        v8::scope!(handle_scope, isolate.isolate());
+        let context = v8::Context::new(handle_scope, Default::default());
+        let ctx_scope = &mut v8::ContextScope::new(handle_scope, context);
+        bind_url(ctx_scope, context);
+
+        // Regression: toString() used to always return "" regardless of params.
+        let code = r#"new URLSearchParams('a=1&b=2').toString()"#;
+        let code_str = v8::String::new(ctx_scope, code).unwrap();
+        let script = v8::Script::compile(ctx_scope, code_str, None).expect("compile");
+        let result = script.run(ctx_scope).expect("run");
+        let out = result
+            .to_string(ctx_scope)
+            .unwrap()
+            .to_rust_string_lossy(ctx_scope);
+
+        assert_eq!(
+            out, "a=1&b=2",
+            "toString must serialize the params, not return empty"
+        );
+    }
 }

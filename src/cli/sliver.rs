@@ -1,6 +1,6 @@
 //! CLI Sliver Commands
 //!
-//! Provides subcommands for managing slivers (isolate snapshots):
+//! Provides subcommands for managing slivers (portable app bundles):
 //! - `create`: Create a new sliver from a running app or directory
 //! - `list`: List all slivers in the store
 //! - `delete`: Remove a sliver by name
@@ -24,7 +24,7 @@ pub enum SliverCommand {
 /// Arguments for the `sliver create` command
 #[derive(Debug, Args)]
 pub struct SliverCreateArgs {
-    /// Hostname of the app to snapshot (optional when using --from-dir)
+    /// Hostname of the app to bundle (optional when using --from-dir)
     pub hostname: Option<String>,
 
     /// Output file path for the sliver

@@ -16,13 +16,13 @@ pub struct IsolateInfo {
     pub hostname: String,
     /// Worker thread ID
     pub worker_id: u32,
-    /// When the isolate was created
+    /// When the isolate was created (from live worker telemetry).
     pub created_at: Instant,
-    /// Number of requests processed
+    /// Requests processed by this isolate (live).
     pub request_count: u64,
-    /// Current memory usage (if available)
+    /// Last-observed V8 used-heap bytes; `None` until the first request.
     pub memory_bytes: Option<usize>,
-    /// Whether the isolate is currently processing a request
+    /// Whether the isolate is currently processing a request (live).
     pub busy: bool,
     /// App-specific environment variables (keys only, for privacy)
     pub env_keys: Vec<String>,
@@ -191,11 +191,12 @@ impl SystemDiagnostics {
     }
 }
 
-/// Diagnostics collector for runtime state
+/// Diagnostics collector for runtime state.
+///
+/// Reads app configuration from the registry and live per-isolate stats from
+/// [`crate::worker::telemetry`], which the worker threads publish.
 pub struct DiagnosticsCollector {
     registry: Arc<RwLock<AppRegistry>>,
-    // In real implementation, this would track worker pools
-    // For now, we'll simulate with test data
 }
 
 impl DiagnosticsCollector {
@@ -204,44 +205,67 @@ impl DiagnosticsCollector {
         Self { registry }
     }
 
-    /// Collect current system diagnostics
+    /// Collect current system diagnostics.
+    ///
+    /// Per-isolate runtime stats (request count, busy, used heap, creation time)
+    /// come from live worker telemetry ([`crate::worker::telemetry`]); app-level
+    /// configuration (limits) comes from the registry. Isolates are created
+    /// lazily on first request, so an app with no traffic reports zero isolates.
     pub async fn collect(&self) -> SystemDiagnostics {
         let registry = self.registry.read().await;
-        let mut isolates = Vec::new();
-        let mut app_stats = Vec::new();
 
-        // Collect per-app information
+        // Real, live per-isolate stats published by the worker threads.
+        let mut isolates: Vec<IsolateInfo> = crate::worker::telemetry::snapshot()
+            .into_iter()
+            .map(|s| IsolateInfo {
+                hostname: s.hostname,
+                worker_id: s.worker_id,
+                created_at: s.created_at,
+                request_count: s.request_count,
+                memory_bytes: s.memory_bytes,
+                busy: s.busy,
+                env_keys: s.env_keys,
+            })
+            .collect();
+        // Stable ordering for a predictable ps-style listing.
+        isolates.sort_by(|a, b| {
+            a.hostname
+                .cmp(&b.hostname)
+                .then(a.worker_id.cmp(&b.worker_id))
+        });
+
+        // Per-app stats: aggregate the app's live isolates, plus configured limits.
+        let mut app_stats = Vec::new();
         for hostname in registry.all_hostnames() {
             if let Some(app_config) = registry.get(&hostname) {
-                // In real implementation, query worker pools here
-                // For test/demo, create simulated isolate info
-                let worker_count = app_config.limits.workers;
+                let app_isolates: Vec<&IsolateInfo> =
+                    isolates.iter().filter(|i| i.hostname == hostname).collect();
 
-                for worker_id in 0..worker_count {
-                    isolates.push(IsolateInfo {
-                        hostname: hostname.clone(),
-                        worker_id,
-                        created_at: Instant::now() - Duration::from_secs(60), // Simulated
-                        request_count: 42 + (worker_id as u64 * 10),          // Simulated
-                        memory_bytes: Some({
-                            let mb = app_config.limits.memory_mb;
-                            (mb as usize) * 1024 * 1024 / 4
-                        }),
-                        busy: worker_id % 2 == 0, // Simulated: alternating busy/idle
-                        env_keys: app_config.env_vars.keys().cloned().collect(),
-                    });
-                }
+                let total_requests: u64 = app_isolates.iter().map(|i| i.request_count).sum();
+
+                let mem_samples: Vec<usize> =
+                    app_isolates.iter().filter_map(|i| i.memory_bytes).collect();
+                let avg_memory_mb = if mem_samples.is_empty() {
+                    0.0
+                } else {
+                    (mem_samples.iter().sum::<usize>() as f64 / mem_samples.len() as f64)
+                        / (1024.0 * 1024.0)
+                };
+
+                // App uptime ≈ how long its oldest live isolate has existed.
+                let uptime = app_isolates
+                    .iter()
+                    .map(|i| i.created_at)
+                    .min()
+                    .map(|created| format_duration(created.elapsed()))
+                    .unwrap_or_else(|| "0s".to_string());
 
                 app_stats.push(AppStats {
                     hostname: hostname.clone(),
-                    worker_count,
-                    total_requests: isolates
-                        .iter()
-                        .filter(|i| i.hostname == hostname)
-                        .map(|i| i.request_count)
-                        .sum(),
-                    avg_memory_mb: app_config.limits.memory_mb as f64 * 0.25,
-                    uptime: format_duration(Duration::from_secs(60)),
+                    worker_count: app_config.limits.workers,
+                    total_requests,
+                    avg_memory_mb,
+                    uptime,
                     config: AppConfigSnapshot {
                         memory_limit_mb: app_config.limits.memory_mb,
                         timeout_secs: app_config.limits.timeout_secs,
@@ -298,14 +322,184 @@ mod tests {
 
     #[test]
     fn test_format_duration() {
-        assert_eq!(format_duration(Duration::from_secs(30)), "30s");
+        // Boundaries pin the `<` comparisons (59/60 and 3599/3600).
+        assert_eq!(format_duration(Duration::from_secs(0)), "0s");
+        assert_eq!(format_duration(Duration::from_secs(59)), "59s");
+        assert_eq!(format_duration(Duration::from_secs(60)), "1m 0s");
         assert_eq!(format_duration(Duration::from_secs(90)), "1m 30s");
+        assert_eq!(format_duration(Duration::from_secs(3599)), "59m 59s");
+        assert_eq!(format_duration(Duration::from_secs(3600)), "1h 0m");
         assert_eq!(format_duration(Duration::from_secs(3661)), "1h 1m");
     }
 
     #[test]
     fn test_truncate() {
         assert_eq!(truncate("short", 10), "short");
+        // Exactly max_len must NOT truncate — pins `>` vs `>=`.
+        assert_eq!(truncate("exactly10!", 10), "exactly10!");
         assert_eq!(truncate("very long string", 10), "very lo...");
+    }
+
+    #[test]
+    fn test_humantime_includes_timestamp() {
+        assert_eq!(humantime(1700000000), "1700000000s since epoch");
+    }
+
+    #[test]
+    fn test_isolate_uptime_formats_elapsed() {
+        let info = IsolateInfo {
+            hostname: "h".to_string(),
+            worker_id: 0,
+            created_at: Instant::now() - Duration::from_secs(65),
+            request_count: 0,
+            memory_bytes: None,
+            busy: false,
+            env_keys: vec![],
+        };
+        // ~65s elapsed → "1m Xs"; pins uptime() delegating to format_duration.
+        assert!(
+            info.uptime().starts_with("1m"),
+            "uptime was {}",
+            info.uptime()
+        );
+    }
+
+    fn sample_diagnostics() -> SystemDiagnostics {
+        SystemDiagnostics {
+            timestamp: Instant::now(),
+            isolates: vec![IsolateInfo {
+                hostname: "api.example.com".to_string(),
+                worker_id: 3,
+                created_at: Instant::now(),
+                request_count: 128,
+                memory_bytes: Some(45 * 1024 * 1024),
+                busy: true,
+                env_keys: vec!["API_KEY".to_string()],
+            }],
+            app_stats: vec![AppStats {
+                hostname: "api.example.com".to_string(),
+                worker_count: 2,
+                total_requests: 128,
+                avg_memory_mb: 45.0,
+                uptime: "5m 0s".to_string(),
+                config: AppConfigSnapshot {
+                    memory_limit_mb: 256,
+                    timeout_secs: 30,
+                    workers: 2,
+                },
+            }],
+            total_isolates: 1,
+            total_requests: 128,
+        }
+    }
+
+    #[test]
+    fn format_ps_contains_real_fields() {
+        let out = sample_diagnostics().format_ps();
+        // The ps-style output must carry the real values, not empties.
+        assert!(out.contains("api.example.com"), "hostname: {out}");
+        assert!(out.contains("128"), "request count present");
+        assert!(out.contains("BUSY"), "busy status rendered");
+        assert!(out.contains("Total isolates: 1"), "summary line");
+        assert!(out.contains("45.0MB"), "real memory rendered");
+        assert!(out.contains("1 vars"), "env-var count rendered");
+    }
+
+    #[test]
+    fn format_json_has_real_values() {
+        let out = sample_diagnostics().format_json();
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        assert_eq!(v["total_isolates"], 1);
+        assert_eq!(v["total_requests"], 128);
+        assert_eq!(v["app_count"], 1);
+        assert_eq!(v["apps"][0]["hostname"], "api.example.com");
+        assert_eq!(v["apps"][0]["total_requests"], 128);
+        assert_eq!(v["apps"][0]["memory_limit_mb"], 256);
+    }
+
+    /// The collector must surface real live telemetry (not fabricated data) and
+    /// aggregate it per app.
+    #[tokio::test]
+    async fn collect_reflects_live_telemetry() {
+        use crate::app::registry::AppRegistry;
+        use crate::config::{AppConfig, AppLimits};
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        // Unique hostname so this test is isolated from any other live entries.
+        let hostname = format!("diag-test-{}.local", std::process::id());
+
+        let mut apps = HashMap::new();
+        apps.insert(
+            hostname.clone(),
+            AppConfig {
+                hostname: hostname.clone(),
+                entrypoint: "./app.js".to_string(),
+                sliver: None,
+                env_vars: HashMap::new(),
+                limits: AppLimits::default(),
+                vfs_backend: Default::default(),
+                vfs_disk: None,
+                vfs_s3: None,
+            },
+        );
+        let registry = Arc::new(RwLock::new(AppRegistry::new(apps)));
+        let collector = DiagnosticsCollector::new(registry);
+
+        // No live isolates yet → app present but zero isolates.
+        let before = collector.collect().await;
+        assert_eq!(
+            before
+                .isolates
+                .iter()
+                .filter(|i| i.hostname == hostname)
+                .count(),
+            0,
+            "no isolates before any worker registers"
+        );
+
+        // Register two live isolates and record traffic.
+        let id0 = format!("iso_{}_0", std::process::id());
+        let id1 = format!("iso_{}_1", std::process::id());
+        let _g0 =
+            crate::worker::telemetry::register_isolate(id0.clone(), hostname.clone(), 0, vec![]);
+        let _g1 =
+            crate::worker::telemetry::register_isolate(id1.clone(), hostname.clone(), 1, vec![]);
+        crate::worker::telemetry::record_request(&id0, 4 * 1024 * 1024);
+        crate::worker::telemetry::record_request(&id0, 4 * 1024 * 1024);
+        crate::worker::telemetry::record_request(&id1, 8 * 1024 * 1024);
+        crate::worker::telemetry::mark_busy(&id1, true);
+
+        let after = collector.collect().await;
+        let mine: Vec<_> = after
+            .isolates
+            .iter()
+            .filter(|i| i.hostname == hostname)
+            .collect();
+        assert_eq!(mine.len(), 2, "two live isolates surfaced");
+        assert_eq!(
+            mine.iter().map(|i| i.request_count).sum::<u64>(),
+            3,
+            "real aggregated request count"
+        );
+        assert!(mine.iter().any(|i| i.busy), "busy flag reflected");
+        assert!(
+            mine.iter().all(|i| i.memory_bytes.is_some()),
+            "real memory recorded"
+        );
+
+        let app = after
+            .app_stats
+            .iter()
+            .find(|a| a.hostname == hostname)
+            .expect("app stats present");
+        assert_eq!(app.total_requests, 3);
+        // id0=4 MiB, id1=8 MiB → mean 6.0 MiB. Exact value pins the averaging
+        // arithmetic (sum/len then /1MiB), not just "> 0".
+        assert_eq!(
+            app.avg_memory_mb, 6.0,
+            "avg memory = mean of live samples in MiB"
+        );
     }
 }

@@ -47,7 +47,7 @@ use crate::admin::auth::{api_key_middleware, AdminAuth};
 use crate::admin::handlers::{
     activate_app, app_metrics_handler, create_app, delete_app, disable_app, drain_app, enable_app,
     get_app, health_handler, list_apps, list_isolates, metrics_summary, prometheus_metrics_handler,
-    ready_handler, reload_app, scale_app, tenant_metrics_json, update_app,
+    ready_handler_with_state, reload_app, scale_app, tenant_metrics_json, update_app,
 };
 use crate::app::registry::AppRegistry;
 use crate::http::router::VirtualHostRouter;
@@ -299,16 +299,19 @@ impl AdminStateAxum {
 /// let config = AdminConfig::new("my-secret-key");
 /// let auth = Arc::new(AdminAuth::new(config.api_key));
 /// let registry = Arc::new(RwLock::new(AppRegistry::default()));
-/// let state = AdminState::new(registry);
+/// let http_router = Arc::new(RwLock::new(nano::http::router::VirtualHostRouter::default()));
+/// let state = AdminState::new(registry, http_router);
 /// let router = create_admin_router(auth, state);
 /// ```
 pub fn create_admin_router(auth: Arc<AdminAuth>, state: AdminState) -> Router {
     let state_axum = Arc::new(AdminStateAxum::new(state));
 
-    // Public routes - no authentication required
+    // Public routes - no authentication required. `/admin/ready` is stateful so
+    // it reflects the real shutdown state for load-balancer drain.
     let public_routes = Router::new()
         .route("/admin/health", get(health_handler))
-        .route("/admin/ready", get(ready_handler));
+        .route("/admin/ready", get(ready_handler_stateful))
+        .with_state(state_axum.clone());
 
     // Protected routes - API key authentication required
     let protected_routes = Router::new()
@@ -356,6 +359,14 @@ pub fn create_admin_router(auth: Arc<AdminAuth>, state: AdminState) -> Router {
 
 // Handler functions that work with axum's State extraction
 
+/// Readiness probe that reflects the real shutdown state so load balancers can
+/// drain traffic before shutdown. Returns 503 once `mark_shutting_down()` fires.
+async fn ready_handler_stateful(
+    State(state): State<Arc<AdminStateAxum>>,
+) -> impl axum::response::IntoResponse {
+    ready_handler_with_state(state.inner.is_shutting_down()).await
+}
+
 async fn list_isolates_handler(
     State(state): State<Arc<AdminStateAxum>>,
 ) -> impl axum::response::IntoResponse {
@@ -381,7 +392,7 @@ async fn get_app_handler(
 ) -> impl axum::response::IntoResponse {
     get_app(
         axum::extract::Path(hostname),
-        axum::extract::State(state.inner.http_router.clone()),
+        axum::extract::State(state.inner.registry.clone()),
     )
     .await
 }
@@ -513,7 +524,8 @@ async fn metrics_summary_handler() -> impl axum::response::IntoResponse {
 /// # async fn example() {
 /// let config = AdminConfig::new("my-secret-key");
 /// let registry = Arc::new(RwLock::new(AppRegistry::default()));
-/// let state = AdminState::new(registry);
+/// let http_router = Arc::new(RwLock::new(nano::http::router::VirtualHostRouter::default()));
+/// let state = AdminState::new(registry, http_router);
 /// let server = start_admin_server(config, state).await.unwrap();
 /// # }
 /// ```
@@ -631,16 +643,58 @@ mod tests {
         assert!(state.is_shutting_down());
     }
 
-    #[test]
-    fn test_create_admin_router() {
+    #[tokio::test]
+    async fn test_create_admin_router_serves_public_health() {
+        use tower::ServiceExt; // oneshot
+
         let auth = Arc::new(AdminAuth::new("test-key"));
         let registry = Arc::new(RwLock::new(AppRegistry::default()));
         let router = Arc::new(RwLock::new(VirtualHostRouter::default()));
         let state = AdminState::new(registry, router);
-        let _router = create_admin_router(auth, state);
+        let app = create_admin_router(auth, state);
 
-        // Router should be created without panicking
-        assert!(true);
+        // The public /admin/health route must be reachable without an API key.
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/admin/health")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_ready_route_reflects_shutdown_state() {
+        use std::sync::atomic::Ordering;
+        use tower::ServiceExt; // oneshot
+
+        let auth = Arc::new(AdminAuth::new("test-key"));
+        let registry = Arc::new(RwLock::new(AppRegistry::default()));
+        let router = Arc::new(RwLock::new(VirtualHostRouter::default()));
+        let state = AdminState::new(registry, router);
+        let shutting_down = state.shutting_down.clone();
+        let app = create_admin_router(auth, state);
+
+        let make_req = || {
+            axum::http::Request::builder()
+                .uri("/admin/ready")
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+
+        // Before shutdown: ready → 200.
+        let resp = app.clone().oneshot(make_req()).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+
+        // After marking shutdown: readiness must flip to 503 so load balancers
+        // drain traffic. (The previous stub hardcoded ready:true and failed this.)
+        shutting_down.store(true, Ordering::SeqCst);
+        let resp = app.oneshot(make_req()).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]

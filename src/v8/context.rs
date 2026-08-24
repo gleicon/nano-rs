@@ -18,7 +18,7 @@
 /// Create a new V8 context within a HandleScope
 ///
 /// This function creates a context with default global template.
-/// In v147+, you must use the pin!() + init() pattern to create scopes.
+/// In v150+, you must use the pin!() + init() pattern to create scopes.
 ///
 /// # Example
 /// ```rust,ignore
@@ -36,7 +36,7 @@ pub fn create_context<'s>(
     scope: &v8::PinnedRef<'s, v8::HandleScope<'s, ()>>,
 ) -> v8::Local<'s, v8::Context> {
     // Create context with default global template
-    // v147 API: Context::new takes &PinnedRef
+    // v150 API: Context::new takes &PinnedRef
     v8::Context::new(scope, Default::default())
 }
 

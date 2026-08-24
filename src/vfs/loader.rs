@@ -35,14 +35,13 @@ use tokio::fs;
 /// # Examples
 ///
 /// ```rust,no_run
-/// use nano::vfs::{IsolateVfs, VfsNamespace, MemoryBackend};
+/// use nano::vfs::{IsolateVfs, VfsNamespace, MemoryBackend, VfsBackendEnum};
 /// use nano::vfs::loader::load_directory_to_vfs;
-/// use std::sync::Arc;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let vfs = IsolateVfs::new(
 ///     VfsNamespace::from_hostname("example.com"),
-///     crate::vfs::VfsBackendEnum::memory(MemoryBackend::default())
+///     VfsBackendEnum::memory(MemoryBackend::default())
 /// );
 ///
 /// let count = load_directory_to_vfs(&vfs, "./dist", "/dist").await?;

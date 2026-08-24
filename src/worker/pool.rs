@@ -259,7 +259,9 @@ impl WorkerHandle {
     pub fn send(&self, task: HandlerTask) -> Result<()> {
         self.task_tx.try_send(task).map_err(|e| match e {
             mpsc::TrySendError::Full(_) => anyhow::Error::new(WorkerSendError::Full),
-            mpsc::TrySendError::Disconnected(_) => anyhow::Error::new(WorkerSendError::Disconnected),
+            mpsc::TrySendError::Disconnected(_) => {
+                anyhow::Error::new(WorkerSendError::Disconnected)
+            }
         })
     }
 
@@ -284,8 +286,6 @@ pub struct WorkerPool {
     next_worker: AtomicU32,
     pub(crate) vfs_backend: crate::vfs::VfsBackendEnum,
     memory_limit_mb: u32,
-    #[allow(dead_code)]
-    env_vars: std::collections::HashMap<String, String>,
 }
 
 impl std::fmt::Debug for WorkerPool {
@@ -514,9 +514,8 @@ impl WorkerPool {
             let worker_vfs_backend = vfs_backend_for_workers.clone();
             let worker_source = source_for_workers.clone();
             let worker_env_vars = env_vars_for_workers.clone();
-            let (task_tx, task_rx) = mpsc::sync_channel::<HandlerTask>(
-                QUEUE_DEPTH_PER_WORKER.load(Ordering::Relaxed),
-            );
+            let (task_tx, task_rx) =
+                mpsc::sync_channel::<HandlerTask>(QUEUE_DEPTH_PER_WORKER.load(Ordering::Relaxed));
 
             // Spawn unified worker thread with persistent V8 scope lifecycle.
             let thread = thread::spawn(move || {
@@ -667,6 +666,17 @@ impl WorkerPool {
 
                         let mut served: u32 = 0;
                         let isolate_id = format!("{}:{}", worker_hostname, id);
+
+                        // Publish this isolate to the live-telemetry registry the admin
+                        // plane (`GET /admin/isolates`) reads. The guard deregisters on
+                        // drop — i.e. when this isolate is recycled or the worker exits —
+                        // so the registry only ever reflects live isolates.
+                        let _telemetry_guard = crate::worker::telemetry::register_isolate(
+                            isolate_id.clone(),
+                            worker_hostname.clone(),
+                            id,
+                            worker_env_vars.keys().cloned().collect(),
+                        );
 
                         'requests: loop {
                             if served >= MAX_REQUESTS_PER_ISOLATE {
@@ -1318,6 +1328,14 @@ impl WorkerPool {
                             });
                             let _ = task.response_tx.send(result);
                             served += 1;
+
+                            // Publish live stats: bump the request count and record the
+                            // real V8 used-heap for this isolate so the admin plane shows
+                            // measured memory, not an estimate.
+                            // SAFETY: iso_ptr is valid for the duration of this scope block.
+                            let used_heap =
+                                unsafe { (*iso_ptr).get_heap_statistics().used_heap_size() };
+                            crate::worker::telemetry::record_request(&isolate_id, used_heap);
                         }
                         // ctx_scope + scope drop here
                     }
@@ -1343,7 +1361,6 @@ impl WorkerPool {
             next_worker: AtomicU32::new(0),
             vfs_backend,
             memory_limit_mb,
-            env_vars,
         }
     }
 }

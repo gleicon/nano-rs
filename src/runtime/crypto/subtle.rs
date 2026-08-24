@@ -79,6 +79,9 @@ impl SubtleCrypto {
                     usages,
                 )
             }
+            AlgorithmIdentifier::Pbkdf2 => Err(CryptoError::InvalidAlgorithm(
+                "PBKDF2 keys cannot be generated; import raw key material instead".to_string(),
+            )),
         }
     }
 
@@ -148,6 +151,14 @@ impl SubtleCrypto {
                 extractable,
                 usages,
             ),
+            AlgorithmIdentifier::Pbkdf2 => Ok(CryptoKey::new(
+                crate::runtime::crypto::CryptoKeyHandle::Pbkdf2Key(
+                    key_data.to_vec().into_boxed_slice(),
+                ),
+                AlgorithmIdentifier::Pbkdf2,
+                extractable,
+                usages,
+            )),
         }
     }
 

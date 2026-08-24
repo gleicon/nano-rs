@@ -17,8 +17,10 @@ use crate::worker::HandlerTask;
 /// State for sliver-based request handling
 #[derive(Clone)]
 pub struct SliverHandlerState {
-    /// The worker pool containing snapshot-restored isolates
-    pub worker_pool: std::sync::Arc<crate::worker::SliverWorkerPool>,
+    /// Hot-swappable holder for the sliver worker pool. Each request reads the
+    /// pool currently in effect, so a blue-green swap repoints traffic with no
+    /// change to this state or the hostname.
+    pub pool_slot: std::sync::Arc<crate::worker::SliverPoolSlot>,
     /// The JS entrypoint (e.g., "index.js" or "app.js")
     pub entrypoint: String,
 }
@@ -37,6 +39,11 @@ pub async fn sliver_js_handler(
 ) -> Response<Body> {
     let start = std::time::Instant::now();
 
+    // Snapshot the pool in effect for this request. A concurrent hot-swap only
+    // affects requests that read the slot after it — this one runs to completion
+    // on the pool it captured here.
+    let pool = state.pool_slot.current();
+
     // Extract request components
     let method = request.method().clone();
     let uri = request.uri().clone();
@@ -52,7 +59,7 @@ pub async fn sliver_js_handler(
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
     // Create request span for distributed tracing
-    let span = create_request_span(&state.worker_pool.hostname, &request_id);
+    let span = create_request_span(&pool.hostname, &request_id);
     let _enter = span.enter();
 
     tracing::debug!(
@@ -93,12 +100,12 @@ pub async fn sliver_js_handler(
         state.entrypoint.clone(),
         nano_request,
         tx,
-        state.worker_pool.hostname.clone(),
+        pool.hostname.clone(),
     )
     .with_request_id(request_id.clone());
 
-    // Dispatch to worker pool
-    if let Err(e) = state.worker_pool.dispatch(task) {
+    // Dispatch to the pool currently in effect
+    if let Err(e) = pool.dispatch(task) {
         tracing::error!("Failed to dispatch to worker pool: {}", e);
         return Response::builder()
             .status(StatusCode::SERVICE_UNAVAILABLE)

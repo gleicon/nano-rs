@@ -3,6 +3,29 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-08-24
+
+### Added
+
+- **Zero-downtime sliver hot-swap** (`worker/sliver_pool.rs`, `main.rs`) — A running sliver app can be replaced in place without changing its hostname. `SliverPoolSlot` holds the app's worker pool behind a swappable slot; `hotswap`/`hotswap_and_drain` build a fresh, fully-warm pool from a new bundle, atomically repoint traffic to it, and drain the old pool (in-flight requests finish, then its workers exit). Sliver mode wires this to `SIGHUP`: the process re-reads the sliver file and blue-green-swaps it. A failed reload keeps the current version serving. See `examples/hotswap/` and `docs/SLIVER_WORKFLOW.md`.
+- **Heap-snapshot create/restore primitives** (`v8/snapshot.rs`) — `create_snapshot_from_nano` serializes a `snapshot_creator` isolate's heap into a loadable blob; `create_isolate_from_snapshot` + `NanoIsolate::from_v8_isolate` restore it. Verified end to end on the v8 150 crate. Serving cold starts from a baked heap blob is not yet wired (it needs an external-reference table for native APIs — see `docs/ROADMAP.md`); the previous bailing stub is gone.
+
+### Fixed
+
+- **Live per-isolate telemetry was never published from the serving path** (`worker/pool.rs`) — `register_isolate`/`record_request` were only called in tests, so `GET /admin/isolates` was always empty and its coverage test could not pass. The worker loop now registers each isolate for its lifetime and records the real V8 used-heap and request count after every served request.
+- **Broken e2e readiness probe** (`tests/common.rs`) — The harness used `GET /` as a readiness check, which executes the app handler; for a heavy handler (e.g. an adversarial memory bomb) it never returned within the probe timeout, making a healthy server look unready. Readiness is now a TCP-connect probe. This resolved three memory tests that had been marked `#[ignore]`.
+- **`WebAssembly.Instance` constructed via `.call()`** (`tests/wasm_binary_debug_test.rs`) — The native-WASM path test invoked the `Instance` constructor as a plain function, which V8 rejects; switched to `new_instance()`. The full native path (compile → instantiate → call `add(5,3)`) now passes and is no longer ignored.
+- **Flaky `SO_REUSEADDR` test** (`http/server.rs`) — Bound the fixed default port, which could already be held; now uses an OS-assigned ephemeral port. Deterministic across 10/10 runs.
+
+### Changed
+
+- **Documentation honesty pass** — Removed fabricated performance claims (`~267µs` sliver restore, `187x`, "sub-millisecond cold starts", invented benchmark tables and hardware) from the README, website, and docs. Slivers are documented as what they are: tar bundles of `meta.json` + `vfs/` + optional precompiled `bytecode.v8bc`, with no heap snapshot. Deleted `docs/AUTO_SLIVER_ARCHITECTURE.md` (described an auto-snapshot feature that does not exist). Corrected the `nano sliver pack` → `nano sliver create` command drift and stale `v8-crate: 147.4.0` → `150.4.0` (including the user-facing `--version` string). Marked the sliver-format ADR superseded.
+- **Removed the deleted `WASM Sliver Support` feature claim** and dead `NanoIsolate::from_snapshot` (its magic-number check rejected every real blob) and the unused `WorkerPool.env_vars` field.
+
+### Verified
+
+- **S3 VFS backend** (`vfs/s3.rs`) — Exercised against a live MinIO container (write/exists/read/delete round-trip). The test now provisions its own bucket, so `cargo test --features vfs-s3 -- --ignored` works out of the box given a MinIO endpoint. Kept `#[ignore]` (needs external infra), with a verified justification.
+
 ## [2.6.0] - 2026-08-20
 
 ### Added

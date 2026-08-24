@@ -10,7 +10,7 @@ mod cli;
 #[derive(Debug, Parser)]
 #[command(name = "nano-rs")]
 #[command(about = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)")]
-#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (v8-crate: 147.4.0)"))]
+#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (v8-crate: 150.4.0)"))]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -44,7 +44,7 @@ enum Commands {
         hostname: Option<String>,
     },
 
-    /// Sliver management commands (snapshot creation and management)
+    /// Sliver management commands (create, list, and delete app bundles)
     #[command(subcommand)]
     Sliver(cli::SliverCommand),
 
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
             v8::V8::initialize();
 
             let v8_engine_version = v8::V8::get_version();
-            let v8_crate_version = "147.4.0"; // From Cargo.lock
+            let v8_crate_version = "150.4.0"; // From Cargo.lock
             let app_version = env!("CARGO_PKG_VERSION");
 
             println!(
@@ -145,7 +145,8 @@ async fn run_server() -> Result<()> {
     let unix_socket_path = std::env::var("NANO_ADMIN_UNIX_SOCKET").ok();
 
     let admin_handle = if !admin_api_key.is_empty() {
-        let admin_config = nano::admin::server::AdminConfig::new(admin_api_key).with_host(admin_host);
+        let admin_config =
+            nano::admin::server::AdminConfig::new(admin_api_key).with_host(admin_host);
         let admin_state =
             nano::admin::server::AdminState::new(registry.clone(), shared_router.clone());
 
@@ -299,18 +300,54 @@ async fn run_from_sliver(
     let _registry = Arc::new(RwLock::new(registry));
     tracing::info!("Sliver hostname: '{}' (expected in Host header)", hostname);
 
-    let worker_pool = Arc::new(nano::worker::pool::SliverWorkerPool::new(
-        hostname.clone(),
-        workers as u32,
-        0,
-        unpacked,
-    ));
+    let pool_slot =
+        nano::worker::SliverPoolSlot::new(hostname.clone(), workers as u32, 0, unpacked);
 
     tracing::info!(
-        "Created SliverWorkerPool with {} workers for {}",
+        "Created SliverPoolSlot with {} workers for {}",
         workers,
         hostname
     );
+
+    // Hot-swap on SIGHUP: re-read the sliver file and blue-green swap in a fresh,
+    // warm pool without changing the hostname. In-flight requests finish on the
+    // old pool; new requests route to the new one; the old pool drains and exits.
+    #[cfg(unix)]
+    {
+        let slot = Arc::clone(&pool_slot);
+        let reload_path = sliver_path.clone();
+        tokio::spawn(async move {
+            let mut hup =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("SIGHUP hot-reload unavailable: {}", e);
+                        return;
+                    }
+                };
+            while hup.recv().await.is_some() {
+                tracing::info!(
+                    "SIGHUP received — reloading sliver from {}",
+                    reload_path.display()
+                );
+                match std::fs::read(&reload_path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|bytes| {
+                        nano::sliver::unpack_sliver(&bytes).map_err(|e| e.to_string())
+                    }) {
+                    Ok(unpacked) => {
+                        slot.hotswap_and_drain(unpacked, std::time::Duration::from_secs(30));
+                        tracing::info!("Sliver hot-swapped; previous pool draining (30s)");
+                        println!("  Hot-swapped sliver from {}", reload_path.display());
+                    }
+                    Err(e) => {
+                        tracing::error!("SIGHUP reload failed, keeping current pool: {}", e);
+                        println!("  Hot-reload failed (kept current version): {}", e);
+                    }
+                }
+            }
+        });
+    }
 
     // Set up graceful shutdown
     let drain = nano::app::drain::RequestDrain::new();
@@ -360,10 +397,10 @@ async fn run_from_sliver(
     // Subscribe to shutdown signal for the server
     let mut server_shutdown_rx = shutdown.subscribe();
     // Clone the Arc for the server task - we'll keep one reference for shutdown
-    let worker_pool_clone = Arc::clone(&worker_pool);
+    let pool_slot_clone = Arc::clone(&pool_slot);
     let server_handle = tokio::spawn(async move {
         nano::http::start_server_with_sliver_pool(
-            worker_pool_clone,
+            pool_slot_clone,
             js_entrypoint,
             config,
             async move {
@@ -405,20 +442,11 @@ async fn run_from_sliver(
         }
     }
 
-    // Shut down worker pool
-    // At this point, the server_handle has completed, so we should be the only
-    // Arc holder. Try to unwrap and shut down explicitly.
-    tracing::info!("Shutting down SliverWorkerPool...");
-    match Arc::try_unwrap(worker_pool) {
-        Ok(pool) => {
-            if let Err(e) = pool.shutdown() {
-                tracing::error!("Failed to shutdown worker pool: {}", e);
-            }
-        }
-        Err(_) => {
-            tracing::warn!("Worker pool still has references, Drop will handle cleanup");
-        }
-    }
+    // Shut down the sliver pool. The server has stopped, so dropping the slot
+    // drops the current pool's task senders and its workers exit after finishing
+    // any in-flight work. (A SIGHUP-retired pool, if any, drains on its own task.)
+    tracing::info!("Shutting down sliver pool...");
+    drop(pool_slot);
 
     println!("  Server stopped.");
     println!();
@@ -454,9 +482,7 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     tracing::info!("Loaded configuration with {} app(s)", config.apps.len());
 
     // Apply security settings before any worker threads are created.
-    nano::runtime::fetch::set_dns_rebinding_protection(
-        config.server.dns_rebinding_protection,
-    );
+    nano::runtime::fetch::set_dns_rebinding_protection(config.server.dns_rebinding_protection);
     if !config.server.dns_rebinding_protection {
         tracing::warn!(
             "DNS rebinding protection DISABLED — tenant JS can reach internal network \

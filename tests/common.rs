@@ -163,12 +163,13 @@ impl NanoProcess {
         // Find binary
         let nano_path = nano_binary_path();
 
+        let stdout_log = fs::File::create(temp_dir.join("server.stdout")).unwrap();
         let child = Command::new(&nano_path)
             .arg("run")
             .arg("--config")
             .arg(temp_dir.join("config.json"))
             .current_dir(&temp_dir)
-            .stdout(Stdio::null())
+            .stdout(Stdio::from(stdout_log))
             .stderr(Stdio::piped())
             .spawn()
             .expect("Failed to spawn NANO");
@@ -182,23 +183,23 @@ impl NanoProcess {
         )
     }
 
-    /// Wait for server to be ready
-    pub async fn wait_ready(&mut self, port: u16, hostname: &str) {
+    /// Wait for the server to accept connections.
+    ///
+    /// Readiness is a TCP-connect probe, not an HTTP `GET /`. The data port hosts
+    /// arbitrary user code, so an HTTP probe would *execute the app handler* — for a
+    /// heavy workload (e.g. an adversarial memory bomb) that never returns within a
+    /// probe timeout, making a healthy server look unready. A successful TCP connect
+    /// proves the listener is bound, which is exactly the readiness invariant.
+    pub async fn wait_ready(&mut self, port: u16, _hostname: &str) {
         // Initial V8 startup delay
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        let client = reqwest::Client::new();
         let start = Instant::now();
         let max_wait = Duration::from_secs(30);
+        let addr = format!("127.0.0.1:{}", port);
 
         while start.elapsed() < max_wait {
-            match client
-                .get(format!("http://127.0.0.1:{}/", port))
-                .header("Host", hostname)
-                .timeout(Duration::from_secs(2))
-                .send()
-                .await
-            {
+            match tokio::net::TcpStream::connect(&addr).await {
                 Ok(_) => return,
                 Err(_) => {
                     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -214,7 +215,11 @@ impl NanoProcess {
             let _ = err.read_to_end(&mut buf);
             stderr = String::from_utf8_lossy(&buf).to_string();
         }
-        eprintln!("=== NANO STDERR ===\n{}\n===================", stderr);
+        let stdout = fs::read_to_string(self.temp_dir.join("server.stdout")).unwrap_or_default();
+        eprintln!(
+            "=== NANO STDOUT ===\n{}\n=== NANO STDERR ===\n{}\n===================",
+            stdout, stderr
+        );
         self.stop();
         panic!("Server failed to start on port {} within 15 seconds", port);
     }

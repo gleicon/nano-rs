@@ -60,49 +60,6 @@ pub async fn health_handler() -> (StatusCode, Json<HealthResponse>) {
     )
 }
 
-/// Admin readiness check handler (readiness probe)
-///
-/// Returns HTTP 200 if the admin API is ready to accept traffic,
-/// or HTTP 503 if the server is shutting down.
-/// Used by load balancers to stop sending traffic before shutdown.
-///
-/// # Note
-///
-/// This is a simplified version that always returns ready.
-/// In production, you'd integrate with the shutdown state.
-///
-/// # Returns
-///
-/// JSON response indicating readiness status.
-///
-/// # Example
-///
-/// ```text
-/// GET /admin/ready
-///
-/// Response (ready):
-/// {
-///   "ready": true,
-///   "message": "Admin API is ready"
-/// }
-///
-/// Response (not ready):
-/// {
-///   "ready": false,
-///   "message": "Server is shutting down"
-/// }
-/// ```
-pub async fn ready_handler() -> (StatusCode, Json<ReadyResponse>) {
-    tracing::debug!("Admin readiness check received");
-    (
-        StatusCode::OK,
-        Json(ReadyResponse {
-            ready: true,
-            message: "Admin API is ready".to_string(),
-        }),
-    )
-}
-
 /// Health handler with shutdown state awareness
 ///
 /// Extended version that checks the shutdown state to return
@@ -151,14 +108,6 @@ mod tests {
         assert_eq!(json.status, "healthy");
         assert_eq!(json.service, "nano-admin");
         assert!(!json.version.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_ready_handler() {
-        let (status, json) = ready_handler().await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(json.ready);
-        assert_eq!(json.message, "Admin API is ready");
     }
 
     #[tokio::test]

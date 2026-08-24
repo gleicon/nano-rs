@@ -453,3 +453,49 @@ fn test_write_read_binary() {
     let content = rt.block_on(async { vfs.read("/binary.bin").await.unwrap() });
     assert_eq!(content, vec![0u8, 1u8, 255u8, 128u8]);
 }
+
+/// Verify the `events` polyfill: require('events').EventEmitter with on/emit/once/off.
+/// This capability is advertised (README, website) but was previously untested.
+#[test]
+fn test_require_events_emitter() {
+    init_platform();
+
+    let vfs = Arc::new(IsolateVfs::new(
+        VfsNamespace::from_hostname("test.example.com"),
+        VfsBackendEnum::Memory(Arc::new(MemoryBackend::default())),
+    ));
+    set_current_vfs(Some(vfs));
+
+    let mut isolate = v8::Isolate::new(Default::default());
+    let storage = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let mut handle_scope = storage.init();
+    let context = v8::Context::new(&handle_scope, Default::default());
+    let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
+
+    nano::runtime::fs_polyfill::bind_fs_polyfill(scope, context);
+
+    // Exercise on/emit, once (fires once), and off (removes listener).
+    let code = v8::String::new(
+        scope,
+        r#"
+        const { EventEmitter } = require('events');
+        const e = new EventEmitter();
+        let calls = 0, onceCalls = 0;
+        const h = (n) => { calls += n; };
+        e.on('tick', h);
+        e.once('tick', () => { onceCalls += 1; });
+        e.emit('tick', 2);   // on(+2), once(+1)
+        e.emit('tick', 3);   // on(+3), once already removed
+        e.off('tick', h);
+        e.emit('tick', 10);  // nothing
+        `on=${calls},once=${onceCalls}`
+        "#,
+    )
+    .unwrap();
+    let script = v8::Script::compile(scope, code, None).expect("compile");
+    let result = script.run(scope).expect("run");
+    let out = result.to_string(scope).unwrap().to_rust_string_lossy(scope);
+
+    // on handler saw 2 then 3 (=5); once handler fired exactly once; off stopped further calls.
+    assert_eq!(out, "on=5,once=1", "EventEmitter on/once/off semantics");
+}

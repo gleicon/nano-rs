@@ -43,7 +43,7 @@
             <!-- Overview -->
             <section class="mb-12">
                 <h2 class="text-2xl font-semibold text-white mb-4">Overview</h2>
-                <p class="text-slate-400 mb-4">The NANO CLI provides commands for running the server, managing applications, and creating sliver snapshots.</p>
+                <p class="text-slate-400 mb-4">The NANO CLI provides commands for running the server, managing applications, and creating sliver bundles.</p>
                 
                 <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
                     <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Usage</div>
@@ -53,7 +53,7 @@
 Commands:
   run     Run the NANO server
   app     Application management
-  sliver  Sliver snapshot management
+  sliver  Sliver bundle management (create, list, delete)
   help    Print this message or help for given subcommand(s)
 
 Options:
@@ -125,15 +125,14 @@ nano-rs app deploy --sliver my-app-v1.0 --name my-app</pre>
             <!-- Sliver Commands -->
             <section class="mb-12">
                 <h2 class="text-2xl font-semibold text-white mb-4">nano-rs sliver</h2>
-                <p class="text-slate-400 mb-4">Manage sliver snapshots for fast cold starts.</p>
-                
+                <p class="text-slate-400 mb-4">Create, list, and delete portable app bundles.</p>
+
                 <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
                     <div class="bg-slate-800 px-4 py-2 text-xs text-slate-400 font-mono">Subcommands</div>
                     <div class="p-4">
-                        <pre class="text-sm text-slate-300">sliver create    Create a sliver snapshot
-sliver list      List all slivers
-sliver info      Show sliver details
-sliver delete    Delete a sliver</pre>
+                        <pre class="text-sm text-slate-300">sliver create --from-dir &lt;dir&gt;    Bundle a directory into a sliver
+sliver list                       List all slivers
+sliver delete &lt;name&gt;              Delete a sliver</pre>
                     </div>
                 </div>
                 

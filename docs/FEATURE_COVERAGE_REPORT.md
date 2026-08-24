@@ -1,7 +1,7 @@
 # NANO-rs Feature Coverage Report
 
 **Date:** 2026-05-06  
-**Version:** v1.5.0 + V8 v147 migration  
+**Version:** v1.5.0 + V8 v150 migration  
 **Library Tests:** 633/633 passing ✅  
 **Integration Tests:** Core tests passing
 
@@ -11,7 +11,7 @@
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| V8 Isolate Management | ✅ | V8 v147 API fully migrated |
+| V8 Isolate Management | ✅ | V8 v150 API fully migrated |
 | HTTP Server Core | ✅ | axum with virtual host routing |
 | Runtime APIs | ✅ | Console, encoding, timers, basic crypto |
 | WorkerPool & Dispatch | ✅ | Multi-threading with context reset |
@@ -57,7 +57,7 @@
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| V8 v147 Migration | ✅ | All scope lifetime issues resolved |
+| V8 v150 Migration | ✅ | All scope lifetime issues resolved |
 | Callback API Updates | ✅ | All V8 callback signatures updated |
 | Test Count Verification | ✅ | 633 library tests (not inflated) |
 | VFS Loader Test Isolation | ✅ | Fixed temp directory cleanup |
@@ -98,7 +98,7 @@
 - ✅ WebAssembly.Module / WebAssembly.Instance constructors
 - ✅ Exported function calls from WASM
 
-**Implementation:** Uses V8's built-in WebAssembly support via `v8 = "147"` crate.
+**Implementation:** Uses V8's built-in WebAssembly support via the `v8 = "150"` crate.
 
 **Native Rust API:**
 - ⚠️ `v8::WasmModuleObject::compile()` - May return `None` in some V8 builds

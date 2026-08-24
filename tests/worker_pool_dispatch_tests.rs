@@ -5,7 +5,7 @@
 
 use nano::http::{NanoHeaders, NanoRequest, NanoUrl};
 use nano::sliver::{pack_sliver, SliverMetadata, UnpackedSliver};
-use nano::vfs::VfsNamespace;
+use nano::vfs::{VfsFile, VfsNamespace, VfsPath};
 use nano::worker::pool::{SliverWorkerPool, WorkerPool};
 use nano::worker::HandlerTask;
 use std::fs;
@@ -32,6 +32,16 @@ fn create_test_handler(dir: &TempDir, filename: &str, code: &str) -> String {
 fn create_test_sliver_for_pool(hostname: &str) -> UnpackedSliver {
     let metadata = SliverMetadata::new(hostname, "1.1.0");
     let archive = pack_sliver(&metadata, None, None).unwrap();
+    nano::sliver::unpack_sliver(&archive).unwrap()
+}
+
+fn create_sliver_with_handler(hostname: &str, js_code: &str) -> UnpackedSliver {
+    let metadata = SliverMetadata::new(hostname, "1.1.0");
+    let vfs_entries = vec![(
+        VfsPath::new("index.js").unwrap(),
+        VfsFile::new(js_code.as_bytes().to_vec()),
+    )];
+    let archive = pack_sliver(&metadata, None, Some(&vfs_entries)).unwrap();
     nano::sliver::unpack_sliver(&archive).unwrap()
 }
 
@@ -84,6 +94,41 @@ function fetch(request) {{
         "Response must contain dynamic token '{}', got: {}",
         dynamic_token,
         body_text
+    );
+
+    pool.shutdown().expect("Shutdown failed");
+}
+
+/// Live telemetry must reflect a real dispatched request: after a worker serves
+/// a request, its isolate appears in the telemetry snapshot with request_count >= 1
+/// and a real used-heap measurement. Proves the pool → admin-plane wiring.
+#[test]
+fn test_dispatch_publishes_live_telemetry() {
+    init_platform();
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    let hostname = format!("telemetry-{}.example.com", uuid::Uuid::new_v4());
+    let js_code = r#"function fetch(request) { return { status: 200, body: "ok" }; }"#;
+    let entrypoint = create_test_handler(&temp_dir, "tel.js", js_code);
+
+    let pool = WorkerPool::new(hostname.clone(), 1, 0);
+
+    let url = NanoUrl::parse("http://test/").unwrap();
+    let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+    let (tx, rx) = oneshot::channel();
+    pool.dispatch(HandlerTask::new(entrypoint, request, tx))
+        .expect("dispatch");
+    let response = rx.blocking_recv().expect("recv");
+    assert!(response.is_ok(), "handler failed: {:?}", response.err());
+
+    // The serving isolate should now be visible in live telemetry.
+    let snap = nano::worker::telemetry::snapshot();
+    let mine: Vec<_> = snap.iter().filter(|s| s.hostname == hostname).collect();
+    assert_eq!(mine.len(), 1, "one live isolate for this host");
+    assert!(mine[0].request_count >= 1, "request counted");
+    assert!(
+        mine[0].memory_bytes.is_some(),
+        "real used-heap recorded after a request"
     );
 
     pool.shutdown().expect("Shutdown failed");
@@ -373,7 +418,6 @@ fn test_sliver_worker_pool_single_worker() {
 #[test]
 fn test_sliver_worker_pool_dispatch() {
     init_platform();
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
     let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
 
@@ -381,16 +425,15 @@ fn test_sliver_worker_pool_dispatch() {
         r#"function fetch(request) {{ return {{ status: 200, headers: {{}}, body: "{}" }}; }}"#,
         dynamic_token
     );
-    let entrypoint = create_test_handler(&temp_dir, "test.js", &js_code);
 
-    let unpacked = create_test_sliver_for_pool("dispatch.example.com");
+    let unpacked = create_sliver_with_handler("dispatch.example.com", &js_code);
     let pool = SliverWorkerPool::new("dispatch.example.com".to_string(), 1, 0, unpacked);
 
     let url = NanoUrl::parse("http://test/").unwrap();
     let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
     let (tx, rx) = oneshot::channel();
-    let task = HandlerTask::new(entrypoint, request, tx);
+    let task = HandlerTask::new("/index.js".to_string(), request, tx);
 
     pool.dispatch(task).expect("Failed to dispatch");
     let response = rx.blocking_recv().expect("Failed to receive response");
@@ -414,6 +457,125 @@ fn test_sliver_worker_pool_dispatch() {
     pool.shutdown().expect("Shutdown failed");
 }
 
+/// Blue-green hot-swap: the same slot (same hostname) serves v1, then after a
+/// `hotswap` serves v2 from a fully new pool — no hostname change, no restart.
+#[test]
+fn test_sliver_pool_slot_hotswap_serves_new_version() {
+    use nano::worker::SliverPoolSlot;
+    init_platform();
+
+    let host = "hotswap.example.com";
+    let v1_token = format!("v1-{}", uuid::Uuid::new_v4());
+    let v2_token = format!("v2-{}", uuid::Uuid::new_v4());
+
+    let v1 = create_sliver_with_handler(
+        host,
+        &format!(r#"function fetch(r){{return{{status:200,headers:{{}},body:"{v1_token}"}};}}"#),
+    );
+    let slot = SliverPoolSlot::new(host.to_string(), 1, 0, v1);
+
+    // Helper: dispatch one GET / through the pool currently in the slot.
+    let dispatch_once = |slot: &SliverPoolSlot| -> String {
+        let url = NanoUrl::parse("http://test/").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+        let (tx, rx) = oneshot::channel();
+        let task = HandlerTask::new("/index.js".to_string(), request, tx);
+        slot.current().dispatch(task).expect("dispatch failed");
+        let resp = rx
+            .blocking_recv()
+            .expect("recv failed")
+            .expect("handler err");
+        assert_eq!(resp.status(), 200);
+        String::from_utf8_lossy(resp.body().map(|b| &b[..]).unwrap_or(&[])).to_string()
+    };
+
+    // v1 is live.
+    assert!(
+        dispatch_once(&slot).contains(&v1_token),
+        "expected v1 before swap"
+    );
+
+    // Swap in v2; the returned old pool has no further traffic — retire it.
+    let v2 = create_sliver_with_handler(
+        host,
+        &format!(r#"function fetch(r){{return{{status:200,headers:{{}},body:"{v2_token}"}};}}"#),
+    );
+    let old = slot.hotswap(v2);
+    std::sync::Arc::try_unwrap(old)
+        .expect("old pool should be sole-owned after swap")
+        .shutdown()
+        .expect("drain old pool");
+
+    // Same slot, same hostname — now serves v2.
+    let body = dispatch_once(&slot);
+    assert!(
+        body.contains(&v2_token),
+        "expected v2 after swap, got: {body}"
+    );
+    assert!(!body.contains(&v1_token), "must not serve v1 after swap");
+    assert_eq!(
+        slot.hostname(),
+        host,
+        "hostname must not change across swap"
+    );
+
+    std::sync::Arc::try_unwrap(slot.current())
+        .ok()
+        .map(|p| p.shutdown());
+}
+
+/// `hotswap_and_drain` (the SIGHUP path): swaps in v2 and spawns a drain task for
+/// the old pool. Verifies the new version serves and the retired pool is dropped
+/// without panicking. Runs inside a runtime context so the spawned drain task has
+/// somewhere to run.
+#[test]
+fn test_sliver_pool_slot_hotswap_and_drain() {
+    use nano::worker::SliverPoolSlot;
+    init_platform();
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter(); // gives hotswap_and_drain's tokio::spawn a runtime
+
+    let host = "drain.example.com";
+    let v1_token = format!("v1-{}", uuid::Uuid::new_v4());
+    let v2_token = format!("v2-{}", uuid::Uuid::new_v4());
+
+    let v1 = create_sliver_with_handler(
+        host,
+        &format!(r#"function fetch(r){{return{{status:200,headers:{{}},body:"{v1_token}"}};}}"#),
+    );
+    let slot = SliverPoolSlot::new(host.to_string(), 1, 0, v1);
+
+    let dispatch_once = |slot: &SliverPoolSlot| -> String {
+        let url = NanoUrl::parse("http://test/").unwrap();
+        let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
+        let (tx, rx) = oneshot::channel();
+        let task = HandlerTask::new("/index.js".to_string(), request, tx);
+        slot.current().dispatch(task).expect("dispatch failed");
+        let resp = rx
+            .blocking_recv()
+            .expect("recv failed")
+            .expect("handler err");
+        String::from_utf8_lossy(resp.body().map(|b| &b[..]).unwrap_or(&[])).to_string()
+    };
+
+    assert!(dispatch_once(&slot).contains(&v1_token));
+
+    let v2 = create_sliver_with_handler(
+        host,
+        &format!(r#"function fetch(r){{return{{status:200,headers:{{}},body:"{v2_token}"}};}}"#),
+    );
+    slot.hotswap_and_drain(v2, std::time::Duration::from_millis(100));
+
+    assert!(
+        dispatch_once(&slot).contains(&v2_token),
+        "expected v2 after drain-swap"
+    );
+
+    // Let the drain task fire (drops and retires the old pool).
+    std::thread::sleep(std::time::Duration::from_millis(300));
+}
+
 #[test]
 fn test_sliver_worker_pool_accessors() {
     init_platform();
@@ -433,7 +595,6 @@ fn test_sliver_worker_pool_accessors() {
 #[test]
 fn test_sliver_worker_pool_with_temp_vfs() {
     init_platform();
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
     let dynamic_token = format!("nanotest-{}", uuid::Uuid::new_v4());
 
@@ -441,9 +602,8 @@ fn test_sliver_worker_pool_with_temp_vfs() {
         r#"function fetch(request) {{ return {{ status: 200, headers: {{ "Content-Type": "text/plain" }}, body: "{}" }}; }}"#,
         dynamic_token
     );
-    let entrypoint = create_test_handler(&temp_dir, "index.js", &temp_handler_code);
 
-    let unpacked = create_test_sliver_for_pool("temp-vfs.example.com");
+    let unpacked = create_sliver_with_handler("temp-vfs.example.com", &temp_handler_code);
 
     let pool = SliverWorkerPool::new("temp-vfs.example.com".to_string(), 1, 0, unpacked);
 
@@ -451,7 +611,7 @@ fn test_sliver_worker_pool_with_temp_vfs() {
     let request = NanoRequest::new("GET".to_string(), url, NanoHeaders::new(), None);
 
     let (tx, rx) = oneshot::channel();
-    let task = HandlerTask::new(entrypoint, request, tx);
+    let task = HandlerTask::new("/index.js".to_string(), request, tx);
 
     pool.dispatch(task).expect("Failed to dispatch");
     let response = rx.blocking_recv().expect("Failed to receive response");

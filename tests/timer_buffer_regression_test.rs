@@ -51,13 +51,6 @@ fn run_js(code: &str) -> String {
         .unwrap_or_else(|| "undefined".to_string())
 }
 
-/// Whether full pump-loop timer integration tests are enabled.
-fn timer_tests_enabled() -> bool {
-    std::env::var("NANO_TIMER_TESTS")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-}
-
 // ---------------------------------------------------------------------------
 // [REGR-TIMER-01] setTimeout fires callback and respects delay
 // ---------------------------------------------------------------------------
@@ -349,11 +342,7 @@ async function fetch(_request) {
 ///
 /// Requires NANO_TIMER_TESTS=1.
 #[tokio::test]
-#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn settimeout_fires_via_pump_loop() {
-    if !timer_tests_enabled() {
-        return;
-    }
     init_v8_once();
 
     use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
@@ -413,11 +402,7 @@ async fn settimeout_fires_via_pump_loop() {
 /// Requires NANO_TIMER_TESTS=1. Starts a full HTTP server, makes one request,
 /// and checks the response body equals "3".
 #[tokio::test]
-#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn setinterval_fires_via_pump_loop() {
-    if !timer_tests_enabled() {
-        return;
-    }
     init_v8_once();
 
     use nano::http::router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};
@@ -522,11 +507,7 @@ fn uuid_fragment() -> String {
 /// Pattern: register a timer that sets a flag, immediately clear it,
 /// wait via a second timer, assert flag is still false.
 #[tokio::test]
-#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn cleartimeout_cancels_callback() {
-    if !timer_tests_enabled() {
-        return;
-    }
     init_v8_once();
 
     let js = r#"
@@ -555,11 +536,7 @@ async fn cleartimeout_cancels_callback() {
 /// is called from the interval's own callback. Without that guard the interval
 /// would re-insert and fire on every subsequent pump tick.
 #[tokio::test]
-#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn clearinterval_from_within_callback_fires_once() {
-    if !timer_tests_enabled() {
-        return;
-    }
     init_v8_once();
 
     let js = r#"
@@ -592,11 +569,7 @@ async fn clearinterval_from_within_callback_fires_once() {
 /// Total expected delay: ~60ms. Verifies the pump loop propagates microtasks
 /// correctly across multiple await boundaries inside one async handler.
 #[tokio::test]
-#[ignore = "requires NANO_TIMER_TESTS=1 and full V8 server setup"]
 async fn promise_chain_sequential_timers() {
-    if !timer_tests_enabled() {
-        return;
-    }
     init_v8_once();
 
     let js = r#"
