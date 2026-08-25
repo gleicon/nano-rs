@@ -1,0 +1,17 @@
+# Standalone crate: a loom model-check of SliverPoolSlot's synchronization.
+#
+# Kept OUT of the nano-rs package on purpose. Loom works by compiling the whole
+# dependency graph under `--cfg loom`; doing that against nano-rs would rebuild
+# tokio/hyper in loom mode and fail. This crate depends only on loom, so it can
+# be built under `--cfg loom` in isolation. The empty [workspace] table detaches
+# it from the parent package.
+[package]
+name = "loom-slot"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+loom = "0.7"

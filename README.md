@@ -226,6 +226,7 @@ Heap-snapshot serving (restoring an isolate from a baked heap blob) is a
 - **[Cold Start Guide](docs/COLD_START.md)** — Performance characteristics
 - **[Compatibility Matrix](docs/COMPATIBILITY.md)** — Full API compatibility status
 - **[Architecture Decision Records](docs/ADR/)** — Key design decisions
+- **[Formal methods](formal/README.md)** — TLA+ and loom model-checks of the sliver hot-swap protocol (`make tla`, `make loom`)
 
 ## Building from Source
 

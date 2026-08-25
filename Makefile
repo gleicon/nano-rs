@@ -1,4 +1,4 @@
-.PHONY: build test clean check fmt lint audit static-profile coverage coverage-gate mutants mutants-changed doc run help
+.PHONY: build test clean check fmt lint audit tla tla-counterexample loom static-profile coverage coverage-gate mutants mutants-changed doc run help
 
 BINARY = nano-rs
 CONFIG = config.json
@@ -10,6 +10,9 @@ help:
 	@echo "  make check    - Fast check (no build)"
 	@echo "  make fmt      - Format code"
 	@echo "  make lint     - Run clippy"
+	@echo "  make audit    - Run the honesty audit"
+	@echo "  make tla      - Model-check the hot-swap protocol (TLA+)"
+	@echo "  make loom     - Model-check SliverPoolSlot's real Rust (loom)"
 	@echo "  make clean    - Clean build artifacts"
 	@echo "  make doc      - Build documentation"
 	@echo "  make run      - Build and run with config.json"
@@ -32,6 +35,41 @@ lint:
 
 audit:
 	./scripts/honesty-audit.sh
+
+# Formal verification of the sliver hot-swap protocol. See formal/README.md.
+# TLA+ model-checks the design; loom model-checks the real RwLock+Arc code.
+#
+# The checker jar is cached inside the repo (not a world-writable path like /tmp,
+# where another user could plant a malicious jar that `java -cp` would execute),
+# pinned by SHA256, and re-verified before every run so a cache-poisoned jar is
+# never handed to the JVM.
+TLA_JAR ?= $(CURDIR)/formal/.cache/tla2tools.jar
+TLA_JAR_URL = https://github.com/tlaplus/tlaplus/releases/download/v1.7.1/tla2tools.jar
+TLA_JAR_SHA256 = d532ba31aafe17afba1130f92410d9257454ff7393d1eb2fe032f0c07f352da5
+
+# Download to a temp file, verify the checksum, then atomically move into place.
+# -f fails on non-2xx (no silently-saved error pages); -S surfaces errors.
+$(TLA_JAR):
+	mkdir -p $(dir $(TLA_JAR))
+	curl -fSL -o $(TLA_JAR).tmp $(TLA_JAR_URL)
+	echo "$(TLA_JAR_SHA256)  $(TLA_JAR).tmp" | shasum -a 256 -c -
+	mv $(TLA_JAR).tmp $(TLA_JAR)
+
+# Re-check the pinned hash right before invoking the JVM, so a jar tampered with
+# after caching can never be executed.
+tla: $(TLA_JAR)
+	echo "$(TLA_JAR_SHA256)  $(TLA_JAR)" | shasum -a 256 -c -
+	cd formal && java -cp $(TLA_JAR) tlc2.TLC -config HotSwap.cfg HotSwap.tla
+
+# Reproduce the counterexample for the buggy hard-kill variant. TLC exits
+# non-zero when it finds the (expected) violation, so swallow that — printing the
+# counterexample trace is the point of this target.
+tla-counterexample: $(TLA_JAR)
+	echo "$(TLA_JAR_SHA256)  $(TLA_JAR)" | shasum -a 256 -c -
+	cd formal && java -cp $(TLA_JAR) tlc2.TLC -config HotSwap_HardKill.cfg HotSwap.tla || true
+
+loom:
+	cd formal/loom-slot && RUSTFLAGS="--cfg loom" cargo test --release
 
 # Static serving "profile": a flamegraph synthesized from borescope's call graph
 # (no runtime data). Confirms which subsystems are on the most code paths.

@@ -4,6 +4,12 @@
 **/*.rs.bk
 *.pdb
 
+# Standalone loom verification crate (formal/loom-slot) build output
+formal/loom-slot/target/
+
+# Cached TLA+ checker jar (repo-local, SHA256-pinned in the Makefile)
+formal/.cache/
+
 # IDE
 .idea/
 .vscode/
