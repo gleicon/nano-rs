@@ -202,8 +202,14 @@ impl Default for State {
 /// # Returns
 /// A configured `Router` ready to be passed to `axum::serve()`.
 pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
-    // Create a clone for the virtual host handler
-    let app_state_clone = Arc::new(state.app_state.clone());
+    // Share the shutdown drain with the request handler so each request is counted
+    // in-flight and `ShutdownState::shutdown`'s drain wait is real.
+    let app_state_clone = Arc::new(
+        state
+            .app_state
+            .clone()
+            .with_drain(state.shutdown_state.drain().clone()),
+    );
 
     // Build axum router with middleware
     Router::new()
@@ -519,6 +525,7 @@ pub async fn start_server_with_sliver_pool<F>(
     pool_slot: Arc<crate::worker::SliverPoolSlot>,
     entrypoint: String,
     config: ServerConfig,
+    drain: crate::app::drain::RequestDrain,
     shutdown_signal: F,
 ) -> Result<()>
 where
@@ -536,6 +543,7 @@ where
     let handler_state = SliverHandlerState {
         pool_slot,
         entrypoint,
+        drain,
     };
 
     // Build router with sliver JS execution

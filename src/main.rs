@@ -115,11 +115,12 @@ async fn run_server() -> Result<()> {
 
     // Set up graceful shutdown with signal handling
     let drain = nano::app::drain::RequestDrain::new();
-    let (shutdown, mut shutdown_rx) =
-        nano::signal::setup_shutdown(nano::signal::ShutdownConfig::default(), drain);
+    let shutdown_config = nano::signal::ShutdownConfig::default();
+    let drain_timeout_secs = shutdown_config.drain_timeout_secs;
+    let (shutdown, mut shutdown_rx) = nano::signal::setup_shutdown(shutdown_config, drain);
     tracing::info!(
-        "Graceful shutdown initialized (timeout: {}s)",
-        shutdown.state().drain().active_count()
+        "Graceful shutdown initialized (drain timeout: {}s)",
+        drain_timeout_secs
     );
 
     // Shared registry (metadata) and HTTP router (live routing table).
@@ -398,11 +399,14 @@ async fn run_from_sliver(
     let mut server_shutdown_rx = shutdown.subscribe();
     // Clone the Arc for the server task - we'll keep one reference for shutdown
     let pool_slot_clone = Arc::clone(&pool_slot);
+    // Share the shutdown drain so each sliver request is tracked in-flight.
+    let server_drain = shutdown.state().drain().clone();
     let server_handle = tokio::spawn(async move {
         nano::http::start_server_with_sliver_pool(
             pool_slot_clone,
             js_entrypoint,
             config,
+            server_drain,
             async move {
                 let _ = server_shutdown_rx.recv().await;
             },
@@ -422,7 +426,9 @@ async fn run_from_sliver(
     // Signal server to stop first
     shutdown.shutdown().await;
 
-    // Wait for server with timeout (3s allows graceful shutdown while being responsive for tests)
+    // shutdown() above already drained in-flight requests (await_complete, up to
+    // drain_timeout). This is the post-drain join for the server task, which by now
+    // has finished serving; a short bound keeps a stuck listener from hanging exit.
     let shutdown_result =
         tokio::time::timeout(std::time::Duration::from_secs(3), server_handle).await;
 
@@ -588,7 +594,9 @@ async fn run_server_with_config(config_path: PathBuf) -> Result<()> {
     // Perform graceful shutdown
     shutdown.shutdown().await;
 
-    // Wait for server with timeout (3s allows graceful shutdown while being responsive for tests)
+    // shutdown() above already drained in-flight requests (await_complete, up to
+    // drain_timeout). This is the post-drain join for the server task, which by now
+    // has finished serving; a short bound keeps a stuck listener from hanging exit.
     let shutdown_result =
         tokio::time::timeout(std::time::Duration::from_secs(3), server_handle).await;
 

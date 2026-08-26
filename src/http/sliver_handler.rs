@@ -23,6 +23,9 @@ pub struct SliverHandlerState {
     pub pool_slot: std::sync::Arc<crate::worker::SliverPoolSlot>,
     /// The JS entrypoint (e.g., "index.js" or "app.js")
     pub entrypoint: String,
+    /// In-flight request tracker shared with graceful shutdown. Each request holds
+    /// a `DrainHandle` so `ShutdownState::shutdown` waits for real in-flight work.
+    pub drain: crate::app::drain::RequestDrain,
 }
 
 /// Handle HTTP request by dispatching to sliver worker pool
@@ -38,6 +41,9 @@ pub async fn sliver_js_handler(
     request: Request<Body>,
 ) -> Response<Body> {
     let start = std::time::Instant::now();
+
+    // Count this request as in-flight for graceful shutdown.
+    let _drain_handle = crate::app::drain::DrainHandle::new(state.drain.clone());
 
     // Snapshot the pool in effect for this request. A concurrent hot-swap only
     // affects requests that read the slot after it — this one runs to completion

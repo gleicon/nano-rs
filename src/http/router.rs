@@ -534,6 +534,11 @@ pub struct AppState {
     pub work_queue: Arc<Mutex<WorkQueue>>,
     /// Optional AppRegistry for looking up app limits
     app_registry: Option<Arc<AppRegistry>>,
+    /// In-flight request tracker for graceful shutdown. `dispatch_to_worker_pool`
+    /// holds a `DrainHandle` for each request's duration; `ShutdownState::shutdown`
+    /// waits on this same drain. Defaults to a private drain (harmless when not
+    /// wired to a shutdown); `with_drain` injects the shared one at server setup.
+    drain: crate::app::drain::RequestDrain,
 }
 
 impl std::fmt::Debug for AppState {
@@ -569,6 +574,7 @@ impl AppState {
                 None,
             ))),
             app_registry: None,
+            drain: crate::app::drain::RequestDrain::new(),
         }
     }
 
@@ -587,7 +593,16 @@ impl AppState {
                 app_registry.clone(),
             ))),
             app_registry,
+            drain: crate::app::drain::RequestDrain::new(),
         }
+    }
+
+    /// Inject the shared request drain used by graceful shutdown. Call at server
+    /// setup so `dispatch_to_worker_pool`'s per-request `DrainHandle`s increment
+    /// the same counter that `ShutdownState::shutdown` waits on.
+    pub fn with_drain(mut self, drain: crate::app::drain::RequestDrain) -> Self {
+        self.drain = drain;
+        self
     }
 
     /// Get CPU time limit for a hostname from the app registry
@@ -633,6 +648,9 @@ pub async fn dispatch_to_worker_pool(
 ) -> impl IntoResponse {
     // Start timing the request
     let start = std::time::Instant::now();
+    // Count this request as in-flight for graceful shutdown; the handle is held
+    // for the whole request and decrements the drain counter when dropped.
+    let _drain_handle = crate::app::drain::DrainHandle::new(state.drain.clone());
     // Extract Host header from the request and strip port if present
     let host = request
         .headers()
