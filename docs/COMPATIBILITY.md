@@ -214,7 +214,8 @@ globalThis.localStorage = {
 | CPU Time Limits | ✅ Implemented | 50ms default (Cloudflare-style) |
 | Timer-based Termination | ✅ Implemented | Linux timer_create + V8 terminate |
 | Per-isolate heap cap + OOM | ✅ Implemented | V8 heap limit, terminate on approach, recycle after N requests |
-| Pressure-based LRU eviction | ⏳ Not wired | Implemented + tested in `worker/eviction.rs`, not connected to the serving path |
+| Soft eviction (memory pressure) | ✅ Implemented | Per-worker `MemoryMonitor` recycles the isolate at Critical/Emergency pressure |
+| Cross-isolate LRU eviction | ⏳ Not wired | `EvictionManager` implemented + tested, not connected to the serving path |
 | Per-Tenant Metrics | ✅ Implemented | Auto-collected per hostname |
 | Prometheus Export | ✅ Implemented | /admin/metrics endpoint |
 | WASM Support | ✅ Implemented | Load, compile, execute |

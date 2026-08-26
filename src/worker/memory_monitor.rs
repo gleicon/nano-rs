@@ -1,10 +1,10 @@
 //! Post-execution memory monitoring with pressure detection.
 //!
-//! STATUS: implemented and unit-tested, but **not wired into the serving path** —
-//! `MemoryMonitor` is not constructed by the worker pool, so no pressure events are
-//! emitted at runtime. It is the companion to the (also unwired) `EvictionManager`;
-//! see that module and docs/ROADMAP.md. The `MemoryPressureLevel` enum is reused by
-//! the tenant metrics types.
+//! STATUS: wired. The worker pool creates a `MemoryMonitor` per worker (when a
+//! memory limit is set) and calls `check_after` after each request; at Critical or
+//! Emergency pressure it recycles the isolate (soft eviction) and records a pressure
+//! event in the tenant metrics. See `worker/pool.rs`. The separate cross-isolate LRU
+//! `EvictionManager` is not yet wired — see that module and docs/ROADMAP.md.
 //!
 //! This module provides memory monitoring that runs after each JavaScript
 //! execution to detect memory pressure and trigger soft eviction. It tracks
@@ -558,6 +558,19 @@ mod tests {
         let emergency =
             MemorySnapshot::new(125 * 1024 * 1024, 128 * 1024 * 1024, 0, 128 * 1024 * 1024);
         assert_eq!(emergency.pressure_level, MemoryPressureLevel::Emergency);
+    }
+
+    /// The worker recycles the isolate exactly when
+    /// `snapshot.pressure_level.requires_eviction()` is true (see worker/pool.rs):
+    /// Critical or Emergency, never Normal/Warning. Pins that recycle trigger.
+    #[test]
+    fn eviction_trigger_matches_worker_recycle_condition() {
+        let lim = 128 * 1024 * 1024;
+        let mk = |used: usize| MemorySnapshot::new(used, 128 * 1024 * 1024, 0, lim);
+        assert!(!mk(64 * 1024 * 1024).pressure_level.requires_eviction(), "Normal");
+        assert!(!mk(102 * 1024 * 1024).pressure_level.requires_eviction(), "Warning");
+        assert!(mk(115 * 1024 * 1024).pressure_level.requires_eviction(), "Critical");
+        assert!(mk(125 * 1024 * 1024).pressure_level.requires_eviction(), "Emergency");
     }
 
     #[test]

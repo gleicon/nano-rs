@@ -546,6 +546,17 @@ impl WorkerPool {
                     None
                 };
 
+                // Soft eviction under memory pressure. `OomMonitor` above is the hard
+                // guard (terminates execution when an isolate nears its heap cap);
+                // this checks used-heap AFTER each request and recycles the isolate
+                // early once it crosses the soft-eviction threshold, releasing memory
+                // that accumulated across requests before it becomes an OOM.
+                let mut memory_monitor = if memory_limit_mb > 0 {
+                    Some(crate::worker::MemoryMonitor::new(memory_limit_mb))
+                } else {
+                    None
+                };
+
                 const MAX_REQUESTS_PER_ISOLATE: u32 = 10_000;
                 let mut first_isolate = true;
 
@@ -1341,6 +1352,26 @@ impl WorkerPool {
                             let used_heap =
                                 unsafe { (*iso_ptr).get_heap_statistics().used_heap_size() };
                             crate::worker::telemetry::record_request(&isolate_id, used_heap);
+
+                            // Soft eviction: recycle the isolate once memory pressure
+                            // crosses the Critical/Emergency threshold, reclaiming memory
+                            // accumulated across requests before it becomes an OOM. The
+                            // outer 'isolate loop builds a fresh isolate on the next pass.
+                            // SAFETY: iso_ptr valid for this scope block.
+                            if let Some(ref mut mon) = memory_monitor {
+                                let snap = unsafe { mon.check_after(&mut *iso_ptr) };
+                                if snap.pressure_level.requires_eviction() {
+                                    crate::metrics::TENANT_METRICS
+                                        .record_pressure_event(&worker_hostname, snap.pressure_level);
+                                    info!(
+                                        "Worker {}: memory pressure {:?} ({} MiB used) — recycling isolate",
+                                        id,
+                                        snap.pressure_level,
+                                        snap.heap_used / (1024 * 1024)
+                                    );
+                                    break 'requests;
+                                }
+                            }
                         }
                         // ctx_scope + scope drop here
                     }

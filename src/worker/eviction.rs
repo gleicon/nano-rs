@@ -1,11 +1,12 @@
-//! LRU-based isolate eviction with soft and hard eviction policies.
+//! Cross-isolate LRU eviction with soft and hard eviction policies.
 //!
 //! STATUS: implemented and unit-tested, but **not wired into the serving path** —
-//! `EvictionManager` is not constructed or invoked by the worker pool. Memory is
-//! protected today by the per-isolate heap cap + `OomMonitor` termination and
-//! recycle-after-N. Connecting cross-isolate pressure eviction is a roadmap item
-//! (see docs/ROADMAP.md); it needs shared pressure state plus a way to signal the
-//! owning worker thread to recycle a `!Send` isolate.
+//! `EvictionManager` (cross-isolate LRU victim selection) is not constructed or
+//! invoked by the worker pool. Per-worker soft eviction IS wired via `MemoryMonitor`
+//! (worker/pool.rs recycles an isolate under its own memory pressure); this module
+//! is the *global* layer that would pick victims across isolates. Wiring it needs
+//! shared pressure state plus a way to signal the owning worker thread to recycle a
+//! `!Send` isolate — see docs/ROADMAP.md.
 //!
 //! This module provides Cloudflare-style isolate eviction that targets
 //! stateless isolates first while allowing stateful isolates to complete
