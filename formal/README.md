@@ -51,13 +51,13 @@ The model distinguishes two timeouts that the code implements differently:
 - **`ClientTimeout`** — the tower `TimeoutLayer` returns 408 after 30s. It frees the
   **client** but not the worker: a runaway handler keeps running.
 
-The `CpuLimit` constant selects the serving path. `TRUE` (the `--config` path, where
-`AppState` carries an `app_registry`) verifies clean. `FALSE` (the shared-router /
-admin-driven path, where `AppState::new_shared` sets `app_registry: None` so
-`get_cpu_time_limit_ms` returns 0) produces a **liveness counterexample**: a runaway
-handler takes a `ClientTimeout` but keeps the worker, and a request queued behind it
-never runs. `make tla-counterexample` prints the trace. This is a real gap — see
-[COVERAGE.md](COVERAGE.md).
+The `CpuLimit` constant selects whether a limit is armed. `TRUE` verifies clean —
+and `get_cpu_time_limit_ms` now defaults to 50ms on every path, so this is the normal
+case. `FALSE` (reachable only by explicitly setting `cpu_time_enabled: false`)
+produces a **liveness counterexample**: a runaway handler takes a `ClientTimeout` but
+keeps the worker, and a request queued behind it never runs. `make tla-counterexample`
+prints the trace. The shared-router path used to hit `FALSE` by default; that is now
+fixed — see [COVERAGE.md](COVERAGE.md).
 
 ### HotSwap
 

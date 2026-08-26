@@ -58,21 +58,19 @@ Not model-checked, by design:
   covers the `unsafe` extraction paths. Neither TLA+ nor loom models C++-side V8
   state.
 
-## Open findings
+## Findings
 
-- **CPU-time limiting is inert on the shared-router / admin-driven serving path.**
-  `get_cpu_time_limit_ms` returns 0 whenever `AppState` has no `app_registry`, which
-  is the case for `AppState::new_shared` and `AppState::new` (the default
-  `nano-rs run` and admin-registered apps); only the `--config` path
-  (`with_vfs_config(..., Some(registry))`) supplies one. With the limit at 0 the
-  `CpuTimeoutGuard` is never armed (`worker/pool.rs`), so a runaway handler is never
-  terminated worker-side — the 30s `TimeoutLayer` answers the client but the worker
-  thread stays wedged, and requests queued behind it on that worker starve. Surfaced
-  by `RequestLifecycle.tla` with `CpuLimit=FALSE` (`make tla-counterexample`).
-  Fix direction: make `get_cpu_time_limit_ms` fall back to the default limit
-  (`default_cpu_time_ms`, 50ms) instead of 0 when no per-app config is present, so
-  runaway protection is on by default and only an explicit `cpu_time_enabled: false`
-  disables it.
+- **Resolved: CPU-time limiting was inert on the shared-router / admin-driven path.**
+  `get_cpu_time_limit_ms` returned 0 whenever `AppState` had no `app_registry`
+  (`AppState::new_shared` / `AppState::new` — the default `nano-rs run` and
+  admin-registered apps), so the `CpuTimeoutGuard` was never armed and a runaway
+  handler wedged the worker (the 30s `TimeoutLayer` answered the client but not the
+  worker). Surfaced by `RequestLifecycle.tla` with `CpuLimit=FALSE`. Fixed:
+  `get_cpu_time_limit_ms` now falls back to `default_cpu_time_ms` (50ms) when there
+  is no per-app config, so runaway protection is on by default on every path.
+  `CpuLimit=FALSE` remains checked (`make tla-counterexample`) — it now models the
+  residual foot-gun of an app that *explicitly* sets `cpu_time_enabled: false`, which
+  reintroduces the wedge by operator choice.
 
 ## Bounds
 

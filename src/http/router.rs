@@ -611,18 +611,21 @@ impl AppState {
     /// is found and CPU time tracking is enabled. Returns 0 if disabled
     /// or app not found (no limit).
     fn get_cpu_time_limit_ms(&self, hostname: &str) -> u32 {
-        match &self.app_registry {
-            None => 0,
-            Some(registry) => match registry.get(hostname) {
-                None => 0,
-                Some(app_config) => {
-                    if app_config.limits.cpu_time_enabled {
-                        app_config.limits.cpu_time_ms
-                    } else {
-                        0
-                    }
+        // Runaway protection is on by default on every serving path. A per-app
+        // config can raise the limit or turn it off; only an explicit
+        // `cpu_time_enabled: false` yields 0. When there is no registry or no entry
+        // for this host (the shared-router / admin-driven path), fall back to the
+        // default limit rather than "unlimited" — an armed limit is what lets the
+        // worker recover from a runaway handler (see formal/RequestLifecycle.tla).
+        match self.app_registry.as_ref().and_then(|r| r.get(hostname)) {
+            Some(app_config) => {
+                if app_config.limits.cpu_time_enabled {
+                    app_config.limits.cpu_time_ms
+                } else {
+                    0
                 }
-            },
+            }
+            None => crate::config::default_cpu_time_ms(),
         }
     }
 }
@@ -899,6 +902,58 @@ pub async fn dispatch_to_worker_pool(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runaway protection is on by default on every serving path: with no per-app
+    /// config the CPU limit falls back to the 50ms default rather than 0. A per-app
+    /// config raises it, and only an explicit `cpu_time_enabled: false` disables it.
+    #[test]
+    fn cpu_time_limit_defaults_on_and_respects_config() {
+        use crate::app::registry::AppRegistry;
+        use crate::config::{AppConfig, AppLimits};
+        use std::collections::HashMap;
+
+        let default_route = RouteTarget {
+            hostname: "x".to_string(),
+            handler_type: HandlerType::WinterTCHandler("/index.js".to_string()),
+        };
+        let mk = |registry: Option<std::sync::Arc<AppRegistry>>| {
+            AppState::with_vfs_config(VirtualHostRouter::new(default_route.clone()), 1, None, registry)
+        };
+
+        // No registry (shared-router / admin path) -> default limit, not unlimited.
+        assert_eq!(mk(None).get_cpu_time_limit_ms("anything"), 50);
+
+        let mut apps = HashMap::new();
+        apps.insert(
+            "fast.local".to_string(),
+            AppConfig {
+                hostname: "fast.local".to_string(),
+                limits: AppLimits {
+                    cpu_time_ms: 100,
+                    cpu_time_enabled: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        apps.insert(
+            "nolimit.local".to_string(),
+            AppConfig {
+                hostname: "nolimit.local".to_string(),
+                limits: AppLimits {
+                    cpu_time_ms: 100,
+                    cpu_time_enabled: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let state = mk(Some(std::sync::Arc::new(AppRegistry::new(apps))));
+
+        assert_eq!(state.get_cpu_time_limit_ms("fast.local"), 100, "configured limit");
+        assert_eq!(state.get_cpu_time_limit_ms("nolimit.local"), 0, "explicit disable");
+        assert_eq!(state.get_cpu_time_limit_ms("unknown.local"), 50, "unknown host -> default");
+    }
 
     #[tokio::test]
     async fn test_handle_ws_upgrade_forbidden_for_static_handler() {

@@ -203,7 +203,7 @@ fn default_workers() -> u32 {
     4 // 4 workers default
 }
 
-fn default_cpu_time_ms() -> u32 {
+pub(crate) fn default_cpu_time_ms() -> u32 {
     50 // 50ms default like Cloudflare Workers
 }
 
