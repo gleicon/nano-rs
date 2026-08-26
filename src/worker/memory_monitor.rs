@@ -1,4 +1,10 @@
-//! Post-execution memory monitoring with pressure detection
+//! Post-execution memory monitoring with pressure detection.
+//!
+//! STATUS: implemented and unit-tested, but **not wired into the serving path** —
+//! `MemoryMonitor` is not constructed by the worker pool, so no pressure events are
+//! emitted at runtime. It is the companion to the (also unwired) `EvictionManager`;
+//! see that module and docs/ROADMAP.md. The `MemoryPressureLevel` enum is reused by
+//! the tenant metrics types.
 //!
 //! This module provides memory monitoring that runs after each JavaScript
 //! execution to detect memory pressure and trigger soft eviction. It tracks

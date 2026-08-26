@@ -26,7 +26,8 @@ race, misfiles the defect against a technique that cannot see it.
 | **HTTP request path** (`http/router.rs`, `worker/queue.rs`, `worker/pool.rs`) | request → exactly-one response; bounded-queue backpressure (503); no hang | TLA+ | [`RequestLifecycle.tla`](RequestLifecycle.tla) |
 | **Sliver hot-swap** (`worker/sliver_pool.rs`) | blue-green pool swap + drain; no request bound to a torn-down pool | TLA+ + loom | [`HotSwap.tla`](HotSwap.tla), [`loom/src/slot.rs`](loom/src/slot.rs) |
 | **Graceful shutdown / drain** (`app/drain.rs`, `signal.rs`) | no accept after signal; drain terminates; a clean drain means zero in-flight; exactly-once drain signal | TLA+ + loom | [`Shutdown.tla`](Shutdown.tla), [`loom/src/drain.rs`](loom/src/drain.rs) |
-| **Isolate lifecycle / eviction** (`worker/pool.rs`, `worker/eviction.rs`) | recycle-after-N; LRU eviction selection | unit tests + type system | `worker/eviction.rs` tests; recycle covered structurally by the request-loop |
+| **Isolate lifecycle / memory** (`worker/pool.rs`) | recycle-after-N; per-isolate heap cap + OOM termination | integration + unit tests | `adversarial_memory.rs`, `heap_limit_test.rs`; OOM/heap-cap armed whenever `memory_limit_mb > 0` |
+| **Pressure-based LRU eviction** (`worker/eviction.rs`, `memory_monitor.rs`) | cross-isolate LRU eviction under memory pressure | unit tests only — **not wired** | see Findings; roadmap item |
 | **Live telemetry** (`worker/telemetry.rs`) | register/deregister of live isolates | `DashMap` (library-provided sync) + unit/integration tests | `telemetry.rs` tests; `test_dispatch_publishes_live_telemetry` |
 | **nano:kv store** (`runtime/kv.rs`) | concurrent get/set/delete; tenant isolation by hostname namespacing | `DashMap` (concurrency) + property tests (key construction ⇒ isolation) | `kv_*` tests |
 | **VFS** (`vfs/memory.rs`, `disk.rs`, `s3.rs`) | per-isolate ownership (no cross-thread sharing within a namespace); path isolation | adversarial + integration tests; S3 against live MinIO | `adversarial_vfs.rs`; `s3.rs` `#[ignore]` integration test |
@@ -85,6 +86,16 @@ from the registry silently no-ops there. All resolved; each has a regression tes
   stored but never consulted (no request-batch concept; no per-tenant method
   allowlist). Removed rather than left as inert config; `validate_request_ref` keeps
   enforcing the global script/timeout/body bounds plus tenant existence.
+
+- **Pressure-based LRU eviction is not wired (documented, not fixed).** `EvictionManager`
+  (`worker/eviction.rs`) and `MemoryMonitor` (`worker/memory_monitor.rs`) are complete
+  and unit-tested but never constructed or invoked by the worker pool — the same
+  shape as the drain, but a 1000+-line subsystem entangled with the tenant metrics
+  (`MemoryPressureLevel`). It was falsely advertised as "Implemented 100%"; docs now
+  state it is not wired, and the real protection (per-isolate heap cap + OOM
+  termination + recycle-after-N) is described accurately. Wiring it is a roadmap item
+  (cross-thread coordination of `!Send` isolates); see docs/ROADMAP.md. Not removed,
+  because it is a real tested implementation of a legitimate feature.
 
 Regression tests: `cpu_time_limit_defaults_on_and_respects_config`,
 `request_timeout_defaults_on_and_respects_config` (router), and

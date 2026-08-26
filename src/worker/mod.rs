@@ -33,7 +33,9 @@
 //! All applications now receive identical treatment:
 //! - ✅ V8 isolates for code execution
 //! - ✅ CPU time limits and enforcement
-//! - ✅ Memory monitoring and pressure-based eviction
+//! - ✅ Per-isolate heap cap + OOM termination + recycle-after-N
+//!   (pressure-based LRU eviction is implemented in `eviction.rs` but not yet
+//!   wired into the serving path — see docs/ROADMAP.md)
 //! - ✅ Request tracing: `request_id` + `worker_id` + `isolate_id`
 //! - ✅ Sliver packaging support (all types can be slivered)
 //! - ✅ VFS for code and static artifacts

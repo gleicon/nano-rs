@@ -3,6 +3,21 @@
 Future capabilities live here, not in code comments. Code uses terse `planned: <x>`
 markers that point back to this file.
 
+## planned: wire pressure-based LRU eviction into serving
+
+`worker/eviction.rs` (`EvictionManager`) and `worker/memory_monitor.rs`
+(`MemoryMonitor`) implement Cloudflare-style soft/hard LRU eviction under memory
+pressure, with unit tests — but they are **not constructed or invoked by the worker
+pool**. Memory is protected today by the per-isolate V8 heap cap + `OomMonitor`
+termination and recycle-after-N (all wired); the cross-isolate pressure-eviction
+layer is not.
+
+Wiring it is non-trivial: isolates are thread-local (`!Send`), so a central manager
+can't evict them directly — it must track per-isolate memory (the worker already
+computes used-heap for telemetry) in shared pressure state, then signal the owning
+worker thread to recycle a victim via the existing recycle path. Until that lands,
+docs describe eviction as not wired rather than "implemented".
+
 ## done: heap-snapshot create/restore primitives
 
 Creating and restoring a V8 heap-snapshot blob works and is tested end to end:

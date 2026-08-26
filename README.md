@@ -135,9 +135,9 @@ V8 version tag matches the running V8. See [Slivers](docs/SLIVER_WORKFLOW.md).
 | CPU Time Tracking | Implemented | 75% | Microsecond precision per request |
 | CPU Time Limits | Working | 75% | Prevents infinite loops |
 | Timer-based Termination | Implemented | 100% | Linux timer_create + V8 terminate |
-| Memory Monitoring | Implemented | 100% | 4-tier pressure levels |
-| Soft Eviction | Implemented | 100% | Graceful isolate draining |
-| LRU Eviction | Implemented | 100% | Least Recently Used policy |
+| Per-isolate heap cap | Implemented | 100% | V8 heap limit + OOM termination per isolate |
+| Isolate recycling | Implemented | 100% | Fresh isolate after N requests |
+| Pressure-based LRU eviction | Not wired | — | Implemented + tested (`worker/eviction.rs`), not connected to the serving path — see [ROADMAP](docs/ROADMAP.md) |
 | Per-Tenant Metrics | Implemented | 100% | Auto-collected per hostname |
 | Prometheus Export | Implemented | 100% | /admin/metrics endpoint |
 | Admin Metrics API | Implemented | 100% | JSON endpoints for all metrics |
@@ -201,7 +201,7 @@ Heap-snapshot serving (restoring an isolate from a baked heap blob) is a
 - Slivers bundle app files + precompiled bytecode for fast, portable deploys
 - Zero-downtime hot-swap: SIGHUP blue-green-swaps a sliver app on the same host
 - **CPU time limits prevent runaway scripts (50ms default)**
-- **Memory pressure monitoring with automatic eviction**
+- **Per-isolate memory cap: V8 heap limit + OOM termination, with recycle after N requests**
 - **Per-tenant metrics with Prometheus export**
 - **WASM module support for compute-heavy workloads**
 
