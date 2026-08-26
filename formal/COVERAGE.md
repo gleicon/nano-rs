@@ -60,17 +60,37 @@ Not model-checked, by design:
 
 ## Findings
 
-- **Resolved: CPU-time limiting was inert on the shared-router / admin-driven path.**
-  `get_cpu_time_limit_ms` returned 0 whenever `AppState` had no `app_registry`
-  (`AppState::new_shared` / `AppState::new` — the default `nano-rs run` and
-  admin-registered apps), so the `CpuTimeoutGuard` was never armed and a runaway
-  handler wedged the worker (the 30s `TimeoutLayer` answered the client but not the
-  worker). Surfaced by `RequestLifecycle.tla` with `CpuLimit=FALSE`. Fixed:
-  `get_cpu_time_limit_ms` now falls back to `default_cpu_time_ms` (50ms) when there
-  is no per-app config, so runaway protection is on by default on every path.
-  `CpuLimit=FALSE` remains checked (`make tla-counterexample`) — it now models the
-  residual foot-gun of an app that *explicitly* sets `cpu_time_enabled: false`, which
-  reintroduces the wedge by operator choice.
+A recurring pattern surfaced by auditing model assumptions against the code: a
+per-app limit is stored in one place but the enforcement point reads a different
+source, or isn't wired on a serving path. The `AppState::new_shared` / `new` paths
+(default `nano-rs run` and admin-driven) pass `app_registry: None`, so anything read
+from the registry silently no-ops there. All resolved; each has a regression test.
+
+- **CPU-time limit** — returned 0 with no `app_registry`, so the `CpuTimeoutGuard`
+  was never armed and a runaway handler wedged the worker. Surfaced by
+  `RequestLifecycle.tla` (`CpuLimit=FALSE`). Fixed: `get_cpu_time_limit_ms` falls
+  back to `default_cpu_time_ms` (50ms); only an explicit `cpu_time_enabled: false`
+  yields 0. `CpuLimit=FALSE` still runs as the residual foot-gun of disabling it.
+- **Memory limit** — the registry-less pool-creation fallback passed
+  `memory_limit_mb: 0` (no V8 heap cap, ~V8 default). Fixed: `create_pool_with_fallback`
+  uses `default_memory_limit` (128MB), so an isolate is never uncapped.
+- **Worker count** — `limits.workers` was ignored; every pool used the global
+  `workers_per_pool` (taken from `apps[0]`). Fixed: the per-app pool uses
+  `app_config.limits.workers`.
+- **Request timeout** — `limits.timeout_secs` was never read; the only bound was a
+  fixed 30s `TimeoutLayer`. Fixed: `dispatch_to_worker_pool` wraps the worker
+  response in a per-app deadline (`get_request_timeout_secs`, default 30s); the
+  global layer is now a 300s ceiling.
+- **Control-plane `TenantLimits`** — `allowed_methods` / `max_batch_size` were
+  stored but never consulted (no request-batch concept; no per-tenant method
+  allowlist). Removed rather than left as inert config; `validate_request_ref` keeps
+  enforcing the global script/timeout/body bounds plus tenant existence.
+
+Regression tests: `cpu_time_limit_defaults_on_and_respects_config`,
+`request_timeout_defaults_on_and_respects_config` (router), and
+`registry_less_pool_caps_memory_and_uses_default_workers`,
+`per_app_workers_is_honored_over_pool_default` (queue) — the limit × serving-path
+enforcement matrix.
 
 ## Bounds
 

@@ -17,10 +17,6 @@ use crate::{
     assert_negative, assert_positive, assert_postcondition, assert_precondition, assert_range,
 };
 
-/// Maximum number of requests a tenant may batch (retained as the default cap
-/// exposed via [`TenantLimits`]).
-pub const BATCH_SIZE_MAX: usize = 64;
-
 /// Error returned by request validation.
 #[derive(Debug, Clone)]
 pub enum ControlError {
@@ -38,17 +34,17 @@ impl std::fmt::Display for ControlError {
 
 impl std::error::Error for ControlError {}
 
-/// Per-tenant limits used to validate app registration.
+/// Per-tenant limits used to validate app registration. Bounds an app's declared
+/// script size and timeout; enforced by `validate_request_ref` against the global
+/// maxima. (An earlier design also carried `max_batch_size` and `allowed_methods`;
+/// the fetch runtime has no request-batch concept and never enforced a per-tenant
+/// method allowlist, so those were removed rather than left as inert config.)
 #[derive(Debug, Clone)]
 pub struct TenantLimits {
     /// Maximum script size in bytes
     pub max_script_size: u32,
     /// Maximum timeout in milliseconds
     pub max_timeout_ms: u32,
-    /// Maximum batch size for this tenant
-    pub max_batch_size: u32,
-    /// Allowed HTTP methods
-    pub allowed_methods: Vec<String>,
 }
 
 impl TenantLimits {
@@ -57,16 +53,6 @@ impl TenantLimits {
         Self {
             max_script_size: execution::SCRIPT_SIZE_BYTES_MAX,
             max_timeout_ms: execution::TIMEOUT_MS,
-            max_batch_size: BATCH_SIZE_MAX as u32,
-            allowed_methods: vec![
-                "GET".to_string(),
-                "POST".to_string(),
-                "PUT".to_string(),
-                "DELETE".to_string(),
-                "PATCH".to_string(),
-                "HEAD".to_string(),
-                "OPTIONS".to_string(),
-            ],
         }
     }
 }

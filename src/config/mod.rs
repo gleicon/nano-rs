@@ -191,11 +191,11 @@ impl Default for AppLimits {
     }
 }
 
-fn default_memory_limit() -> u32 {
+pub(crate) fn default_memory_limit() -> u32 {
     128 // 128MB default
 }
 
-fn default_timeout_secs() -> u32 {
+pub(crate) fn default_timeout_secs() -> u32 {
     30 // 30 seconds default
 }
 

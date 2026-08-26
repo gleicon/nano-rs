@@ -381,13 +381,6 @@ impl WorkQueue {
                 let limits = crate::control_plane::TenantLimits {
                     max_script_size: 10 * 1024 * 1024, // 10MB max (per execution limit)
                     max_timeout_ms: 30000,             // 30s default
-                    max_batch_size: 100,               // 100 req default
-                    allowed_methods: vec![
-                        "GET".to_string(),
-                        "POST".to_string(),
-                        "PUT".to_string(),
-                        "DELETE".to_string(),
-                    ],
                 };
                 control_plane.register_tenant(hostname, limits);
                 tracing::debug!("Pre-registered tenant in control plane at startup");
@@ -452,11 +445,18 @@ impl WorkQueue {
             let pool = if let Some(ref registry) = self.app_registry {
                 if let Some(app_config) = registry.get(hostname) {
                     let memory_mb = app_config.limits.memory_mb;
+                    // Honor the app's own worker count; fall back to the pool default
+                    // only when it is unset (0).
+                    let workers = if app_config.limits.workers > 0 {
+                        app_config.limits.workers
+                    } else {
+                        self.workers_per_pool
+                    };
                     let env_vars = app_config.env_vars.clone();
                     let mk_pool = |backend| {
                         EntrypointWorkerPool::with_backend_and_env(
                             hostname,
-                            self.workers_per_pool,
+                            workers,
                             memory_mb,
                             backend,
                             env_vars.clone(),
@@ -613,23 +613,40 @@ impl WorkQueue {
                         "Created disk backend for hostname: {} (global config)",
                         hostname
                     );
-                    EntrypointWorkerPool::with_backend(hostname, self.workers_per_pool, 0, backend)
+                    EntrypointWorkerPool::with_backend(
+                        hostname,
+                        self.workers_per_pool,
+                        crate::config::default_memory_limit(),
+                        backend,
+                    )
                 }
                 Err(e) => {
                     tracing::warn!(
                         "Failed to create disk backend (global config), falling back to memory: {}",
                         e
                     );
-                    EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+                    EntrypointWorkerPool::with_backend(
+                        hostname,
+                        self.workers_per_pool,
+                        crate::config::default_memory_limit(),
+                        crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()),
+                    )
                 }
             }
         } else {
-            // Use memory backend (default)
+            // Use memory backend (default). A default heap cap applies even without
+            // per-app config so a tenant on the registry-less / admin path can't run
+            // an isolate uncapped (see formal/COVERAGE.md).
             tracing::debug!(
-                "Using memory backend for hostname: {} (no config)",
+                "Using memory backend for hostname: {} (no config, default heap cap)",
                 hostname
             );
-            EntrypointWorkerPool::new(hostname, self.workers_per_pool)
+            EntrypointWorkerPool::with_backend(
+                hostname,
+                self.workers_per_pool,
+                crate::config::default_memory_limit(),
+                crate::vfs::VfsBackendEnum::memory(MemoryBackend::new()),
+            )
         }
     }
 
@@ -643,13 +660,6 @@ impl WorkQueue {
                 let limits = crate::control_plane::TenantLimits {
                     max_script_size: 10 * 1024 * 1024,
                     max_timeout_ms: 30000,
-                    max_batch_size: 100,
-                    allowed_methods: vec![
-                        "GET".to_string(),
-                        "POST".to_string(),
-                        "PUT".to_string(),
-                        "DELETE".to_string(),
-                    ],
                 };
                 control_plane.register_tenant(hostname.to_string(), limits);
                 tracing::debug!(
@@ -765,6 +775,51 @@ mod tests {
         // Stats updated
         assert_eq!(queue.stats.active_pools.load(Ordering::Relaxed), 1);
         assert_eq!(queue.stats.active_workers.load(Ordering::Relaxed), 2);
+    }
+
+    /// Limit-enforcement matrix, registry-less path: a pool created without any
+    /// per-app config still gets a default V8 heap cap (not 0/uncapped) and the
+    /// pool's default worker count. Guards the memory disconnection.
+    #[tokio::test]
+    async fn registry_less_pool_caps_memory_and_uses_default_workers() {
+        let mut queue = WorkQueue::new(3);
+        let pool = queue.get_or_create_pool("shared.local").await;
+        assert_eq!(
+            pool.inner.memory_limit_mb(),
+            crate::config::default_memory_limit(),
+            "registry-less path must cap memory, not run uncapped (was 0)"
+        );
+        assert_eq!(pool.worker_count, 3, "fallback uses the pool default worker count");
+    }
+
+    /// Limit-enforcement matrix, config path: a pool for an app whose config sets
+    /// `workers` uses that count, not the pool default. Guards the workers
+    /// disconnection (previously every pool used the global count).
+    #[tokio::test]
+    async fn per_app_workers_is_honored_over_pool_default() {
+        use crate::config::{AppConfig, AppLimits};
+        use std::collections::HashMap;
+
+        let mut apps = HashMap::new();
+        apps.insert(
+            "app.local".to_string(),
+            AppConfig {
+                hostname: "app.local".to_string(),
+                entrypoint: "/nonexistent/index.js".to_string(),
+                limits: AppLimits {
+                    workers: 2,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let registry = std::sync::Arc::new(crate::app::registry::AppRegistry::new(apps));
+        let mut queue = WorkQueue::with_vfs_config(8, None, Some(registry));
+        let pool = queue.get_or_create_pool("app.local").await;
+        assert_eq!(
+            pool.worker_count, 2,
+            "per-app workers must win over the pool default (8)"
+        );
     }
 
     #[test]

@@ -237,9 +237,13 @@ pub fn create_app_with_shutdown(state: Arc<AppStateWithShutdown>) -> Router {
         )
         // Middleware stack (applied in reverse order)
         .layer(TraceLayer::new_for_http())
+        // Hard ceiling only. The real per-request deadline is enforced per-app in
+        // dispatch_to_worker_pool (limits.timeout_secs, default 30s); this layer is
+        // set to the max allowed timeout so it never preempts a longer per-app one,
+        // and still bounds non-dispatch routes.
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(30),
+            Duration::from_secs(300),
         ))
         .layer(CompressionLayer::new())
         .with_state(state)

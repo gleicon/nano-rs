@@ -628,6 +628,16 @@ impl AppState {
             None => crate::config::default_cpu_time_ms(),
         }
     }
+
+    /// Per-app wall-clock request timeout in seconds (`limits.timeout_secs`).
+    /// Falls back to the default when there is no per-app config, so every serving
+    /// path bounds request duration.
+    fn get_request_timeout_secs(&self, hostname: &str) -> u32 {
+        match self.app_registry.as_ref().and_then(|r| r.get(hostname)) {
+            Some(app_config) => app_config.limits.timeout_secs,
+            None => crate::config::default_timeout_secs(),
+        }
+    }
 }
 
 /// Dispatch request to worker pool via WorkQueue
@@ -783,9 +793,12 @@ pub async fn dispatch_to_worker_pool(
 
     let (response, status_code, worker_id, isolate_id) = match dispatch_result {
         Ok(()) => {
-            // Wait for response from worker — lock NOT held
-            match rx.await {
-                Ok(Ok(nano_response)) => {
+            // Wait for the worker's response, bounded by the app's request timeout
+            // (limits.timeout_secs; default 30s). This is a wall-clock deadline that
+            // also covers slow I/O the CPU limit doesn't (fetch, VFS). Lock NOT held.
+            let timeout = std::time::Duration::from_secs(state.get_request_timeout_secs(&host) as u64);
+            match tokio::time::timeout(timeout, rx).await {
+                Ok(Ok(Ok(nano_response))) => {
                     let status = nano_response.status();
                     let worker_id = nano_response.worker_id();
                     let isolate_id = nano_response.isolate_id().map(|s| s.to_string());
@@ -796,7 +809,7 @@ pub async fn dispatch_to_worker_pool(
                         isolate_id,
                     )
                 }
-                Ok(Err(e)) => {
+                Ok(Ok(Err(e))) => {
                     tracing::error!("Handler error: {}", e);
                     let response = Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -805,7 +818,7 @@ pub async fn dispatch_to_worker_pool(
                         .unwrap();
                     (response, 500, None, None)
                 }
-                Err(_) => {
+                Ok(Err(_)) => {
                     tracing::error!("Response channel closed");
                     let response = Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -813,6 +826,15 @@ pub async fn dispatch_to_worker_pool(
                         .body(Body::from("Internal Server Error"))
                         .unwrap();
                     (response, 500, None, None)
+                }
+                Err(_elapsed) => {
+                    tracing::warn!("Request timed out for hostname: {}", host);
+                    let response = Response::builder()
+                        .status(StatusCode::REQUEST_TIMEOUT)
+                        .header("content-type", "text/plain")
+                        .body(Body::from("Request Timeout"))
+                        .unwrap();
+                    (response, 408, None, None)
                 }
             }
         }
@@ -953,6 +975,43 @@ mod tests {
         assert_eq!(state.get_cpu_time_limit_ms("fast.local"), 100, "configured limit");
         assert_eq!(state.get_cpu_time_limit_ms("nolimit.local"), 0, "explicit disable");
         assert_eq!(state.get_cpu_time_limit_ms("unknown.local"), 50, "unknown host -> default");
+    }
+
+    /// Every serving path bounds request duration: with no per-app config the
+    /// request timeout falls back to the 30s default (not unbounded); a per-app
+    /// config sets it.
+    #[test]
+    fn request_timeout_defaults_on_and_respects_config() {
+        use crate::app::registry::AppRegistry;
+        use crate::config::{AppConfig, AppLimits};
+        use std::collections::HashMap;
+
+        let default_route = RouteTarget {
+            hostname: "x".to_string(),
+            handler_type: HandlerType::WinterTCHandler("/index.js".to_string()),
+        };
+        let mk = |registry: Option<std::sync::Arc<AppRegistry>>| {
+            AppState::with_vfs_config(VirtualHostRouter::new(default_route.clone()), 1, None, registry)
+        };
+
+        // No registry (shared-router / admin path) -> default 30s, not unbounded.
+        assert_eq!(mk(None).get_request_timeout_secs("anything"), 30);
+
+        let mut apps = HashMap::new();
+        apps.insert(
+            "slow.local".to_string(),
+            AppConfig {
+                hostname: "slow.local".to_string(),
+                limits: AppLimits {
+                    timeout_secs: 120,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let state = mk(Some(std::sync::Arc::new(AppRegistry::new(apps))));
+        assert_eq!(state.get_request_timeout_secs("slow.local"), 120, "configured timeout");
+        assert_eq!(state.get_request_timeout_secs("unknown.local"), 30, "unknown host -> default");
     }
 
     #[tokio::test]

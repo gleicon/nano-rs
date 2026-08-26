@@ -343,6 +343,11 @@ impl WorkerPool {
         &self.vfs_backend
     }
 
+    /// The per-isolate V8 heap cap in MB (0 means V8's default, i.e. uncapped).
+    pub fn memory_limit_mb(&self) -> u32 {
+        self.memory_limit_mb
+    }
+
     /// Dispatch a task to a worker
     pub fn dispatch(&self, task: HandlerTask) -> Result<()> {
         let worker_idx = self.next_worker.fetch_add(1, Ordering::SeqCst) % self.worker_count;
