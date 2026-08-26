@@ -261,7 +261,7 @@ When reset (default):
 - New V8 context created
 - Global scope cleared
 - Module bindings re-applied
-- ~5ms overhead (measured)
+- context reset overhead (not benchmarked)
 
 ---
 

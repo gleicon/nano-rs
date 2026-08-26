@@ -62,10 +62,10 @@ Every request in NANO carries three identifiers for complete tracing:
 {
   "ts": "2026-05-03T12:34:56.789Z",
   "level": "INFO",
-  "message": "HTTP GET / - 200 in 5.23ms (worker: 0, isolate: iso_a3f7b2d8_00000001)",
+  "message": "HTTP GET / - 200 in 5.23ms (worker: 0, isolate: app.local:0)",
   "request_id": "req_a3f7b2d8",
   "worker_id": 0,
-  "isolate_id": "iso_a3f7b2d8_00000001",
+  "isolate_id": "app.local:0",
   "hostname": "localhost",
   "fields": {
     "method": "GET",
@@ -73,7 +73,7 @@ Every request in NANO carries three identifiers for complete tracing:
     "status": 200,
     "duration_ms": "5.23",
     "worker_id": 0,
-    "isolate_id": "iso_a3f7b2d8_00000001"
+    "isolate_id": "app.local:0"
   }
 }
 
@@ -81,10 +81,10 @@ Every request in NANO carries three identifiers for complete tracing:
 {
   "ts": "2026-05-03T12:34:56.785Z",
   "level": "INFO",
-  "message": "Worker 0 processed request req_a3f7b2d8: GET / - 200 in 5ms (isolate: iso_a3f7b2d8_00000001)",
+  "message": "Worker 0 processed request req_a3f7b2d8: GET / - 200 in 5ms (isolate: app.local:0)",
   "request_id": "req_a3f7b2d8",
   "worker_id": 0,
-  "isolate_id": "iso_a3f7b2d8_00000001",
+  "isolate_id": "app.local:0",
   "hostname": "localhost",
   "fields": {
     "duration_ms": 5,
@@ -104,9 +104,9 @@ Every request in NANO carries three identifiers for complete tracing:
 RUST_LOG=debug nano-rs run -c config.toml 2>&1 | grep "received request"
 
 # Example output:
-# DEBUG Worker 0 received request req_a3f7b2d8 (isolate: iso_a3f7b2d8_00000001, age: 45s)
-# DEBUG Worker 0 received request req_b8e4c9f1 (isolate: iso_a3f7b2d8_00000001, age: 47s)
-# DEBUG Worker 1 received request req_c5d6e7f8 (isolate: iso_b8e4c9f1_00000002, age: 3s) <- OOM recovery
+# DEBUG Worker 0 received request req_a3f7b2d8 (isolate: app.local:0, age: 45s)
+# DEBUG Worker 0 received request req_b8e4c9f1 (isolate: app.local:0, age: 47s)
+# DEBUG Worker 1 received request req_c5d6e7f8 (isolate: app.local:0, age: 3s) <- OOM recovery
 ```
 
 ### Show Isolate Creation/Destruction
@@ -116,16 +116,16 @@ RUST_LOG=debug nano-rs run -c config.toml 2>&1 | grep "received request"
 RUST_LOG=info nano-rs run -c config.toml 2>&1 | grep -E "(initialized|fresh isolate|shutting down)"
 
 # Example output:
-# INFO Worker 0 initialized with context and memory monitoring (isolate_id: iso_a3f7b2d8_00000001, initial_age: 0s)
-# INFO Worker 0 created fresh isolate after OOM (new isolate_id: iso_b8e4c9f1_00000002)
-# INFO Worker 0 shutting down (avg context reset: 5.23ms, OOM events: 3, evictions: 2)
+# INFO Worker 0 initialized with context and memory monitoring (isolate_id: app.local:0, initial_age: 0s)
+# INFO Worker 0 created fresh isolate after OOM (isolate_id: app.local:0)
+# INFO Worker 0 shutting down (served: N, isolate_id: telemetry-app.local:0)
 ```
 
 ### Track Specific Isolate
 
 ```bash
 # Follow all requests handled by a specific isolate
-nano-rs run -c config.toml 2>&1 | jq 'select(.isolate_id == "iso_a3f7b2d8_00000001")'
+nano-rs run -c config.toml 2>&1 | jq 'select(.isolate_id == "app.local:0")'
 
 # Follow all requests on a specific worker
 nano-rs run -c config.toml 2>&1 | jq 'select(.worker_id == 0)'
@@ -140,7 +140,7 @@ nano-rs run -c config.toml 2>&1 | jq 'select(.request_id == "req_a3f7b2d8")'
 
 ### Context Reset Timing
 
-Context reset (~5ms) happens between every request in the same isolate:
+A fresh context is created for each request in the same isolate:
 
 ```bash
 # Show slow context resets (>10ms target)
@@ -160,7 +160,7 @@ RUST_LOG=info nano-rs run -c config.toml 2>&1 | grep -E "(memory pressure|OOM|ev
 # WARN Worker 0 memory pressure detected (85%), initiating soft eviction
 # ERROR Worker 0 OOM detected after request execution (oom_count: 1)
 # WARN Worker 0 disposing isolate due to OOM
-# INFO Worker 0 created fresh isolate after OOM (new isolate_id: iso_b8e4c9f1_00000002)
+# INFO Worker 0 created fresh isolate after OOM (isolate_id: app.local:0)
 ```
 
 ### End-to-End Request Timing
@@ -246,9 +246,9 @@ nano-rs run -c config.toml 2>&1 | jq -c "select(.request_id == \"$REQUEST_ID\")"
 # Example output (chronological):
 # {"ts":"...","event":"router.rs:673","message":"Request received for host: localhost","request_id":"req_a3f7b2d8",...}
 # {"ts":"...","event":"queue.rs:264","message":"Worker 0 executing task for ./app.js","request_id":"req_a3f7b2d8",...}
-# {"ts":"...","event":"pool.rs:783","message":"Worker 0 received request req_a3f7b2d8 (isolate: iso_a3f7b2d8_00000001, age: 45s)",...}
-# {"ts":"...","event":"pool.rs:817","message":"Worker 0 processed request req_a3f7b2d8: GET / - 200 in 5ms (isolate: iso_a3f7b2d8_00000001)",...}
-# {"ts":"...","event":"router.rs:976","message":"HTTP GET / - 200 in 5.23ms (worker: 0, isolate: iso_a3f7b2d8_00000001)",...}
+# {"ts":"...","event":"pool.rs:783","message":"Worker 0 received request req_a3f7b2d8 (isolate: app.local:0, age: 45s)",...}
+# {"ts":"...","event":"pool.rs:817","message":"Worker 0 processed request req_a3f7b2d8: GET / - 200 in 5ms (isolate: app.local:0)",...}
+# {"ts":"...","event":"router.rs:976","message":"HTTP GET / - 200 in 5.23ms (worker: 0, isolate: app.local:0)",...}
 ```
 
 ---

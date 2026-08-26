@@ -102,11 +102,11 @@ Full HTTP server and client implementation:
 | Virtual host routing | Implemented | By Host header |
 | Multi-tenant isolation | Implemented | Per-app worker pools |
 | Worker pool | Implemented | Configurable size and limits |
-| Context reset | Implemented | ~5ms between requests |
+| Fresh context per request | Implemented | New V8 context per request for isolation |
 | Outbound HTTP fetch | Implemented | reqwest client with connection pooling |
-| Timeout handling | Implemented | Configurable per-request |
-| Redirect handling | Implemented | Configurable max redirects |
-| Response body limits | Implemented | 100MB default, configurable |
+| Timeout handling | Implemented | Per-app request timeout (`limits.timeout_secs`, default 30s) |
+| Redirect handling | Implemented | Follows redirects (reqwest default policy) |
+| Outbound fetch response cap | Implemented | 100MB (fixed) — oversized responses rejected |
 | WebSocket upgrade | Implemented | Phase 23 — v2.1.x |
 | WebSocketPair API | Implemented | Cloudflare Workers compatible; accept/send/close/addEventListener |
 

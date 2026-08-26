@@ -111,9 +111,9 @@ The data plane assumes the control plane has guaranteed:
 
 ### Performance Characteristics
 
-- **Control plane**: ~5-50us per request validation (acceptable overhead for safety)
-- **Data plane**: ~1-5ms per request execution (optimized hot path)
-- **Batching**: Amortizes context reset (~5ms) across multiple requests
+- **Control plane**: per-request validation (script size, timeout, tenant existence)
+- **Data plane**: per-request JS execution on the worker hot path
+- **Batching**: amortizes context setup across multiple requests
 - **Lookup tables**: O(1) status line resolution vs O(n) branching
 
 ## Integration Points

@@ -291,19 +291,6 @@ pub struct NanoConfig {
     pub server: ServerConfigSection,
 }
 
-/// Legacy global settings (for backward compatibility)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GlobalSettings {
-    /// Default workers per app
-    #[serde(default = "default_workers")]
-    pub workers_per_app: u32,
-    /// Server bind address (default: "127.0.0.1")
-    #[serde(default = "default_bind")]
-    pub bind_address: String,
-    /// Server port
-    #[serde(default = "default_port")]
-    pub port: u16,
-}
 
 impl NanoConfig {
     /// Create a new empty configuration
