@@ -1,124 +1,105 @@
 # Formal methods for nano-rs
 
-Two tools, aimed at the concurrency protocols where interleavings cause bugs that
-ordinary tests can't reliably reach. They are **complementary**: TLA+ checks the
-*design*, loom checks the *implementation*.
+Machine-checked models of nano-rs's core concurrency protocols. Two tools:
 
-| Tool | Checks | Artifact | What it proves here |
-|------|--------|----------|---------------------|
-| **TLA+ / TLC** | the *protocol* (a state-machine model) | `HotSwap.tla`, `HotSwap.cfg` | The blue-green hot-swap/drain design never drops a request and never leaks draining pools. |
-| **loom** | the *real Rust* (RwLock + Arc, all interleavings under the C11 memory model) | `loom-slot/` | `SliverPoolSlot`'s actual lock/Arc code can't tear a pool down under an in-flight request. |
+- **TLA+ / TLC** checks a *protocol* — a state machine you write — by exhaustively
+  exploring every reachable state for invariant and liveness violations.
+- **loom** checks an *implementation* — real Rust — by exhaustively exploring every
+  thread interleaving and memory ordering of the code under test, under the C11
+  memory model.
 
-Both target the same feature: the zero-downtime sliver hot-swap in
-`src/worker/sliver_pool.rs` (`SliverPoolSlot`). Start there — it's the smallest
-real concurrency protocol in the codebase and a good place to learn these tools.
+They are complementary: TLA+ establishes that a design is correct; loom establishes
+that the hand-written synchronization implements it without a data race or ordering
+defect. [COVERAGE.md](COVERAGE.md) maps every nano-rs subsystem to the technique
+that verifies it and states what is deliberately not model-checked.
 
-**New to TLA+ / loom? Read [DIAGRAMS.md](DIAGRAMS.md) first** — a picture-first walk
-through the state machine, the bug both tools catch, and how loom explores
-interleavings.
+New to these tools: [DIAGRAMS.md](DIAGRAMS.md) is a diagram-first walkthrough of one
+protocol (the sliver hot-swap) — the state machine, the defect the check rules out,
+and how loom explores interleavings.
 
-> **The one caveat that matters.** TLA+ verifies a *model*, not the Rust. A green
-> spec means the design is sound; it does not prove the code matches the design.
-> loom closes that gap for the specific data structure it exercises (it runs the
-> real `RwLock`/`Arc`), but only for the slice modelled. Neither tool touches the
-> V8 FFI, `unsafe`, or the worker threads themselves. Treat these as high-value
-> checks on two specific protocols, not a whole-system correctness proof.
+## Scope
 
----
+TLA+ verifies a model, not the Rust; a correct spec does not by itself establish
+that the code matches it. loom removes that gap for the specific synchronization it
+runs (it executes the real `RwLock`/`Arc`/atomics), but only for the code path it
+exercises. Neither tool models the V8 FFI, `unsafe`, or the OS threads and Tokio
+runtime — those are covered by the Rust type system, Miri, and tests (see
+[COVERAGE.md](COVERAGE.md)). The models are checked at small finite bounds, which
+is sufficient to exhaust the interleavings that produce ordering defects.
 
-## TLA+ — the hot-swap protocol
+## Protocols
 
-`HotSwap.tla` models each pool as a generation with a lifecycle
-(`absent → live → retired → dead`) and the slot as the generation currently
-installed. It encodes the design's key rule: a retired pool's workers exit only
-once the drain timer elapsed **and** no request still holds it (the Arc refcount
-is zero) — not on the wall-clock timer alone.
+| Protocol | Code | Spec | loom |
+|----------|------|------|------|
+| HTTP request lifecycle — exactly-one response, bounded-queue backpressure, no hang | `http/router.rs`, `worker/queue.rs`, `worker/pool.rs` | [`RequestLifecycle.tla`](RequestLifecycle.tla) | — |
+| Sliver hot-swap — blue-green swap + drain | `worker/sliver_pool.rs` | [`HotSwap.tla`](HotSwap.tla) | [`loom/src/slot.rs`](loom/src/slot.rs) |
+| Graceful shutdown / drain | `app/drain.rs`, `signal.rs` | [`Shutdown.tla`](Shutdown.tla) | [`loom/src/drain.rs`](loom/src/drain.rs) |
 
-Invariants checked:
+### RequestLifecycle
 
-- **`SlotIsLive`** — the slot always points at a live pool, so a new request never
-  binds to a retired/dead one.
-- **`NoDispatchToDead`** — no in-flight request is ever bound to a torn-down pool.
-  This is the "no dropped request during a deploy" safety property.
-- **`EventuallyReaped`** (liveness) — every retired pool is eventually reaped, so
-  repeated deploys don't accumulate draining pools. It holds *because requests
-  complete* (weak fairness on `Complete`) — teardown is bounded by request
-  completion, which is exactly the design point.
+Every accepted request reaches exactly one terminal outcome — `ok`, `rejected`
+(queue full → 503), or `timeout` — and no request hangs. Invariants:
+`DoneIffResponded` (a response exists iff the request is terminal), `QueueBounded`
+(backpressure holds), `AtMostOneRunning`. Liveness: `EveryRequestResponds`. The
+`timeout` action models the CPU-time limit and the server timeout layer; it is what
+makes liveness hold regardless of handler behavior. Strong fairness on `StartWork`
+models the FIFO `sync_channel` (no starvation).
 
-The constant **`HardKill`** selects the teardown rule:
+### HotSwap
 
-- `FALSE` (shipped design) — reap only when no request still holds the pool.
-- `TRUE` (buggy variant) — hard-kill on the drain timer, ignoring in-flight
-  requests. TLC finds a 5-state counterexample violating `NoDispatchToDead`,
-  which is *why* the shipped code waits for the Arc refcount.
+A retired pool's workers exit only once the drain timer has elapsed **and** no
+request still holds the pool (Arc refcount zero). Invariants: `SlotIsLive`,
+`NoDispatchToDead` (no in-flight request bound to a torn-down pool). Liveness:
+`EventuallyReaped`. The `HardKill` constant switches to a variant that reaps on the
+timer alone; TLC then produces a 5-state counterexample to `NoDispatchToDead`,
+which is the justification for the refcount-based teardown.
 
-### Run it
+### Shutdown
 
-TLC needs Java. On **Java 8**, use tla2tools from TLA+ **1.7.1** (newer releases
-need Java 11+):
+On the shutdown signal the accept path closes, then in-flight requests drain up to a
+timeout. Safety: `NoAcceptAfterSignal` (the in-flight count never rises after the
+signal — the property that makes `RequestDrain::await_complete`'s empty-check-then-
+wait sound), `DrainedMeansEmpty` (a clean drain result means zero in-flight),
+`OutcomeStable`. Liveness: `ShutdownTerminates` (via clean drain or timeout).
+
+## loom checks
+
+`loom/` is a standalone crate (not a nano-rs workspace member): loom compiles its
+whole dependency graph under `--cfg loom`, which would rebuild tokio/hyper in loom
+mode inside nano-rs. It depends only on loom.
+
+- `slot.rs` — `SliverPoolSlot`'s `RwLock<Arc<Pool>>`: a reader holding a pool's
+  `Arc` always sees it alive across a concurrent swap-and-drop
+  (`reader_never_observes_a_dropped_pool`), and a reader after a swap sees the new
+  pool (`swap_is_observed_and_new_pool_is_alive`). The implementation-level
+  counterpart of `HotSwap`'s `NoDispatchToDead`.
+- `drain.rs` — `RequestDrain`'s counter: concurrent completions reach zero without
+  underflow and signal the drain **exactly once**, on the 1→0 edge
+  (`drain_signals_exactly_once`). The counterpart of `Shutdown`'s `DrainedMeansEmpty`.
+
+Each module also has a `#[should_panic]` test that introduces the corresponding
+defect (hard-kill on timer; racy re-read instead of `fetch_sub`'s return) and
+confirms loom reports the failing schedule.
+
+## Running
 
 ```bash
-# shipped design — expect: "No error has been found" (all invariants + liveness)
-make tla
-
-# buggy hard-kill variant — expect: "Invariant NoDispatchToDead is violated"
-# plus a 5-state counterexample trace
-make tla-counterexample
+make tla               # run TLC on all specs (HotSwap, RequestLifecycle, Shutdown)
+make tla-counterexample # HotSwap hard-kill variant: prints the 5-state violation
+make loom              # run all loom checks
 ```
 
 `make tla` downloads the checker into `formal/.cache/` (a repo-local, non-world-
-writable path — not `/tmp`), verifies it against a SHA256 pinned in the Makefile,
-and re-checks that hash before every run, so a tampered jar is never handed to the
-JVM. The pinned jar is TLA+ **1.7.1** (the last Java-8-compatible build). On
-Java 11+ you can instead point `TLA_JAR` at a current `tla2tools.jar` and update
-`TLA_JAR_SHA256`.
+writable path), verifies it against a SHA256 pinned in the Makefile, and re-checks
+that hash before each run, so a tampered jar is never handed to the JVM. The pinned
+jar is TLA+ **1.7.1**, the last Java-8-compatible build; on Java 11+ point `TLA_JAR`
+at a current `tla2tools.jar` and update `TLA_JAR_SHA256`. `make loom` builds only
+the standalone crate under `--cfg loom`; normal nano-rs builds and `cargo test` are
+unaffected.
 
----
+## Extending
 
-## loom — the slot's real synchronization
-
-`loom-slot/` is a **standalone crate** (not a nano-rs workspace member). Loom
-compiles its entire dependency graph in loom mode; running that against nano-rs
-would rebuild tokio/hyper under `--cfg loom` and fail. Isolating the check in a
-crate whose only dependency is loom avoids that. It reproduces the slot's
-synchronization skeleton — `RwLock<Arc<Pool>>` with `current()` (clone under a
-read lock) and `hotswap()` (replace under a write lock, return the old Arc) — with
-a stub `Pool` whose `Drop` marks it not-alive.
-
-Tests (each explores *all* interleavings via `loom::model`):
-
-- **`reader_never_observes_a_dropped_pool`** — a reader holding a pool's `Arc`
-  always sees it alive, even while another thread swaps and drops the old pool.
-  The implementation-level counterpart of TLA+ `NoDispatchToDead`.
-- **`swap_is_observed_and_new_pool_is_alive`** — a reader after a swap sees the new
-  pool (the write lock's happens-before edge; no lost swap).
-- **`hard_kill_variant_is_caught_by_loom`** (`#[should_panic]`) — the loom analog
-  of TLA+ `HardKill`: tearing the pool down without waiting for holders, and loom
-  finds the failing schedule. Proves the check has teeth.
-
-### Run it
-
-```bash
-cd formal/loom-slot
-RUSTFLAGS="--cfg loom" cargo test --release
-```
-
-`make loom` wraps this. It does **not** run in normal `cargo test` — the crate is
-outside the nano-rs package, so day-to-day builds and CI of nano-rs are unaffected.
-
----
-
-## Extending this
-
-The same treatment fits two more protocols, in rough order of value:
-
-1. **Graceful shutdown / request draining** (`app/drain.rs`, `signal.rs`) — a
-   textbook drain: stop accepting, wait for `active_requests == 0`, time out.
-   Safety: nothing accepted after the signal. Liveness: shutdown terminates.
-2. **Isolate lifecycle + eviction** (`worker/eviction.rs`, recycle-after-N,
-   memory-pressure eviction, the telemetry register/deregister guard) — invariant:
-   no dispatch to an isolate mid-recycle; the telemetry registry never shows a
-   dead isolate.
-
-Keep each spec small and single-protocol so it stays a reasoning aid, not a
-maintenance burden.
+The pattern for adding a protocol: write `<Name>.tla` + `<Name>.cfg`, add the name
+to `TLA_SPECS` in the Makefile, and — if the protocol rests on hand-written
+synchronization — add a module to `loom/`. Keep each model to one protocol and to
+small bounds. Candidates not yet modelled are noted in [COVERAGE.md](COVERAGE.md).

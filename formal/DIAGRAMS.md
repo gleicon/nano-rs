@@ -1,7 +1,10 @@
 # Visual guide to the TLA+ and loom checks
 
-A picture-first companion to [README.md](README.md). Everything here is about the
-one protocol both tools target: the sliver hot-swap in `SliverPoolSlot`.
+A diagram-first companion to [README.md](README.md), using one protocol — the
+sliver hot-swap in `SliverPoolSlot` — as a worked example of how TLA+ and loom
+model concurrency. The other modelled protocols (request lifecycle, shutdown drain)
+follow the same structure; [COVERAGE.md](COVERAGE.md) lists them and the full
+verification picture.
 
 ---
 
@@ -93,8 +96,8 @@ State 5  slot=1  status=[0:DEAD,    1:live] drained={0} inflight=[0:1]  ← Reap
                    pool is dead                 but a request is still on it
 ```
 
-That contradiction is what "TLA+ found a bug" looks like: a concrete, minimal
-sequence of steps that reaches a bad state.
+TLC reports an invariant violation as exactly this: a concrete, minimal sequence of
+steps reaching a state where the invariant is false.
 
 ---
 
@@ -156,10 +159,13 @@ flowchart LR
     P -. "model ↔ code gap<br/>(loom narrows it for<br/>the slice it runs)" .-> C
 ```
 
-- **TLA+** tells you the *plan* is correct — but not that the code follows the plan.
-- **loom** tells you the *lock/Arc code* follows the plan — but only for the small
-  skeleton it runs, with a stub pool.
-- **Neither** touches V8, the FFI, `unsafe`, or the actual OS threads/Tokio. Those
-  stay the domain of ordinary tests, Miri (for `unsafe`), and review.
+- **TLA+** verifies the protocol design. It does not establish that the Rust
+  implements that design.
+- **loom** verifies the synchronization implementation, for the code path it
+  executes, against a stub pool.
+- **Neither** models V8, the FFI, `unsafe`, or the OS threads and Tokio runtime.
+  Those are verified by the Rust type system, Miri (for `unsafe`), and tests.
 
-Two sharp checks on one protocol — not a whole-system proof.
+The two techniques cover the design and implementation layers of a concurrency
+protocol. [COVERAGE.md](COVERAGE.md) records which technique verifies each nano-rs
+subsystem and the bounds these models are checked at.

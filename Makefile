@@ -11,8 +11,8 @@ help:
 	@echo "  make fmt      - Format code"
 	@echo "  make lint     - Run clippy"
 	@echo "  make audit    - Run the honesty audit"
-	@echo "  make tla      - Model-check the hot-swap protocol (TLA+)"
-	@echo "  make loom     - Model-check SliverPoolSlot's real Rust (loom)"
+	@echo "  make tla      - Model-check the core protocols (TLA+)"
+	@echo "  make loom     - Model-check the synchronization code (loom)"
 	@echo "  make clean    - Clean build artifacts"
 	@echo "  make doc      - Build documentation"
 	@echo "  make run      - Build and run with config.json"
@@ -36,8 +36,9 @@ lint:
 audit:
 	./scripts/honesty-audit.sh
 
-# Formal verification of the sliver hot-swap protocol. See formal/README.md.
-# TLA+ model-checks the design; loom model-checks the real RwLock+Arc code.
+# Formal verification of nano-rs's core concurrency protocols. See formal/README.md
+# and formal/COVERAGE.md. TLA+ model-checks the protocols; loom model-checks the
+# real synchronization code.
 #
 # The checker jar is cached inside the repo (not a world-writable path like /tmp,
 # where another user could plant a malicious jar that `java -cp` would execute),
@@ -55,21 +56,29 @@ $(TLA_JAR):
 	echo "$(TLA_JAR_SHA256)  $(TLA_JAR).tmp" | shasum -a 256 -c -
 	mv $(TLA_JAR).tmp $(TLA_JAR)
 
-# Re-check the pinned hash right before invoking the JVM, so a jar tampered with
-# after caching can never be executed.
+# All model-checked protocols (one <name>.tla + <name>.cfg each).
+TLA_SPECS = HotSwap RequestLifecycle Shutdown
+
+# Re-check the pinned hash right before invoking the JVM (so a jar tampered with
+# after caching can never be executed), then run every spec. -deadlock disables
+# terminal-state "deadlock" reports; specs that complete (all requests served,
+# drain finished) legitimately reach states with no successor.
 tla: $(TLA_JAR)
 	echo "$(TLA_JAR_SHA256)  $(TLA_JAR)" | shasum -a 256 -c -
-	cd formal && java -cp $(TLA_JAR) tlc2.TLC -config HotSwap.cfg HotSwap.tla
+	@for spec in $(TLA_SPECS); do \
+	  echo "=== TLC: $$spec ==="; \
+	  ( cd formal && java -cp $(TLA_JAR) tlc2.TLC -deadlock -config $$spec.cfg $$spec.tla ) || exit 1; \
+	done
 
-# Reproduce the counterexample for the buggy hard-kill variant. TLC exits
-# non-zero when it finds the (expected) violation, so swallow that — printing the
-# counterexample trace is the point of this target.
+# Reproduce the counterexample for the buggy hot-swap hard-kill variant. TLC
+# exits non-zero when it finds the (expected) violation, so swallow that —
+# printing the counterexample trace is the point of this target.
 tla-counterexample: $(TLA_JAR)
 	echo "$(TLA_JAR_SHA256)  $(TLA_JAR)" | shasum -a 256 -c -
 	cd formal && java -cp $(TLA_JAR) tlc2.TLC -config HotSwap_HardKill.cfg HotSwap.tla || true
 
 loom:
-	cd formal/loom-slot && RUSTFLAGS="--cfg loom" cargo test --release
+	cd formal/loom && RUSTFLAGS="--cfg loom" cargo test --release
 
 # Static serving "profile": a flamegraph synthesized from borescope's call graph
 # (no runtime data). Confirms which subsystems are on the most code paths.

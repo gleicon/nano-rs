@@ -1,22 +1,13 @@
-//! Loom model-check of `SliverPoolSlot`'s synchronization discipline.
+//! `SliverPoolSlot`'s synchronization discipline (hot-swap safety).
 //!
-//! Where the TLA+ spec (`../HotSwap.tla`) checks the *protocol*, loom checks the
-//! *implementation*: it exhaustively explores every thread interleaving and
-//! memory ordering of the real `RwLock` + `Arc` access pattern the slot uses,
-//! under the C11 memory model. No model↔code gap for the part it covers.
+//! Reproduces the slot's skeleton with loom types, keeping the exact shape of
+//! `src/worker/sliver_pool.rs`: a reader clones the inner `Arc` under a read lock
+//! (`current()`) then uses it; a swapper replaces the inner `Arc` under a write
+//! lock and drops the old one (`hotswap` + the drain task's drop). A stub `Pool`
+//! stands in for `SliverWorkerPool` (which loom cannot run).
 //!
-//! Scope: loom cannot run the real `SliverWorkerPool` (OS threads + a Tokio
-//! runtime + a V8 isolate, none of which loom can drive), and loom compiles its
-//! whole dependency graph in loom mode — which is why this lives in a standalone
-//! crate rather than in nano-rs's test suite (that would rebuild tokio/hyper in
-//! loom mode and fail). We reproduce the slot's *synchronization skeleton* with a
-//! stub pool, keeping the exact shape of `SliverPoolSlot`
-//! (`src/worker/sliver_pool.rs`): a reader clones the inner `Arc` under a read
-//! lock (`current()`), then uses it; a swapper replaces the inner `Arc` under a
-//! write lock and drops the old one (`hotswap` + the drain task's drop).
-//!
-//! The invariant loom proves is the one that makes hot-swap safe, and the exact
-//! implementation-level counterpart of the TLA+ `NoDispatchToDead` invariant:
+//! The property is the implementation-level counterpart of the TLA+
+//! `NoDispatchToDead` invariant in `../HotSwap.tla`:
 //!
 //!   A pool obtained from the slot stays alive for as long as the caller holds
 //!   its `Arc` — a concurrent swap-and-drop can never tear it down underneath an

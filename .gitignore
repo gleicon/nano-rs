@@ -4,11 +4,15 @@
 **/*.rs.bk
 *.pdb
 
-# Standalone loom verification crate (formal/loom-slot) build output
-formal/loom-slot/target/
+# Standalone loom verification crate (formal/loom) build output
+formal/loom/target/
 
 # Cached TLA+ checker jar (repo-local, SHA256-pinned in the Makefile)
 formal/.cache/
+
+# TLC model-checker run output (checkpoints, fingerprints, state queues)
+formal/states/
+formal/*.old
 
 # IDE
 .idea/

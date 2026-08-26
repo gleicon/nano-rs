@@ -80,7 +80,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "loom-slot"
+name = "loom-checks"
 version = "0.0.0"
 dependencies = [
  "loom",
