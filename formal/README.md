@@ -37,13 +37,27 @@ is sufficient to exhaust the interleavings that produce ordering defects.
 
 ### RequestLifecycle
 
-Every accepted request reaches exactly one terminal outcome — `ok`, `rejected`
-(queue full → 503), or `timeout` — and no request hangs. Invariants:
-`DoneIffResponded` (a response exists iff the request is terminal), `QueueBounded`
-(backpressure holds), `AtMostOneRunning`. Liveness: `EveryRequestResponds`. The
-`timeout` action models the CPU-time limit and the server timeout layer; it is what
-makes liveness hold regardless of handler behavior. Strong fairness on `StartWork`
-models the FIFO `sync_channel` (no starvation).
+Every accepted request gets a response, the worker queue is bounded, and the worker
+keeps making progress. Invariants: `RespondedIffOutcome`, `QueueBounded`
+(backpressure — queue full ⇒ 503), `WorkerOccupancy`. Liveness: `EveryClientResponds`.
+Strong fairness on `StartWork` models the FIFO `sync_channel` (no scheduler
+starvation).
+
+The model distinguishes two timeouts that the code implements differently:
+
+- **`CpuTerminate`** — the per-request CPU-time limit aborts V8 execution on the
+  worker thread, which both answers the client and **frees the worker**. Armed only
+  when `task.cpu_time_limit_ms > 0`.
+- **`ClientTimeout`** — the tower `TimeoutLayer` returns 408 after 30s. It frees the
+  **client** but not the worker: a runaway handler keeps running.
+
+The `CpuLimit` constant selects the serving path. `TRUE` (the `--config` path, where
+`AppState` carries an `app_registry`) verifies clean. `FALSE` (the shared-router /
+admin-driven path, where `AppState::new_shared` sets `app_registry: None` so
+`get_cpu_time_limit_ms` returns 0) produces a **liveness counterexample**: a runaway
+handler takes a `ClientTimeout` but keeps the worker, and a request queued behind it
+never runs. `make tla-counterexample` prints the trace. This is a real gap — see
+[COVERAGE.md](COVERAGE.md).
 
 ### HotSwap
 

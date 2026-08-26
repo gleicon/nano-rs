@@ -70,12 +70,17 @@ tla: $(TLA_JAR)
 	  ( cd formal && java -cp $(TLA_JAR) tlc2.TLC -deadlock -config $$spec.cfg $$spec.tla ) || exit 1; \
 	done
 
-# Reproduce the counterexample for the buggy hot-swap hard-kill variant. TLC
-# exits non-zero when it finds the (expected) violation, so swallow that —
-# printing the counterexample trace is the point of this target.
+# Reproduce the known counterexamples. TLC exits non-zero when it finds the
+# (expected) violation, so swallow that — printing the trace is the point.
+#  - HotSwap hard-kill: reaping a pool on the drain timer with requests still on it.
+#  - RequestLifecycle no-CPU-limit: the shared-router path (app_registry=None), where
+#    a runaway handler wedges the worker and a queued request never responds.
 tla-counterexample: $(TLA_JAR)
 	echo "$(TLA_JAR_SHA256)  $(TLA_JAR)" | shasum -a 256 -c -
+	@echo "=== HotSwap (HardKill=TRUE) ==="
 	cd formal && java -cp $(TLA_JAR) tlc2.TLC -config HotSwap_HardKill.cfg HotSwap.tla || true
+	@echo "=== RequestLifecycle (CpuLimit=FALSE) ==="
+	cd formal && java -cp $(TLA_JAR) tlc2.TLC -deadlock -config RequestLifecycle_NoCpuLimit.cfg RequestLifecycle.tla || true
 
 loom:
 	cd formal/loom && RUSTFLAGS="--cfg loom" cargo test --release

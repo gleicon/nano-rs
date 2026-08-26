@@ -1,117 +1,149 @@
 ---------------------------- MODULE RequestLifecycle ----------------------------
 (***************************************************************************)
-(* The HTTP handler's core contract: every accepted request produces        *)
-(* EXACTLY ONE terminal response, and no request hangs forever.             *)
+(* The HTTP handler's contract: every accepted request produces a response, *)
+(* the worker queue is bounded (backpressure), and the worker keeps making   *)
+(* progress.                                                                 *)
 (*                                                                          *)
 (* Code modelled:                                                           *)
-(*   - src/http/router.rs `dispatch_to_worker_pool` -> WorkQueue::dispatch   *)
-(*   - src/worker/queue.rs bounded per-worker `mpsc::sync_channel`           *)
+(*   - src/http/router.rs `dispatch_to_worker_pool` -> WorkQueue::try_dispatch*)
+(*     (bounded `mpsc::sync_channel`; full => 503 Retry-After)               *)
 (*   - src/worker/pool.rs request loop, `response_tx` (a oneshot channel)    *)
-(*   - the server-side timeout layer (TimeoutLayer, 30s) and per-request     *)
-(*     CPU-time limit                                                        *)
+(*   - the per-request CPU-time limit (`CpuTimeoutGuard`, armed only when     *)
+(*     `task.cpu_time_limit_ms > 0`) which calls `terminate_execution`        *)
+(*   - the server-side timeout layer (`TimeoutLayer`, 30s)                    *)
 (*                                                                          *)
-(* Each request ends in exactly one outcome:                                *)
-(*   ok       - the handler ran and the worker sent a response               *)
-(*   rejected - the worker queue was full; dispatch returned 503 Retry-After *)
-(*   timeout  - the CPU-time limit or the server timeout layer fired         *)
+(* Two DISTINCT timeouts, which earlier versions of this spec conflated:      *)
 (*                                                                          *)
-(* The oneshot sender is consumed by a send, so a response is sent AT MOST   *)
-(* once by construction; if the worker drops the sender without sending, the *)
-(* receiver observes an error and the handler still emits one 500 response.  *)
-(* Either way the caller sees exactly one response, which is what `ok`       *)
-(* abstracts. The `timeout` outcome is the escape that guarantees no request *)
-(* is stuck `running` forever even if a handler never returns.               *)
+(*   CpuTerminate — the CPU-time limit aborts V8 execution on the worker      *)
+(*     thread. This both responds to the client AND frees the worker to take  *)
+(*     the next request. It is armed ONLY when a positive CPU limit is in     *)
+(*     effect for the app (`cpu_time_limit_ms > 0`).                          *)
+(*                                                                          *)
+(*   ClientTimeout — the tower `TimeoutLayer` abandons the client side after  *)
+(*     30s and returns 408. It frees the CLIENT but does NOT terminate the    *)
+(*     worker's execution: a runaway handler keeps running and the worker     *)
+(*     stays occupied.                                                        *)
+(*                                                                          *)
+(* The constant `CpuLimit` models whether a worker-side CPU limit is armed:   *)
+(*   TRUE  = the `--config` serving path (AppState built with an app_registry  *)
+(*           and cpu_time_enabled) — CpuTerminate is available.               *)
+(*   FALSE = the shared-router / admin-driven path, where AppState is built    *)
+(*           with `app_registry: None`, so `get_cpu_time_limit_ms` returns 0   *)
+(*           and CpuTerminate never fires.                                    *)
+(*                                                                          *)
+(* With CpuLimit=TRUE the worker always frees and every request responds.     *)
+(* With CpuLimit=FALSE a runaway handler wedges the worker: the client still  *)
+(* gets a 408, but a request queued behind it never runs — TLC reports the    *)
+(* liveness violation. That is the gap between the two serving paths.         *)
 (***************************************************************************)
-EXTENDS Naturals, FiniteSets
+EXTENDS Naturals
 
 CONSTANTS
     NumRequests,   \* number of requests to explore (bounds the state space)
-    QueueCap       \* bounded worker-queue capacity (sync_channel depth)
+    QueueCap,      \* bounded worker-queue capacity (sync_channel depth)
+    CpuLimit       \* is a worker-side CPU-time limit armed?
 
 ASSUME NumRequests \in Nat /\ QueueCap \in Nat /\ QueueCap >= 1
+       /\ CpuLimit \in BOOLEAN
 
 Requests == 1..NumRequests
 
 VARIABLES
-    status,   \* [Requests -> {"new","queued","running","done"}]
-    outcome,  \* [Requests -> {"none","ok","rejected","timeout"}]
-    qlen,     \* number of requests currently sitting in the worker queue
-    running   \* the request currently executing, or 0 for "none"
+    clientStatus,  \* [Requests -> {"new","queued","running","responded"}] (client view)
+    outcome,       \* [Requests -> {"none","ok","rejected","timeout","client_timeout"}]
+    worker,        \* the request occupying the single worker, or 0 for "free"
+    qlen           \* number of requests sitting in the worker queue
 
-vars == <<status, outcome, qlen, running>>
+vars == <<clientStatus, outcome, worker, qlen>>
 
 TypeOK ==
-    /\ status \in [Requests -> {"new","queued","running","done"}]
-    /\ outcome \in [Requests -> {"none","ok","rejected","timeout"}]
+    /\ clientStatus \in [Requests -> {"new","queued","running","responded"}]
+    /\ outcome \in [Requests -> {"none","ok","rejected","timeout","client_timeout"}]
+    /\ worker \in 0..NumRequests
     /\ qlen \in 0..QueueCap
-    /\ running \in 0..NumRequests
 
 Init ==
-    /\ status = [r \in Requests |-> "new"]
+    /\ clientStatus = [r \in Requests |-> "new"]
     /\ outcome = [r \in Requests |-> "none"]
+    /\ worker = 0
     /\ qlen = 0
-    /\ running = 0
 
-(* A new request is dispatched. If the bounded queue has room it is enqueued; *)
-(* otherwise dispatch fails fast with 503 (backpressure), a terminal outcome. *)
+(* Dispatch: enqueue if the bounded queue has room, else fail fast with 503.  *)
 Enqueue(r) ==
-    /\ status[r] = "new"
+    /\ clientStatus[r] = "new"
     /\ qlen < QueueCap
-    /\ status' = [status EXCEPT ![r] = "queued"]
+    /\ clientStatus' = [clientStatus EXCEPT ![r] = "queued"]
     /\ qlen' = qlen + 1
-    /\ UNCHANGED <<outcome, running>>
+    /\ UNCHANGED <<outcome, worker>>
 
 Reject(r) ==
-    /\ status[r] = "new"
+    /\ clientStatus[r] = "new"
     /\ qlen = QueueCap
-    /\ status' = [status EXCEPT ![r] = "done"]
+    /\ clientStatus' = [clientStatus EXCEPT ![r] = "responded"]
     /\ outcome' = [outcome EXCEPT ![r] = "rejected"]
-    /\ UNCHANGED <<qlen, running>>
+    /\ UNCHANGED <<worker, qlen>>
 
-(* The worker pulls one queued request and runs it (one at a time).          *)
+(* The worker pulls one queued request and runs it — one at a time.           *)
 StartWork(r) ==
-    /\ status[r] = "queued"
-    /\ running = 0
-    /\ status' = [status EXCEPT ![r] = "running"]
-    /\ running' = r
+    /\ clientStatus[r] = "queued"
+    /\ worker = 0
+    /\ clientStatus' = [clientStatus EXCEPT ![r] = "running"]
+    /\ worker' = r
     /\ qlen' = qlen - 1
     /\ UNCHANGED outcome
 
-(* The handler returns and the worker sends the response on the oneshot.      *)
+(* The handler returns normally: respond OK and free the worker. Deliberately  *)
+(* NOT a fair action — a runaway handler may never take this step.            *)
 Finish(r) ==
-    /\ status[r] = "running"
-    /\ running = r
-    /\ status' = [status EXCEPT ![r] = "done"]
+    /\ worker = r
+    /\ clientStatus[r] = "running"
+    /\ clientStatus' = [clientStatus EXCEPT ![r] = "responded"]
     /\ outcome' = [outcome EXCEPT ![r] = "ok"]
-    /\ running' = 0
+    /\ worker' = 0
     /\ UNCHANGED qlen
 
-(* The CPU-time limit or the server timeout layer fires — the escape that      *)
-(* guarantees a running request always reaches a response even if the handler *)
-(* never returns.                                                             *)
-Timeout(r) ==
-    /\ status[r] = "running"
-    /\ running = r
-    /\ status' = [status EXCEPT ![r] = "done"]
-    /\ outcome' = [outcome EXCEPT ![r] = "timeout"]
-    /\ running' = 0
+(* CPU-time limit fires: terminate execution, freeing the worker, and respond  *)
+(* if the client has not already been answered. Only available when a limit    *)
+(* is armed.                                                                   *)
+CpuTerminate(r) ==
+    /\ CpuLimit
+    /\ worker = r
+    /\ worker' = 0
+    /\ clientStatus' = IF clientStatus[r] = "running"
+                       THEN [clientStatus EXCEPT ![r] = "responded"]
+                       ELSE clientStatus
+    /\ outcome' = IF clientStatus[r] = "running"
+                  THEN [outcome EXCEPT ![r] = "timeout"]
+                  ELSE outcome
     /\ UNCHANGED qlen
+
+(* Server timeout layer: answer the client with 408, but leave the worker      *)
+(* occupied — the handler is still running.                                    *)
+ClientTimeout(r) ==
+    /\ clientStatus[r] = "running"
+    /\ clientStatus' = [clientStatus EXCEPT ![r] = "responded"]
+    /\ outcome' = [outcome EXCEPT ![r] = "client_timeout"]
+    /\ UNCHANGED <<worker, qlen>>
 
 Next ==
     \E r \in Requests :
-        Enqueue(r) \/ Reject(r) \/ StartWork(r) \/ Finish(r) \/ Timeout(r)
+        \/ Enqueue(r) \/ Reject(r) \/ StartWork(r)
+        \/ Finish(r) \/ CpuTerminate(r) \/ ClientTimeout(r)
 
-(* Fairness models the real system's progress guarantees:                      *)
-(*  - every arriving request is dispatched (enqueued or 503-rejected): WF.       *)
-(*  - the bounded queue is FIFO (mpsc::sync_channel), so a queued request is     *)
-(*    not starved even while others run: strong fairness on StartWork.           *)
-(*  - a running request always reaches a response, via Finish OR the Timeout     *)
-(*    escape — this is what makes "no request hangs" hold regardless of what     *)
-(*    the handler does: WF.                                                      *)
+(* Fairness models the real progress guarantees:                              *)
+(*  - every arriving request is dispatched (enqueued or 503-rejected).         *)
+(*  - the bounded queue is FIFO, so a queued request is not starved by the      *)
+(*    scheduler: strong fairness on StartWork.                                 *)
+(*  - the server timeout always eventually answers a running client.           *)
+(*  - the CPU limit, WHEN ARMED, always eventually frees the worker.           *)
+(*  - Finish is NOT fair: a runaway handler need never return on its own. The   *)
+(*    worker is freed only by Finish or CpuTerminate, so with no CPU limit a    *)
+(*    runaway wedges it.                                                        *)
 Fairness ==
     /\ \A r \in Requests : WF_vars(Enqueue(r) \/ Reject(r))
     /\ \A r \in Requests : SF_vars(StartWork(r))
-    /\ \A r \in Requests : WF_vars(Finish(r) \/ Timeout(r))
+    /\ \A r \in Requests : WF_vars(ClientTimeout(r))
+    /\ \A r \in Requests : WF_vars(CpuTerminate(r))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -119,24 +151,23 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (* SAFETY                                                                    *)
 (***************************************************************************)
 
-(* A request has a response iff it is done — the two are inseparable.          *)
-DoneIffResponded == \A r \in Requests : (status[r] = "done") <=> (outcome[r] # "none")
+RespondedIffOutcome ==
+    \A r \in Requests : (clientStatus[r] = "responded") <=> (outcome[r] # "none")
 
-(* The queue is never over capacity (bounded backpressure holds).             *)
 QueueBounded == qlen <= QueueCap
 
-(* At most one request runs at a time on the worker.                          *)
-AtMostOneRunning ==
-    running # 0 => (status[running] = "running"
-                    /\ \A r \in Requests : status[r] = "running" => r = running)
+(* The worker, when busy, holds a request that is running or has been           *)
+(* client-timed-out (worker still occupied after a 408).                        *)
+WorkerOccupancy ==
+    worker # 0 => clientStatus[worker] \in {"running","responded"}
 
 (***************************************************************************)
 (* LIVENESS                                                                  *)
 (***************************************************************************)
 
-(* THE contract: every request eventually reaches a terminal response. No     *)
-(* accepted request hangs; no request is silently dropped. Backpressure gives  *)
-(* rejected requests an immediate 503; the timeout escape bounds running ones. *)
-EveryRequestResponds == \A r \in Requests : <>(status[r] = "done")
+(* Every request's client eventually gets a response. Holds with a CPU limit;  *)
+(* with CpuLimit=FALSE a request queued behind a wedged worker never runs, and  *)
+(* TLC returns that as a counterexample.                                        *)
+EveryClientResponds == \A r \in Requests : <>(clientStatus[r] = "responded")
 
 =============================================================================
