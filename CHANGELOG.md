@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Zero-downtime sliver hot-swap** (`worker/sliver_pool.rs`, `main.rs`) — A running sliver app can be replaced in place without changing its hostname. `SliverPoolSlot` holds the app's worker pool behind a swappable slot; `hotswap`/`hotswap_and_drain` build a fresh, fully-warm pool from a new bundle, atomically repoint traffic to it, and drain the old pool (in-flight requests finish, then its workers exit). Sliver mode wires this to `SIGHUP`: the process re-reads the sliver file and blue-green-swaps it. A failed reload keeps the current version serving. See `examples/hotswap/` and `docs/SLIVER_WORKFLOW.md`.
-- **Heap-snapshot create/restore primitives** (`v8/snapshot.rs`) — `create_snapshot_from_nano` serializes a `snapshot_creator` isolate's heap into a loadable blob; `create_isolate_from_snapshot` + `NanoIsolate::from_v8_isolate` restore it. Verified end to end on the v8 150 crate. Serving cold starts from a baked heap blob is not yet wired (it needs an external-reference table for native APIs — see `docs/ROADMAP.md`); the previous bailing stub is gone.
+- **Heap-snapshot create/restore primitives** (`v8/snapshot.rs`) — `create_snapshot_from_nano` serializes a `snapshot_creator` isolate's heap into a loadable blob; `create_isolate_from_snapshot` + `NanoIsolate::from_v8_isolate` restore it. Verified end to end on the v8 150 crate. Serving cold starts from a baked heap blob is not wired (it needs an external-reference table for native APIs — see `docs/COLD_START.md`); the previous bailing stub is gone.
 
 ### Fixed
 

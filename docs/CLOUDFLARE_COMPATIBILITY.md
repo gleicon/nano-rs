@@ -155,9 +155,7 @@ This is **NOT** Durable Objects. For true state persistence that survives:
 
 You still need:
 1. **External database** (PostgreSQL, Redis, etc.)
-2. **Durable Object equivalent** (future feature)
-
-See [Durable Objects Analysis](./DURABLE_OBJECTS_ANALYSIS.md) for what's needed.
+2. **A Durable Object equivalent** — Durable Objects are not supported; use an external store for coordinated state.
 
 ---
 

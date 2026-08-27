@@ -261,16 +261,12 @@ This is **accepted technical debt**:
 - v2.0: Can use native imports (optional upgrade)
 ```
 
-See `TECHNICAL_DEBT.md` for full details.
-
 ---
 
 ## Related Decisions
 
 * [ADR-004: VFS Architecture](004-vfs-architecture.md) — VFS needed for v2.0 import resolution
-* Phase 18: ESM Module System — Implementation details
 * Full Module API: not implemented (shim adopted)
-* `TECHNICAL_DEBT.md#ESM-01` — Documented as accepted debt
 
 ---
 
