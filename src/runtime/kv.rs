@@ -27,8 +27,8 @@ use edgestore::{EdgestoreConfig, Engine};
 // Global EdgeStore engine — initialized once, shared across worker threads.
 // RwLock allows concurrent reads (kv_get, kv_list); writes (kv_set, kv_delete) are exclusive.
 // Tenants share one engine; isolation is via the key prefix {hostname}::{kv_name}.
-// Limitation: KV-heavy workloads from multiple tenants still contend on write lock.
-// A per-tenant DashMap<String, RwLock<Engine>> would eliminate that at the cost of N open files.
+// Writes serialize on the single RwLock: shared-engine simplicity is chosen over
+// per-tenant write parallelism.
 static KV_ENGINE: OnceLock<RwLock<Engine>> = OnceLock::new();
 
 thread_local! {
