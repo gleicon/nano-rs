@@ -176,7 +176,7 @@ pub use memory_monitor::{
 pub use oom::{OomMonitor, OomMonitorBuilder};
 pub use pool::{WorkerHandle, WorkerPool};
 pub use queue::{
-    hash_hostname, EntrypointWorkerPool, QueueError, QueueStats, StatsSnapshot, WorkQueue,
+    canonical_hostname, EntrypointWorkerPool, QueueError, QueueStats, StatsSnapshot, WorkQueue,
 };
 pub use r#trait::{BoxedWorkerPool, WorkerPool as WorkerPoolTrait, WorkerPoolConfig};
 pub use sliver_pool::{SliverPoolSlot, SliverWorkerPool};

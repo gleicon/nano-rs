@@ -12,12 +12,11 @@
 //! # Decisions
 //!
 //! - **D-WQ-01:** 256-slot capacity per worker thread (not per pool)
-//! - **D-WQ-02:** Case-insensitive hostname hashing per HTTP spec
-//! - **D-WQ-03:** DefaultHasher for consistent hostname-to-pool mapping
+//! - **D-WQ-02:** Case-insensitive hostname-to-pool mapping per HTTP spec
+//! - **D-WQ-03:** Pools keyed by the canonical hostname string (never a hash),
+//!   so distinct hostnames can never collide into a shared tenant pool
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -325,8 +324,13 @@ impl crate::worker::r#trait::WorkerPool for EntrypointWorkerPool {
 ///
 /// Manages per-hostname worker pools and routes requests consistently.
 pub struct WorkQueue {
-    /// Map of hostname hash to worker pool
-    pools: HashMap<u64, EntrypointWorkerPool>,
+    /// Map of canonical (lowercased) hostname to worker pool.
+    ///
+    /// Keyed by the hostname string itself, never a hash: a `u64` hash key would
+    /// let two distinct hostnames collide into one slot and silently share an
+    /// isolate, KV namespace, VFS, and env — a cross-tenant merge. The string key
+    /// makes tenant identity exact.
+    pools: HashMap<String, EntrypointWorkerPool>,
     /// Default number of workers per pool
     workers_per_pool: u32,
     /// Bounded channel capacity (256 slots per POOL-02)
@@ -431,9 +435,9 @@ impl WorkQueue {
     ///
     /// A mutable reference to the `EntrypointWorkerPool` for this hostname
     pub async fn get_or_create_pool(&mut self, hostname: &str) -> &mut EntrypointWorkerPool {
-        let hash = hash_hostname(hostname);
+        let key = canonical_hostname(hostname);
 
-        if !self.pools.contains_key(&hash) {
+        if !self.pools.contains_key(&key) {
             tracing::info!(
                 "Creating new EntrypointWorkerPool for hostname: {}",
                 hostname
@@ -583,14 +587,14 @@ impl WorkQueue {
                 self.create_pool_with_fallback(hostname).await
             };
 
-            self.pools.insert(hash, pool);
+            self.pools.insert(key.clone(), pool);
             self.stats.active_pools.fetch_add(1, Ordering::Relaxed);
             self.stats
                 .active_workers
                 .fetch_add(self.workers_per_pool, Ordering::Relaxed);
         }
 
-        self.pools.get_mut(&hash).expect("Pool should exist")
+        self.pools.get_mut(&key).expect("Pool should exist")
     }
 
     /// Create a pool using global vfs_disk_config as fallback
@@ -598,8 +602,17 @@ impl WorkQueue {
     /// This is used when per-app configuration is not available.
     async fn create_pool_with_fallback(&self, hostname: &str) -> EntrypointWorkerPool {
         if let Some(ref disk_config) = self.vfs_disk_config {
-            // Create disk backend asynchronously using global config
-            let base_path = disk_config.base_path.clone();
+            // The global disk config gives ONE base_path for every hostname, and
+            // the disk backend does not apply the namespace prefix (see
+            // `IsolateVfs::prefix_namespace`) — so without a per-tenant subdir all
+            // tenants would share one directory and read each other's files. Root
+            // each tenant at `base_path/{namespace}` using the injective,
+            // traversal-safe hostname namespace to restore isolation.
+            let ns = crate::vfs::VfsNamespace::from_hostname(hostname);
+            let base_path = std::path::Path::new(&disk_config.base_path)
+                .join(ns.as_str())
+                .to_string_lossy()
+                .into_owned();
             match BackendFactory::new()
                 .create_backend(
                     VfsBackendType::Disk,
@@ -694,15 +707,14 @@ impl WorkQueue {
 
     /// Get pool for a hostname (returns None if not found)
     pub fn get_pool(&self, hostname: &str) -> Option<&EntrypointWorkerPool> {
-        let hash = hash_hostname(hostname);
-        self.pools.get(&hash)
+        self.pools.get(&canonical_hostname(hostname))
     }
 
     /// Shutdown all worker pools gracefully
     pub fn shutdown(self) {
         tracing::info!("Shutting down WorkQueue with {} pools", self.pools.len());
-        for (hash, pool) in self.pools {
-            tracing::debug!("Shutting down EntrypointWorkerPool with hash: {}", hash);
+        for (hostname, pool) in self.pools {
+            tracing::debug!("Shutting down EntrypointWorkerPool for hostname: {}", hostname);
             pool.shutdown();
         }
     }
@@ -713,23 +725,14 @@ impl WorkQueue {
     }
 }
 
-/// Hash a hostname to a u64 value
+/// Canonicalize a hostname into the exact key used to identify a tenant pool.
 ///
-/// Uses case-insensitive hashing per HTTP spec (D-WQ-02).
-/// Uses std::collections::hash_map::DefaultHasher for consistency.
-///
-/// # Arguments
-///
-/// * `hostname` - The hostname to hash
-///
-/// # Returns
-///
-/// A u64 hash value for the lowercase hostname
-pub fn hash_hostname(hostname: &str) -> u64 {
-    let lowercase = hostname.to_lowercase();
-    let mut hasher = DefaultHasher::new();
-    lowercase.hash(&mut hasher);
-    hasher.finish()
+/// Case-insensitive per HTTP spec (D-WQ-02): hosts differing only in case are the
+/// same tenant. This is deliberately the identity string, not a hash — the pool
+/// map is keyed by this value so two distinct hostnames can never collide into a
+/// shared pool (which would merge their isolate, KV, VFS, and env).
+pub fn canonical_hostname(hostname: &str) -> String {
+    hostname.to_lowercase()
 }
 
 #[cfg(test)]
@@ -823,13 +826,19 @@ mod tests {
     }
 
     #[test]
-    fn test_hostname_hash_case_insensitive() {
-        let hash1 = hash_hostname("Example.COM");
-        let hash2 = hash_hostname("example.com");
-        let hash3 = hash_hostname("EXAMPLE.COM");
+    fn canonical_hostname_is_case_insensitive() {
+        assert_eq!(canonical_hostname("Example.COM"), canonical_hostname("example.com"));
+        assert_eq!(canonical_hostname("EXAMPLE.COM"), canonical_hostname("example.com"));
+    }
 
-        assert_eq!(hash1, hash2, "Hostname hashing should be case-insensitive");
-        assert_eq!(hash2, hash3, "Hostname hashing should be case-insensitive");
+    #[test]
+    fn distinct_hostnames_get_distinct_pool_keys() {
+        // The pool map is keyed by this value. Distinct tenants MUST map to
+        // distinct keys — otherwise two tenants share one isolate/KV/VFS/env.
+        // `a.com` and `a-com` were a real collision under the old lossy scheme.
+        assert_ne!(canonical_hostname("a.com"), canonical_hostname("a-com"));
+        assert_ne!(canonical_hostname("tenant-a.example"), canonical_hostname("tenant.a.example"));
+        assert_ne!(canonical_hostname("evil.com"), canonical_hostname("victim.com"));
     }
 
     #[tokio::test]
@@ -844,23 +853,48 @@ mod tests {
         assert_eq!(queue.stats.active_workers.load(Ordering::Relaxed), 4);
     }
 
+    /// Standing guard against cross-tenant pool merge. `a.com` and `a-com` are a
+    /// hostname pair that collided into one pool under the old lossy namespace
+    /// scheme (both sanitized to `a_com`). They MUST now get separate pools —
+    /// otherwise tenant A and tenant B share an isolate, KV, VFS, and env.
+    #[tokio::test]
+    async fn colliding_hostnames_do_not_merge_into_one_pool() {
+        let mut queue = WorkQueue::new(1);
+
+        queue.get_or_create_pool("a.com").await;
+        queue.get_or_create_pool("a-com").await;
+
+        assert_eq!(
+            queue.stats.active_pools.load(Ordering::Relaxed),
+            2,
+            "a.com and a-com must not share a pool"
+        );
+        let a = queue.get_pool("a.com").map(|p| p as *const _);
+        let b = queue.get_pool("a-com").map(|p| p as *const _);
+        assert_ne!(a, b, "distinct tenants must hold distinct pool instances");
+    }
+
     #[tokio::test]
     async fn test_affine_dispatch_consistency() {
+        // Affine dispatch maps hostname → pool. The same hostname must always
+        // resolve to the same pool (stable affinity); distinct hostnames must
+        // resolve to distinct pools (tenant isolation). Within a pool, worker
+        // selection is round-robin (see pool.rs `next_worker`).
         let mut queue = WorkQueue::new(4);
 
-        let pool = queue.get_or_create_pool("app.example.com").await;
-        let worker_count = pool.worker_count;
-
-        let idx = (hash_hostname("app.example.com") % worker_count as u64) as usize;
-        assert!(
-            idx < worker_count as usize,
-            "worker index must be in bounds"
+        queue.get_or_create_pool("app.example.com").await;
+        let first = queue.get_pool("app.example.com").map(|p| p as *const _);
+        let again = queue.get_pool("APP.example.com").map(|p| p as *const _);
+        assert_eq!(
+            first, again,
+            "same hostname (case-insensitive) must map to the same pool"
         );
 
-        assert_ne!(
-            hash_hostname("app.example.com"),
-            hash_hostname("other.example.com"),
-            "different hostnames must produce different hashes"
+        queue.get_or_create_pool("other.example.com").await;
+        assert_eq!(
+            queue.stats.active_pools.load(Ordering::Relaxed),
+            2,
+            "distinct hostnames must not share a pool"
         );
     }
 

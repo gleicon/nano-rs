@@ -14,15 +14,42 @@ use crate::vfs::types::{VfsPath, VfsResult};
 pub struct VfsNamespace(String);
 
 impl VfsNamespace {
-    /// Create a namespace from an application hostname
+    /// Create a namespace from an application hostname.
     ///
-    /// Sanitizes the hostname by:
-    /// - Converting to lowercase
-    /// - Replacing '.' with '_'
-    /// - Replacing '-' with '_'
+    /// The mapping is **injective**: distinct hostnames always yield distinct
+    /// namespaces. This is a tenant boundary — the namespace becomes a directory
+    /// name on the disk backend and a key prefix on the memory backend, so a
+    /// collision would let one tenant read/write another's files.
+    ///
+    /// The old scheme replaced both `.` and `-` with `_`, so `a.com` and `a-com`
+    /// both mapped to `a_com` — a cross-tenant merge. Here, the DNS charset
+    /// `[a-z0-9.-]` is preserved verbatim (keeping `.` and `-` distinct) and any
+    /// other byte is escaped as `_XX_` (lowercase hex), which is reversible and
+    /// collision-free. `_` itself is escaped so an attacker can't forge an
+    /// escape sequence. The traversal-sensitive results (`.`, `..`, empty) are
+    /// fully hex-escaped so the namespace is always a single safe path segment.
     pub fn from_hostname(hostname: &str) -> Self {
-        let sanitized = hostname.to_lowercase().replace('.', "_").replace('-', "_");
-        Self(sanitized)
+        let lower = hostname.to_lowercase();
+        let mut out = String::with_capacity(lower.len());
+        for &b in lower.as_bytes() {
+            match b {
+                b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' => out.push(b as char),
+                _ => out.push_str(&format!("_{b:02x}_")),
+            }
+        }
+        // Guard the path-traversal / empty cases: a namespace of "", "." or ".."
+        // would resolve to the base dir or its parent. Escape the whole thing.
+        if out.is_empty() || out == "." || out == ".." {
+            out = lower
+                .as_bytes()
+                .iter()
+                .map(|b| format!("_{b:02x}_"))
+                .collect();
+            if out.is_empty() {
+                out.push_str("_empty_");
+            }
+        }
+        Self(out)
     }
 
     /// Get the namespace as a string slice
@@ -121,6 +148,43 @@ impl IsolateVfs {
 mod tests {
     use super::*;
     use crate::vfs::MemoryBackend;
+
+    #[test]
+    fn namespace_from_hostname_is_injective_for_dot_dash() {
+        // Regression: `.` and `-` both used to collapse to `_`, merging tenants.
+        assert_ne!(
+            VfsNamespace::from_hostname("a.com"),
+            VfsNamespace::from_hostname("a-com"),
+        );
+        assert_ne!(
+            VfsNamespace::from_hostname("tenant-a.example"),
+            VfsNamespace::from_hostname("tenant.a.example"),
+        );
+        // DNS charset is preserved verbatim (case-folded).
+        assert_eq!(VfsNamespace::from_hostname("A.com").as_str(), "a.com");
+    }
+
+    #[test]
+    fn namespace_from_hostname_escapes_traversal_and_separators() {
+        // A namespace must always be a single, non-traversing path segment.
+        for h in ["..", ".", "", "/", "../..", "a/b", "a::b", "a\\b"] {
+            let ns = VfsNamespace::from_hostname(h).0;
+            assert!(ns != "." && ns != ".." && !ns.is_empty(), "unsafe ns for {h:?}: {ns:?}");
+            assert!(!ns.contains('/'), "path separator leaked for {h:?}: {ns:?}");
+            assert!(!ns.contains('\\'), "backslash leaked for {h:?}: {ns:?}");
+            assert!(!ns.contains("::"), "ns separator leaked for {h:?}: {ns:?}");
+        }
+        // Distinct escaped inputs stay distinct.
+        assert_ne!(
+            VfsNamespace::from_hostname("a/b"),
+            VfsNamespace::from_hostname("a\\b"),
+        );
+        // `_` is escaped so a literal underscore can't forge an escape token.
+        assert_ne!(
+            VfsNamespace::from_hostname("a_2e_b"),
+            VfsNamespace::from_hostname("a.b"),
+        );
+    }
 
     #[tokio::test]
     async fn test_isolate_vfs_basic() {
@@ -224,6 +288,41 @@ mod tests {
         // Read back via API
         let content = vfs.read("/test.txt").await.unwrap();
         assert_eq!(content, b"hello vfs");
+    }
+
+    /// Standing guard for the disk-fallback isolation model. The disk backend
+    /// does NOT apply the namespace prefix — isolation depends on each tenant
+    /// being rooted at a distinct `base_path`. `WorkQueue::create_pool_with_fallback`
+    /// derives that root as `base/{from_hostname(host)}`. This proves the collision
+    /// pair `a.com` / `a-com` lands in separate subdirs and cannot read each other.
+    #[tokio::test]
+    async fn disk_fallback_per_tenant_subdir_isolates_collision_pair() {
+        use crate::vfs::DiskBackend;
+        let root = tempfile::TempDir::new().unwrap();
+
+        let mk = |host: &str| {
+            let sub = root.path().join(VfsNamespace::from_hostname(host).as_str());
+            sub
+        };
+        let path_a = mk("a.com");
+        let path_b = mk("a-com");
+        assert_ne!(path_a, path_b, "collision pair must get distinct roots");
+
+        let vfs_a = IsolateVfs::new(
+            VfsNamespace::from_hostname("a.com"),
+            crate::vfs::VfsBackendEnum::disk(DiskBackend::new(&path_a).await.unwrap()),
+        );
+        let vfs_b = IsolateVfs::new(
+            VfsNamespace::from_hostname("a-com"),
+            crate::vfs::VfsBackendEnum::disk(DiskBackend::new(&path_b).await.unwrap()),
+        );
+
+        vfs_a.write("/secret.txt", b"a-only").await.unwrap();
+        assert!(
+            vfs_b.read("/secret.txt").await.is_err(),
+            "a-com must not read a.com's file"
+        );
+        assert_eq!(vfs_a.read("/secret.txt").await.unwrap(), b"a-only");
     }
 
     /// Memory backend still uses namespace prefix for multi-tenant isolation.
