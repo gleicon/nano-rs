@@ -87,6 +87,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Console message for developers
-    console.log('%c nano-rs ', 'background: #3b82f6; color: white; padding: 4px 8px; border-radius: 4px;', 'v1.2.4');
+    console.log('%c nano-rs ', 'background: #3b82f6; color: white; padding: 4px 8px; border-radius: 4px;', 'multi-tenant JS/WASM edge runtime');
     console.log('Documentation: https://nano-rs.io');
 });

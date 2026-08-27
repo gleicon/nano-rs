@@ -62,7 +62,7 @@ See [API Reference](docs/API.md) for detailed crypto documentation.
 | API | Status | Algorithms |
 |-----|--------|------------|
 | crypto.getRandomValues | Implemented | All TypedArray types |
-| crypto.subtle.digest | Implemented | SHA-256, SHA-512 |
+| crypto.subtle.digest | Implemented | SHA-256, SHA-384, SHA-512 |
 | crypto.subtle.generateKey | Implemented | AES-GCM, HMAC, RSA-OAEP, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA, ECDH |
 | crypto.subtle.importKey | Implemented | AES-GCM, HMAC, RSA-*, ECDSA, ECDH, PBKDF2 |
 | crypto.subtle.exportKey | Implemented | JWK format (AES-GCM, HMAC) |

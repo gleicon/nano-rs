@@ -1,9 +1,5 @@
 # Production Multi-Tenancy
 
-**Status:** Complete (v1.5.0)
-**Phase:** 27-production-multi-tenancy
-**Completed:** 2026-05-01
-
 ## Overview
 
 NANO implements production-grade multi-tenancy features for NANO, providing Cloudflare Workers-level resource management and observability for self-hosted deployments.

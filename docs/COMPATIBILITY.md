@@ -34,7 +34,7 @@
 | API | Status | Algorithms | Notes |
 |-----|--------|------------|-------|
 | crypto.getRandomValues | ✅ Complete | All TypedArray types | |
-| crypto.subtle.digest | ✅ Complete | SHA-256, SHA-512 | |
+| crypto.subtle.digest | ✅ Complete | SHA-256, SHA-384, SHA-512 | |
 | crypto.subtle.generateKey | ✅ Complete | AES-GCM, HMAC, RSA-OAEP, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA, ECDH | |
 | crypto.subtle.importKey | ✅ Complete | AES-GCM, HMAC, RSA-*, ECDSA, ECDH, PBKDF2 | |
 | crypto.subtle.exportKey | ✅ Complete | JWK format | AES-GCM, HMAC |
@@ -199,7 +199,7 @@ globalThis.localStorage = {
 
 ---
 
-## Production Multi-Tenancy (v1.5.0)
+## Production Multi-Tenancy
 
 | Feature | Status | Notes |
 |---------|--------|-------|

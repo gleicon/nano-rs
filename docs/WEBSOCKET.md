@@ -47,7 +47,7 @@ V8 isolate — MessageEvent / CloseEvent dispatch
 | `relay_task` | `src/http/router.rs` | tokio task bridging axum↔WsChannels |
 | `dispatch_ws` | `src/worker/tenant_pool.rs` | Route WS request to worker thread |
 | `ws_messages loop` | `src/worker/pool.rs` | Per-frame JS dispatch, lifecycle |
-| `WebSocketPair` | `src/runtime/apis.rs` | V8 binding (Plan 05) |
+| `WebSocketPair` | `src/runtime/apis.rs` | V8 binding |
 
 ### Thread-Locals
 

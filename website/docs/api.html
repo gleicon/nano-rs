@@ -205,12 +205,12 @@ const encrypted = await crypto.subtle.encrypt(
                         </thead>
                         <tbody class="text-slate-400">
                             <tr><td class="py-2">SHA-256, SHA-384, SHA-512</td><td>digest</td></tr>
-                            <tr><td class="py-2">AES-GCM, AES-CTR, AES-CBC</td><td>encrypt, decrypt, generateKey</td></tr>
+                            <tr><td class="py-2">AES-GCM</td><td>encrypt, decrypt, generateKey</td></tr>
                             <tr><td class="py-2">HMAC</td><td>sign, verify, generateKey</td></tr>
                             <tr><td class="py-2">PBKDF2</td><td>deriveKey, deriveBits</td></tr>
-                            <tr><td class="py-2">HKDF</td><td>deriveKey, deriveBits</td></tr>
-                            <tr><td class="py-2">RSA-OAEP, RSA-PSS, RSASSA-PKCS1-v1_5</td><td>encrypt, decrypt, sign, verify</td></tr>
-                            <tr><td class="py-2">ECDSA (P-256, P-384)</td><td>sign, verify, importKey</td></tr>
+                            <tr><td class="py-2">RSA-OAEP</td><td>encrypt, decrypt, generateKey</td></tr>
+                            <tr><td class="py-2">RSA-PSS, RSASSA-PKCS1-v1_5</td><td>sign, verify, generateKey</td></tr>
+                            <tr><td class="py-2">ECDSA (P-256, P-384)</td><td>sign, verify, generateKey, importKey</td></tr>
                             <tr><td class="py-2">ECDH (P-256, P-384)</td><td>deriveKey, deriveBits</td></tr>
                         </tbody>
                     </table>

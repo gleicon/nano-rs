@@ -1,6 +1,6 @@
 # WASM Integration Example for NANO
 
-This example demonstrates WebAssembly support in NANO runtime v1.5.0+.
+This example demonstrates WebAssembly support in the nano-rs runtime.
 
 ## Files
 
@@ -123,7 +123,7 @@ Ensure all files are in the same directory when running NANO.
 Check that add.wasm wasn't corrupted. First bytes should be: 00 61 73 6d (hex)
 
 ### "WebAssembly is not defined"
-Ensure NANO v1.5.0+ is built with WASM support.
+Ensure the nano-rs binary is built with WASM support.
 
 ### Request hangs
 Check CPU time limit - infinite loops should be terminated. Check logs for timeout messages.

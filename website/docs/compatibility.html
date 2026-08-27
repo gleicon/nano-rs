@@ -36,7 +36,7 @@
     <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-5xl mx-auto">
             <h1 class="text-4xl font-bold text-white mb-4">Compatibility</h1>
-            <p class="text-lg text-slate-400 mb-8">WinterTC web APIs, Node.js polyfills, nano: built-in modules, Google Apps Script, and framework support — what works and what's planned</p>
+            <p class="text-lg text-slate-400 mb-8">WinterTC web APIs, Node.js polyfills, nano: built-in modules, Google Apps Script, and framework support — what works and what isn't supported</p>
 
             <section class="mb-12">
                 <h2 class="text-2xl font-semibold text-white mb-4">Overview</h2>
@@ -145,12 +145,17 @@
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">crypto.subtle.generateKey</td>
                                 <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
-                                <td class="px-4 py-3 text-slate-400">AES-GCM, HMAC</td>
+                                <td class="px-4 py-3 text-slate-400">AES-GCM, HMAC, RSA-OAEP/PSS/PKCS1, ECDSA, ECDH</td>
                             </tr>
                             <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">crypto.subtle.encrypt</td>
+                                <td class="px-4 py-3 font-mono text-slate-300">crypto.subtle.sign / verify</td>
                                 <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
-                                <td class="px-4 py-3 text-slate-400">AES-GCM with JWK keys</td>
+                                <td class="px-4 py-3 text-slate-400">HMAC, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA</td>
+                            </tr>
+                            <tr>
+                                <td class="px-4 py-3 font-mono text-slate-300">crypto.subtle.encrypt / decrypt</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">AES-GCM, RSA-OAEP</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">WebAssembly</td>
@@ -179,8 +184,8 @@
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">WebSocketPair</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">In Progress</span></td>
-                                <td class="px-4 py-3 text-slate-400">v2.0a — Phase 23. Cloudflare Workers compatible API.</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">Cloudflare Workers compatible API.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -229,22 +234,12 @@ const entries = await kv.list('user:');</pre>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">nano:localStorage</td>
                                 <td class="px-4 py-3"><span class="px-2 py-1 bg-slate-500/20 text-slate-400 text-xs rounded">Userland</span></td>
-                                <td class="px-4 py-3 text-slate-400">Ships today as <code>examples/localStorage-shim.js</code> — copy into your app. See <a href="storage.html#localstorage" class="text-blue-400 hover:text-blue-300 underline">Storage</a>. A built-in <code>nano:localStorage</code> module is planned.</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">nano:cache</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
-                                <td class="px-4 py-3 text-slate-400">WinterTC CacheStorage — VFS-backed Response serialization.</td>
+                                <td class="px-4 py-3 text-slate-400">Ships today as <code>examples/localStorage-shim.js</code> — copy into your app. See <a href="storage.html#localstorage" class="text-blue-400 hover:text-blue-300 underline">Storage</a>.</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">nano:gas</td>
                                 <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
                                 <td class="px-4 py-3 text-slate-400">Google Apps Script compatibility shim. SpreadsheetApp, DocumentApp, DriveApp, PropertiesService, CacheService backed by service account. See <a href="#gas" class="text-blue-400 hover:text-blue-300 underline">section below</a>.</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">nano:indexeddb</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-slate-500/20 text-slate-400 text-xs rounded">Phase 3</span></td>
-                                <td class="px-4 py-3 text-slate-400">Full IndexedDB — backend TBD (SQLite or structured JSON in VFS).</td>
                             </tr>
                         </tbody>
                     </table>
@@ -307,13 +302,8 @@ const ver    = process.version;                         // "v18.0.0"</pre>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">require('events')</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
-                                <td class="px-4 py-3 text-slate-400">EventEmitter — phase 2.</td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-3 font-mono text-slate-300">require('util')</td>
-                                <td class="px-4 py-3"><span class="px-2 py-1 bg-teal-500/20 text-teal-400 text-xs rounded">Planned</span></td>
-                                <td class="px-4 py-3 text-slate-400">util.promisify, util.inspect — phase 2.</td>
+                                <td class="px-4 py-3"><span class="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">Complete</span></td>
+                                <td class="px-4 py-3 text-slate-400">EventEmitter — on/once/off/emit/removeAllListeners/listeners.</td>
                             </tr>
                             <tr>
                                 <td class="px-4 py-3 font-mono text-slate-300">crypto (Node)</td>

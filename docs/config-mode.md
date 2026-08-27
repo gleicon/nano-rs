@@ -260,6 +260,5 @@ lsof -i :8080
 
 ## See Also
 
-- `docs/config-mode-entrypoint-note.md` - Entrypoint app implementation details
-- `docs/SLIVER.md` - Creating and managing sliver files
+- `docs/SLIVER_WORKFLOW.md` - Creating and managing sliver files
 - `README.md` - Quick start guide

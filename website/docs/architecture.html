@@ -91,7 +91,7 @@ At serve time: if the bytecode's version tag matches the
 running V8, the first request skips JavaScript parse+compile.</pre>
                     </div>
                 </div>
-                <p class="text-slate-400 mb-4">Restoring an isolate from a baked V8 <em>heap</em> snapshot is a roadmap item — the create/restore primitives exist and are tested, but serving from a snapshot needs an external-reference table for the native runtime APIs.</p>
+                <p class="text-slate-400 mb-4">The serving path runs from the sliver's VFS source plus the optional precompiled bytecode; it does not restore an isolate from a baked V8 heap snapshot.</p>
             </section>
 
             <!-- Worker Pool -->
