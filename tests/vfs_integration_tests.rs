@@ -489,15 +489,27 @@ async fn test_error_codes_match_nodejs() {
 
 #[tokio::test]
 async fn test_hostname_sanitization() {
-    // Test various hostname formats
-    let ns1 = VfsNamespace::from_hostname("api.example.com");
-    assert_eq!(ns1.as_str(), "api_example_com");
+    // The namespace mapping is injective and case-folding: the DNS charset
+    // [a-z0-9.-] is preserved verbatim so distinct hostnames stay distinct.
+    // (Collapsing `.`/`-` to `_` was a cross-tenant collision — a.com == a-com.)
+    assert_eq!(
+        VfsNamespace::from_hostname("api.example.com").as_str(),
+        "api.example.com"
+    );
+    assert_eq!(
+        VfsNamespace::from_hostname("MY-APP.EXAMPLE.COM").as_str(),
+        "my-app.example.com"
+    );
+    assert_eq!(
+        VfsNamespace::from_hostname("sub.domain.example.co.uk").as_str(),
+        "sub.domain.example.co.uk"
+    );
 
-    let ns2 = VfsNamespace::from_hostname("MY-APP.EXAMPLE.COM");
-    assert_eq!(ns2.as_str(), "my_app_example_com");
-
-    let ns3 = VfsNamespace::from_hostname("sub.domain.example.co.uk");
-    assert_eq!(ns3.as_str(), "sub_domain_example_co_uk");
+    // The collision pair must not converge.
+    assert_ne!(
+        VfsNamespace::from_hostname("a.com"),
+        VfsNamespace::from_hostname("a-com")
+    );
 }
 
 // ============================================================================
