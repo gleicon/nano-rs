@@ -339,4 +339,48 @@ mod tests {
             "different tenants must have different namespaces"
         );
     }
+
+    /// The `kv_name` half of the namespace is attacker-controlled (`openKV(name)`
+    /// from JS); the hostname half is the trusted thread-local. A crafted name —
+    /// even one containing the `::` separator — must not let tenant B forge
+    /// tenant A's namespace, because the trusted host prefix is prepended and
+    /// hostnames cannot contain `::`.
+    #[test]
+    fn attacker_controlled_kv_name_cannot_forge_another_host_namespace() {
+        CURRENT_KV_HOSTNAME.with(|c| *c.borrow_mut() = "victim.com".to_string());
+        let victim = kv_namespace("default");
+
+        CURRENT_KV_HOSTNAME.with(|c| *c.borrow_mut() = "attacker.com".to_string());
+        // Every crafted name still resolves under the attacker's own `attacker.com::` prefix.
+        for crafted in ["::victim.com::default", "victim.com::default", "../victim.com", "\0"] {
+            let forged = kv_namespace(crafted);
+            assert_ne!(forged, victim, "crafted name {crafted:?} reached victim namespace");
+            assert!(
+                forged.starts_with(b"attacker.com::"),
+                "namespace {forged:?} escaped the trusted host prefix"
+            );
+        }
+    }
+
+    /// The tenant boundary ultimately rests on edgestore isolating by the full
+    /// namespace byte string. Prove that contract directly: a key written under
+    /// one namespace is invisible to point-get and prefix-scan under another.
+    #[test]
+    fn edgestore_isolates_by_namespace() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut engine = Engine::open(EdgestoreConfig::new(dir.path())).unwrap();
+
+        let ns_a = b"a.com::default";
+        let ns_b = b"b.com::default";
+
+        engine.put(ns_a, b"secret", b"a-only").unwrap();
+
+        // Point-get under B must not see A's key.
+        assert_eq!(engine.get(ns_b, b"secret").unwrap(), None);
+        // Prefix-scan under B (empty prefix = all keys in ns_b) must be empty.
+        let b_pairs: Vec<(Vec<u8>, Vec<u8>)> = engine.prefix(ns_b, b"").unwrap();
+        assert!(b_pairs.is_empty(), "namespace B scan leaked namespace A keys");
+        // A still reads its own value.
+        assert_eq!(engine.get(ns_a, b"secret").unwrap().as_deref(), Some(&b"a-only"[..]));
+    }
 }
