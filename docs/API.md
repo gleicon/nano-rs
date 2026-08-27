@@ -409,12 +409,11 @@ const isValid = await crypto.subtle.verify(
 - `deriveBits` with PBKDF2 (HMAC-SHA-256/384/512). `length` must be a positive
   multiple of 8, at most 8192 bits.
 
-**Not Implemented (v2.0 Planned):**
+**Not implemented:**
 - RSA operations (RSA-OAEP, RSASSA-PKCS1-v1_5)
 - ECDSA (P-256, P-384, P-521)
 - `deriveKey`, and `deriveBits` for HKDF / ECDH
 
-See [Roadmap](../.planning/ROADMAP.md) for Phase 24 (Advanced Crypto).
 
 ---
 

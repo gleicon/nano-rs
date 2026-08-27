@@ -1,6 +1,6 @@
 # NANO Runtime Compatibility Matrix
 
-**Version:** 2.3.0  
+**Version:** 2.7.0  
 **Last Updated:** 2026-08-08
 
 ---
@@ -45,12 +45,11 @@
 | crypto.subtle.sign | ✅ Complete | HMAC | |
 | crypto.subtle.verify | ✅ Complete | HMAC | |
 | crypto.subtle.deriveBits | ✅ Complete | PBKDF2 (HMAC-SHA-256/384/512) | length: positive multiple of 8, ≤ 8192 bits |
-| crypto.subtle.deriveKey | ❌ Not Implemented | | Planned for v2.0 |
-| RSA key operations | ❌ Not Implemented | | Planned for v2.0 (Phase 24) |
-| ECDSA operations | ❌ Not Implemented | | Planned for v2.0 (Phase 24) |
+| crypto.subtle.deriveKey | ❌ Not Implemented | | Not implemented |
+| RSA key operations | ❌ Not Implemented | | Not implemented |
+| ECDSA operations | ❌ Not Implemented | | Not implemented |
 
 **Coverage:** 10/13 implemented (77%)  
-**v2.0 Planned:** RSA, ECDSA, deriveKey, deriveBits for HKDF/ECDH
 
 ---
 
@@ -107,7 +106,7 @@ assert.notEqual(1, 2);
 // process.env — app env vars set via env_vars config; process.version; process.platform
 // Config: { "apps": [{ "env_vars": { "NODE_ENV": "production" } }] }
 process.env.NODE_ENV;  // → "production"
-process.version;       // → "v18.0.0"
+process.version;       // → "v22.11.0"
 process.platform;      // → "linux"
 ```
 
@@ -133,7 +132,7 @@ process.platform;      // → "linux"
 | Nano.fs.exists | ✅ Complete | Check file existence |
 | Nano.fs.deleteFile | ✅ Complete | Remove files |
 | Nano.fs.listDir | ⚠️ Partial | Directory listing (basic implementation) |
-| Nano.fs.mkdir | ❌ Not Implemented | Planned for v2.0 |
+| Nano.fs.mkdir | ❌ Not Implemented | Not supported (flat VFS namespace) |
 | `nano:kv` (default KV) | ✅ Complete | `import { kv } from 'nano:kv'` — get/set/delete/list, getJSON/setJSON, hostname-namespaced |
 | `nano:kv` (named namespace) | ✅ Complete | `openKV('name')` — isolated named KV store per app |
 | `localStorage` shim | ✅ Available | Userland shim — see [`examples/localStorage-shim.js`](../examples/localStorage-shim.js) |
@@ -230,7 +229,7 @@ globalThis.localStorage = {
 | ✅ Complete | Fully implemented and tested |
 | ⚠️ Partial | Works for common cases, limitations documented |
 | 🚧 In Progress | Implementation underway |
-| ❌ Not Implemented | Not available (may be planned or out of scope) |
+| ❌ Not Implemented | Not available |
 
 ---
 
@@ -291,15 +290,6 @@ Quick reference:
 | `path.join()` | `new URL()` |
 
 ---
-
-## Upcoming
-
-| Feature | Status |
-|---------|--------|
-| RSA/ECDSA full algorithm suite | In progress |
-| Compression Streams | Planned |
-| Inter-Isolate Messaging | Planned |
-| Full VFS Directory Operations | Planned |
 
 See [CHANGELOG](../CHANGELOG.md) for shipped features.
 

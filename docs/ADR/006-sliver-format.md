@@ -8,8 +8,8 @@
 > **Superseded:** the shipped sliver format carries **no `heap.bin` heap snapshot**.
 > A sliver is `meta.json` + `vfs/` + an optional precompiled `bytecode.v8bc`; the app
 > runs from its VFS source. The ~267µs "snapshot restore" target below was never
-> realized (heap-snapshot serving needs an external-reference table — see
-> [ROADMAP](../ROADMAP.md)). Kept as a historical record; for the current format see
+> realized (heap-snapshot serving needs an external-reference table).
+> Kept as a historical record; for the current format see
 > [FORMAT.md](../../src/sliver/FORMAT.md).
 
 ---
@@ -220,7 +220,7 @@ On version mismatch:
 
 ## Negative Consequences
 
-* **Larger than pure binary format** — Compression planned
+* **Larger than pure binary format** — no archive-level compression
 * **Heap blob not human-readable** — Opaque by design
 * **Requires tar library** — Additional dependency
 * **Version mismatch requires recreation** — ~50-100ms fallback
@@ -293,23 +293,6 @@ nano-rs run --sliver app.sliver
 - `src/sliver/restore.rs` — Sliver restoration
 - `src/sliver/format.rs` — Format definitions
 - `src/sliver/validate.rs` — Version validation
-
----
-
-## Future Improvements
-
-### v2.0+ Ideas
-
-- **Incremental sliver updates** — Delta from base sliver
-- **Compression negotiation** — LZ4 for speed, zstd for size
-- **Parallel restore** — Multiple files at once
-- **Sliver registry** — S3-compatible storage for slivers
-
-### Research
-
-- **V8 serialized heap format** — If V8 exposes stable serialization
-- **Differential snapshots** — Only changed parts
-- **Precompiled bytecode** — Faster than JS source
 
 ---
 

@@ -1,4 +1,4 @@
-# Production Multi-Tenancy (Phase 27)
+# Production Multi-Tenancy
 
 **Status:** Complete (v1.5.0)
 **Phase:** 27-production-multi-tenancy
@@ -6,7 +6,7 @@
 
 ## Overview
 
-Phase 27 implements production-grade multi-tenancy features for NANO, providing Cloudflare Workers-level resource management and observability for self-hosted deployments.
+NANO implements production-grade multi-tenancy features for NANO, providing Cloudflare Workers-level resource management and observability for self-hosted deployments.
 
 ### Features Delivered
 
@@ -43,7 +43,6 @@ Request → CPU Timer Start → JS Execution → CPU Check → Response
 Platform Support:
 - Linux: timer_create(CLOCK_THREAD_CPUTIME_ID) for microsecond precision
 - macOS: getrusage(RUSAGE_THREAD) fallback
-- Windows: QueryThreadCycleTime (planned)
 
 Safety:
 - Signal handler sets atomic flag (never calls V8 directly)
@@ -225,7 +224,7 @@ WASM execution respects the same limits as JavaScript:
 
 ## Test Results
 
-### Phase 27 Test Summary
+### Test Summary
 
 Plan    Feature                           Tests   Status
 27-01   CPU Time Tracking                  39     Pass
@@ -338,9 +337,7 @@ Metrics Summary
 
 - docs/config-mode.md - Configuration format and limits
 - docs/SLIVER_WORKFLOW.md - Creating and managing slivers
-- .planning/phases/27-production-multi-tenancy/REQUIREMENTS.md - Full requirements
-- .planning/phases/27-production-multi-tenancy/27-VERIFICATION.md - Verification report
 
-Phase 27 completed: 2026-05-01
+Shipped: 2026-05-01
 Total implementation: ~3,640 lines of Rust code
 Test coverage: 91 new tests, 981 total tests passing

@@ -24,9 +24,8 @@ app.sliver (tar archive)
         └── logo.png
 ```
 
-> Earlier drafts of this spec required a `heap.bin` V8 heap snapshot. That is not
-> produced today (runtime snapshot generation is unimplemented on v8 150 — see
-> docs/ROADMAP.md); a sliver runs from its VFS source.
+> Earlier drafts of this spec required a `heap.bin` V8 heap snapshot. Slivers carry
+> no heap snapshot; a sliver runs from its VFS source.
 
 ## File Specifications
 
@@ -146,44 +145,6 @@ Version 1.0 defines the basic structure:
 - **Reading**: NANO only supports reading version 1.0 archives
 - **Writing**: NANO always writes version 1.0 archives
 - **Forward compatibility**: Unknown entries are skipped during reading
-
-### Future Versions
-
-Potential future extensions (not yet implemented):
-- **1.1**: Optional compression layer (gzip/brotli)
-- **1.2**: Delta/differential snapshots (additive format)
-- **2.0**: New heap format or metadata schema changes
-
-## Extension Points
-
-### Compression
-
-While v1.0 does not use compression at the archive level, the format can be extended:
-
-```
-app-v1.sliver.gz (gzip compressed tar)
-```
-
-The loader would detect compression and decompress before unpacking.
-
-### Deltas
-
-Differential snapshots can be supported by adding special entry types:
-
-```
-delta-v1.sliver
-├── delta.json        # Delta metadata (base reference, changes)
-├── heap.patch        # Binary diff of heap
-└── vfs/              # Changed/new files only
-```
-
-### Checksums
-
-Per-file checksums can be added via the tar extended header (pax format):
-
-```
-30 SCHILY.xattr.checksum=sha256:abc123...
-```
 
 ## Tooling
 

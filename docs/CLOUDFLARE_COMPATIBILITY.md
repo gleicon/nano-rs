@@ -303,7 +303,7 @@ See [WebSocket Guide](WEBSOCKET.md) for:
 - `WebSocketPair` API reference
 - Per-connection limits (`ws_max_connections`, `ws_max_message_bytes`, `ws_idle_timeout_ms`)
 
-**Status:** Implemented — server-side `WebSocketPair` (Phase 23). The outbound
+**Status:** Implemented — server-side `WebSocketPair`. The outbound
 `new WebSocket(url)` client remains a WinterCG compatibility stub.
 
 ---

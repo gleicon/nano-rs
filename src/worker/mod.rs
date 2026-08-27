@@ -15,7 +15,7 @@
 //!
 //! - **Entrypoint** ([`AppSource::Entrypoint`]): JavaScript from filesystem
 //!   - Creates fresh isolates from source files
-//!   - Full feature set: CPU limits, memory monitoring, eviction, tracing
+//!   - Full feature set: CPU limits, memory monitoring, soft eviction, tracing
 //!   - Use when: Config mode, development, dynamic loading
 //!
 //! - **Sliver** ([`AppSource::Sliver`]): Snapshot-based execution
@@ -34,9 +34,7 @@
 //! - ✅ V8 isolates for code execution
 //! - ✅ CPU time limits and enforcement
 //! - ✅ Per-isolate heap cap + OOM termination + recycle-after-N + soft eviction
-//!   (per-worker `MemoryMonitor` recycles the isolate under memory pressure). The
-//!   cross-isolate LRU `EvictionManager` is implemented + tested but not yet wired
-//!   — see docs/ROADMAP.md.
+//!   (per-worker `MemoryMonitor` recycles the isolate under memory pressure)
 //! - ✅ Request tracing: `request_id` + `worker_id` + `isolate_id`
 //! - ✅ Sliver packaging support (all types can be slivered)
 //! - ✅ VFS for code and static artifacts
@@ -55,8 +53,7 @@
 //!     subgraph WorkerPool["WorkerPool::with_source()"]
 //!         RT[Tokio Runtime<br/>per thread]
 //!         OM[OOM Monitor<br/>memory_limit_mb]
-//!         MM[Memory Monitor<br/>pressure tracking]
-//!         EM[Eviction Manager<br/>soft/hard eviction]
+//!         MM[Memory Monitor<br/>pressure recycle]
 //!     end
 //!
 //!     subgraph Workers["Worker Threads"]
@@ -158,7 +155,6 @@
 
 pub mod app_source;
 pub mod cpu_tracker;
-pub mod eviction;
 pub mod limits;
 pub mod memory_monitor;
 pub mod oom;
@@ -173,7 +169,6 @@ pub mod r#trait;
 // Re-export types
 pub use app_source::AppSource;
 pub use cpu_tracker::{CpuTimeError, CpuTimeSnapshot, CpuTracker};
-pub use eviction::{EvictionAction, EvictionManager, EvictionPolicy, IsolateMetadata};
 pub use limits::{HeapStatistics, MemoryLimiter, OomError, RequestMemoryTracker};
 pub use memory_monitor::{
     MemoryMonitor, MemoryMonitorConfig, MemoryPressureLevel, MemorySnapshot, MemoryTrend,

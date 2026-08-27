@@ -163,9 +163,9 @@ impl Drop for CryptoKey {
 | SHA-512 | ✅ | ring | NIST-approved, audited |
 | AES-GCM | ✅ | aes_gcm | Pure Rust, safe |
 | HMAC | ✅ | ring | Constant-time verify |
-| RSA | 🚧 Planned | rsa | v2.0 (Phase 24) |
-| ECDSA | 🚧 Planned | p256 | v2.0 (Phase 24) |
-| deriveKey | 🚧 Planned | hkdf | v2.0 (Phase 24) |
+| RSA | ❌ Not implemented | rsa | — |
+| ECDSA | ❌ Not implemented | p256 | — |
+| deriveKey | ❌ Not implemented | hkdf | — |
 
 ---
 

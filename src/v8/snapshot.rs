@@ -169,10 +169,9 @@ mod tests {
         assert_eq!(snapshot.data().len(), 4);
     }
 
-    /// Spike: empirically prove v8 150 can create a heap-snapshot blob at runtime.
-    /// This is the capability behind `planned: heap snapshots` (see docs/ROADMAP.md) —
-    /// verifying the API works before investing in NanoIsolate integration (the EPT
-    /// sentinel Global complicates `create_blob`, which consumes the isolate).
+    /// Empirically prove v8 150 can create a heap-snapshot blob at runtime — the
+    /// capability behind `create_snapshot_from_nano`. The EPT sentinel Global
+    /// complicates `create_blob` (which consumes the isolate), so this pins the API.
     #[test]
     fn v150_snapshot_creator_produces_blob() {
         ensure_v8_initialized();

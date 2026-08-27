@@ -20,7 +20,7 @@ admin metrics endpoints below.
   for isolation without recreating the isolate. Isolates recycle after a fixed
   number of requests.
 - **Heap snapshots.** Restoring an isolate from a baked heap blob (which would also
-  skip API binding) is **not** wired — see [ROADMAP](ROADMAP.md). Cold start today is
+  skip API binding) is **not** wired. Cold start today is
   the bytecode path above.
 
 ---
@@ -92,4 +92,3 @@ leak. Lower `memory_mb`/`workers` per app, or scale horizontally.
 - [Cold Start Terminology](COLD_START.md)
 - [Configuration Reference](CONFIG.md)
 - [Slivers](SLIVER_WORKFLOW.md)
-- [Roadmap](ROADMAP.md) — heap-snapshot serving and other planned work

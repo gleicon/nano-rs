@@ -10,7 +10,7 @@ across NANO docs and states what actually optimizes each one today.
 > NANO does **not** currently restore isolates from a V8 heap snapshot. The
 > create/restore primitives exist and are tested, but serving from a baked heap
 > blob needs an external-reference table for the native runtime APIs — see
-> [ROADMAP](ROADMAP.md). The live cold-start optimization is **bytecode caching**
+> The live cold-start optimization is **bytecode caching**
 > (below): a sliver packed with `nano sliver create` carries precompiled V8
 > bytecode that the runtime loads to skip JavaScript parse + compile.
 
@@ -65,7 +65,7 @@ rest is inherent V8 cost.
 | Fresh isolate | Bytecode caching for the compile step; pre-warm pools |
 
 Restoring an isolate from a baked V8 heap snapshot (which would also skip
-`bind_all`) is a [roadmap](ROADMAP.md) item, not current behavior.
+`bind_all`) is not implemented — not the current cold-start path.
 
 ---
 
@@ -73,4 +73,3 @@ Restoring an isolate from a baked V8 heap snapshot (which would also skip
 
 - [Performance](PERFORMANCE.md) — tuning guide
 - [Slivers](SLIVER_WORKFLOW.md) — creating and managing sliver bundles
-- [Roadmap](ROADMAP.md) — heap-snapshot serving and other planned work

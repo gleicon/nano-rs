@@ -1,10 +1,9 @@
 //! Post-execution memory monitoring with pressure detection.
 //!
-//! STATUS: wired. The worker pool creates a `MemoryMonitor` per worker (when a
-//! memory limit is set) and calls `check_after` after each request; at Critical or
-//! Emergency pressure it recycles the isolate (soft eviction) and records a pressure
-//! event in the tenant metrics. See `worker/pool.rs`. The separate cross-isolate LRU
-//! `EvictionManager` is not yet wired — see that module and docs/ROADMAP.md.
+//! The worker pool creates a `MemoryMonitor` per worker (when a memory limit is
+//! set) and calls `check_after` after each request; at Critical or Emergency
+//! pressure it recycles the isolate (soft eviction) and records a pressure event in
+//! the tenant metrics. See `worker/pool.rs`.
 //!
 //! This module provides memory monitoring that runs after each JavaScript
 //! execution to detect memory pressure and trigger soft eviction. It tracks
@@ -27,8 +26,8 @@
 //!
 //! ## Integration
 //!
-//! Called from WorkerPool after each handler execution. Results feed into
-//! EvictionManager for isolate lifecycle decisions.
+//! Called from WorkerPool after each handler execution; a Critical/Emergency
+//! result recycles the isolate.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

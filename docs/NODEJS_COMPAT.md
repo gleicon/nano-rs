@@ -400,7 +400,7 @@ curl -H "X-API-Key: secret" http://localhost:8889/isolates
 
 NANO is NOT suitable for:
 - Apps requiring Node.js native modules
-- Long-running WebSocket servers (support planned in v2.0)
+- Long-running WebSocket servers — supported (WebSocketPair, v2.1.x)
 - Apps using extensive Node.js built-in modules
 - Traditional server-side rendering with Node.js streams
 

@@ -1,7 +1,7 @@
 # WebSocket Support
 
 **Version:** v2.0a  
-**Status:** In Progress — Phase 23  
+**Status:** Implemented (v2.1.x)  
 **Last Updated:** 2026-05-17
 
 ---
@@ -14,7 +14,7 @@ JavaScript handlers use `addEventListener` (Cloudflare Workers pattern) to regis
 
 ---
 
-## Architecture (Phase 23)
+## Architecture
 
 ### Upgrade Flow
 
@@ -166,7 +166,7 @@ NANO-RS WebSocket follows the [Cloudflare Workers WebSocket API](https://develop
 - `addEventListener` for event registration
 - `Response` with `webSocket` property for upgrade response
 
-**Not yet implemented:**
+**Not supported (out of scope):**
 - Hibernatable WebSockets (Durable Objects pattern)
 - `cf.webSocket` properties
 

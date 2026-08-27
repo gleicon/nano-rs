@@ -16,12 +16,6 @@
 //! a worker, all subsequent `WebAssembly.compile(sameBytes)` return cached module.
 //! Cost: O(n) hash per call (fast integer ops). Benefit: zero V8 recompilation
 //! after warmup within each worker.
-//!
-//! **Tier 2 (Rust global — infrastructure only):** `global_wasm_cache()` in
-//! `engine.rs`. Cross-isolate `CompiledWasmModule` sharing. Not yet wired to the
-//! JS path because `v8::WasmModuleObject::compile()` returns `None` inside
-//! `FunctionCallbackArguments` in rusty_v8 v150. Will activate when V8 API
-//! limitation is resolved (future upgrade).
 
 use crate::wasm::WasmLoader;
 use v8;

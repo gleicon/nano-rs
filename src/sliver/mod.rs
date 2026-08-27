@@ -11,7 +11,7 @@
 //!   load to skip parse+compile. Absent with `--source-only`.
 //!
 //! There is no heap snapshot — the app runs from its VFS source (with bytecode
-//! caching when present). planned: heap snapshots — see docs/ROADMAP.md.
+//! caching when present).
 //!
 //! ```text
 //! app.sliver (tar)

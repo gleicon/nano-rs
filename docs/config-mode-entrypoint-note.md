@@ -47,7 +47,6 @@ entrypoint apps get fresh isolate creation per request.
 ### 📝 Implementation Note
 - Per-app **timeout enforcement** requires request-level middleware customization
 - Current implementation uses global 30s Tower timeout layer
-- Future enhancement: per-app timeout via custom dispatch wrapper
 
 The memory and worker limits are the most critical for resource isolation,
 and these are fully enforced per the configuration.

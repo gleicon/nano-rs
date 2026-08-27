@@ -89,7 +89,7 @@ Optional Files:
 
 Format Notes:
 - Archive is a standard tar file (ustar or GNU format)
-- There is no heap snapshot: the app runs from its VFS source (planned: snapshots)
+- There is no heap snapshot: the app runs from its VFS source
 - VFS entries preserve directory structure under vfs/ prefix
 - All paths use forward slashes (even on Windows)
 - Binary files stored as-is without encoding

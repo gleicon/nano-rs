@@ -6,7 +6,6 @@
 //! - Health endpoint for liveness checks
 //! - Virtual host routing by hostname
 //!
-//! Future phases add WinterTC object handling.
 
 pub mod client;
 pub mod config;

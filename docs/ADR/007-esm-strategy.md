@@ -1,6 +1,6 @@
 # ADR-007: ESM Module Execution Strategy
 
-**Status:** Accepted (v1.x), Planned Revision (v2.0)  
+**Status:** Accepted  
 **Date:** 2026-04-21  
 **Deciders:** Core Team  
 **Technical Story:** Support ES modules (`export default { fetch }`) with V8
@@ -88,9 +88,9 @@ This provides:
 - Works with existing `Script::compile` infrastructure
 - No V8 Module API complexity
 
-**v2.0 Planned: Full Module API**
+**Alternative considered: full Module API (not adopted)**
 
-For v2.0 (Phase 28), implement proper `v8::Module` with:
+A full `v8::Module` implementation (not adopted) would use:
 - VFS-backed import resolution
 - Dynamic `import()` support
 - True ES module semantics
@@ -195,7 +195,7 @@ nano-rs run --sliver app.sliver
 
 ## Future: Full Module API (v2.0)
 
-### Planned Implementation
+### Alternative implementation (not adopted)
 
 ```rust
 // V8 Module API with VFS-backed resolution
@@ -220,7 +220,7 @@ let result = module.evaluate(scope)?;
 ### Timeline
 
 - **v1.x:** Transformation (current)
-- **v2.0 Phase 28:** Full Module API implementation
+- Full Module API implementation (not adopted; the shim approach shipped)
 
 ---
 
@@ -248,7 +248,7 @@ This is **accepted technical debt**:
 ### ESM-01: Full V8 Module API
 
 **Status:** Accepted  
-**Plan:** Implement in v2.0 Phase 28
+**Status:** not implemented — the addEventListener/ESM shim approach was adopted
 
 **Rationale:**
 - Transformation works for all v1.x use cases
@@ -269,7 +269,7 @@ See `TECHNICAL_DEBT.md` for full details.
 
 * [ADR-004: VFS Architecture](004-vfs-architecture.md) — VFS needed for v2.0 import resolution
 * Phase 18: ESM Module System — Implementation details
-* v2.0 Roadmap: Phase 28 — Full Module API planned
+* Full Module API: not implemented (shim adopted)
 * `TECHNICAL_DEBT.md#ESM-01` — Documented as accepted debt
 
 ---

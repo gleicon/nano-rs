@@ -23,7 +23,7 @@ app.sliver (tar archive)
 A sliver carries **no heap snapshot**. The app runs from its VFS source; when
 `bytecode.v8bc` is present and its version tag matches the running V8, the first
 request on a new isolate skips JavaScript parse + compile. (Restoring an isolate
-from a baked heap blob is a [roadmap](ROADMAP.md) item.)
+from a baked heap blob is not implemented.)
 
 ## Create a sliver
 
@@ -90,4 +90,3 @@ fast path.
 - [Cold Start Terminology](COLD_START.md)
 - [Performance & Tuning](PERFORMANCE.md)
 - [Sliver format](../src/sliver/FORMAT.md)
-- [Roadmap](ROADMAP.md)

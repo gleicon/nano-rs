@@ -107,7 +107,7 @@ Full HTTP server and client implementation:
 | Timeout handling | Implemented | Per-app request timeout (`limits.timeout_secs`, default 30s) |
 | Redirect handling | Implemented | Follows redirects (reqwest default policy) |
 | Outbound fetch response cap | Implemented | 100MB (fixed) — oversized responses rejected |
-| WebSocket upgrade | Implemented | Phase 23 — v2.1.x |
+| WebSocket upgrade | Implemented | v2.1.x |
 | WebSocketPair API | Implemented | Cloudflare Workers compatible; accept/send/close/addEventListener |
 
 ### Sliver bundle and encapsulation system
@@ -126,7 +126,7 @@ V8 version tag matches the running V8. See [Slivers](docs/SLIVER_WORKFLOW.md).
 | Cross-instance migration | Implemented | Slivers portable |
 | Zero-downtime hot-swap | Implemented | Blue-green pool swap on SIGHUP; same host |
 | Sliver listing / inspection / deletion | Implemented | CLI commands |
-| Heap-snapshot create/restore primitives | Implemented | Tested; serving integration is [roadmap](docs/ROADMAP.md) |
+| Heap-snapshot create/restore primitives | Implemented | Library API, tested; not used by the serving path (which runs from VFS + bytecode) |
 
 ### Production Multi-Tenancy
 
@@ -138,7 +138,6 @@ V8 version tag matches the running V8. See [Slivers](docs/SLIVER_WORKFLOW.md).
 | Per-isolate heap cap | Implemented | 100% | V8 heap limit + OOM termination per isolate |
 | Isolate recycling | Implemented | 100% | Fresh isolate after N requests |
 | Soft eviction (memory pressure) | Implemented | 100% | Per-worker `MemoryMonitor`: recycles the isolate at Critical/Emergency pressure |
-| Cross-isolate LRU eviction | Not wired | — | `EvictionManager` implemented + tested, not connected to the serving path — see [ROADMAP](docs/ROADMAP.md) |
 | Per-Tenant Metrics | Implemented | 100% | Auto-collected per hostname |
 | Prometheus Export | Implemented | 100% | /admin/metrics endpoint |
 | Admin Metrics API | Implemented | 100% | JSON endpoints for all metrics |
@@ -185,11 +184,11 @@ Existing Cloudflare Workers can run on nano-rs with these changes:
   parse + compile when its V8 version tag matches the running V8
 - One isolate per worker thread; a fresh context per request for isolation
 - Process boot is a one-time cost on server start
-- Max response body size: 100MB (configurable)
-- Default timeout: 30 seconds (configurable)
+- Outbound fetch response cap: 100MB (fixed)
+- Per-app request timeout: `limits.timeout_secs` (default 30s)
 
-Heap-snapshot serving (restoring an isolate from a baked heap blob) is a
-[roadmap](docs/ROADMAP.md) item, not the current cold-start path. See
+The serving path runs from the sliver's VFS + precompiled bytecode; it does not
+restore an isolate from a baked heap blob. See
 [Performance Documentation](docs/PERFORMANCE.md) for the tuning guide.
 
 ## Architecture
