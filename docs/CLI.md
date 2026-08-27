@@ -1,7 +1,5 @@
 # NANO CLI Reference
 
-**Version:** 2.7.0  
-**Last Updated:** 2026-05-02
 
 ---
 
@@ -131,8 +129,8 @@ nano-rs sliver create ./src --output v1.0.0.sliver
 #### What Gets Packed
 
 The sliver includes:
-- All files from the source directory
-- V8 heap snapshot (compiled state)
+- All files from the source directory (the app's VFS)
+- Optional precompiled V8 bytecode (`bytecode.v8bc`) to skip parse+compile
 - Metadata (hostname, created timestamp)
 
 **Exclusions:**

@@ -1,7 +1,5 @@
 # Sliver Workflow
 
-**Version:** 2.7.0
-**Last Updated:** 2026-08-24
 
 How to bundle, run, and hot-swap an application with slivers.
 

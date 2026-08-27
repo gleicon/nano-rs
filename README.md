@@ -63,13 +63,12 @@ See [API Reference](docs/API.md) for detailed crypto documentation.
 |-----|--------|------------|
 | crypto.getRandomValues | Implemented | All TypedArray types |
 | crypto.subtle.digest | Implemented | SHA-256, SHA-512 |
-| crypto.subtle.generateKey | Implemented | AES-GCM, HMAC |
-| crypto.subtle.importKey | Implemented | JWK format |
-| crypto.subtle.exportKey | Implemented | JWK format |
-| crypto.subtle.encrypt | Implemented | AES-GCM |
-| crypto.subtle.decrypt | Implemented | AES-GCM |
-| crypto.subtle.sign | Implemented | HMAC |
-| crypto.subtle.verify | Implemented | HMAC |
+| crypto.subtle.generateKey | Implemented | AES-GCM, HMAC, RSA-OAEP, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA, ECDH |
+| crypto.subtle.importKey | Implemented | AES-GCM, HMAC, RSA-*, ECDSA, ECDH, PBKDF2 |
+| crypto.subtle.exportKey | Implemented | JWK format (AES-GCM, HMAC) |
+| crypto.subtle.encrypt / decrypt | Implemented | AES-GCM, RSA-OAEP |
+| crypto.subtle.sign / verify | Implemented | HMAC, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA |
+| crypto.subtle.deriveBits / deriveKey | Implemented | PBKDF2, ECDH |
 
 ### Node.js API Polyfills
 
@@ -130,23 +129,17 @@ V8 version tag matches the running V8. See [Slivers](docs/SLIVER_WORKFLOW.md).
 
 ### Production Multi-Tenancy
 
-| Feature | Status | Test Score | Notes |
-|---------|--------|------------|-------|
-| CPU Time Tracking | Implemented | 75% | Microsecond precision per request |
-| CPU Time Limits | Working | 75% | Prevents infinite loops |
-| Timer-based Termination | Implemented | 100% | Linux timer_create + V8 terminate |
-| Per-isolate heap cap | Implemented | 100% | V8 heap limit + OOM termination per isolate |
-| Isolate recycling | Implemented | 100% | Fresh isolate after N requests |
-| Soft eviction (memory pressure) | Implemented | 100% | Per-worker `MemoryMonitor`: recycles the isolate at Critical/Emergency pressure |
-| Per-Tenant Metrics | Implemented | 100% | Auto-collected per hostname |
-| Prometheus Export | Implemented | 100% | /admin/metrics endpoint |
-| Admin Metrics API | Implemented | 100% | JSON endpoints for all metrics |
-| WASM Support | Working | 25%* | Load, compile, execute |
-| WASM JS API | Implemented | 100% | WebAssembly.* full API |
-| Adversarial Security | Protected | 78% | 7/9 attack vectors blocked |
-| VFS Security | Verified | 100% | Traversal/path protection working |
-
-\* WASM file loading requires VFS configuration. See [VFS Guide](docs/VFS.md).
+| Feature | Status | Notes |
+|---------|--------|-------|
+| CPU time tracking + limits | Implemented | Microsecond precision per request; prevents infinite loops (50ms default) |
+| Timer-based termination | Implemented | Linux `timer_create` + V8 terminate |
+| Per-isolate heap cap | Implemented | V8 heap limit + OOM termination per isolate |
+| Isolate recycling | Implemented | Fresh isolate after N requests |
+| Soft eviction (memory pressure) | Implemented | Per-worker `MemoryMonitor` recycles the isolate at Critical/Emergency pressure |
+| Cross-tenant isolation | Implemented | Separate V8 isolates; pool/KV/VFS/env keyed by canonical hostname (collision-free) |
+| Per-tenant metrics + Prometheus | Implemented | Auto-collected per hostname; `/admin/metrics` |
+| WASM load / compile / instantiate | Implemented | `WebAssembly.*` API; synchronous exports execute (async-heavy flows may not resolve) |
+| VFS security | Implemented | Path-traversal blocked; per-isolate namespace isolation |
 
 ## Architectural limitations
 

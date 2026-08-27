@@ -1,7 +1,6 @@
 # Cloudflare Workers Compatibility Mode
 
 **Date:** 2026-05-17  
-**Version:** v2.0a  
 **Status:** ✅ IMPLEMENTED
 
 ---
@@ -315,5 +314,4 @@ See [WebSocket Guide](WEBSOCKET.md) for:
 
 ---
 
-**Last Updated:** 2026-05-17  
 **Status:** ✅ Production Ready

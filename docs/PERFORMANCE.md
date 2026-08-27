@@ -1,7 +1,5 @@
 # NANO Performance & Tuning
 
-**Version:** 2.7.0
-**Last Updated:** 2026-08-24
 
 This guide describes the performance-relevant mechanisms and the knobs you can
 tune. It deliberately does **not** publish benchmark figures — none are measured in

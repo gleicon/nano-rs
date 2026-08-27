@@ -1,6 +1,5 @@
 # NANO Security Gateway
 
-**Version:** 1.0.0  
 **Updated:** 2026-05-02  
 **Status:** Production-Ready
 
@@ -277,6 +276,5 @@ Response within 48 hours guaranteed.
 
 ---
 
-**Last Updated:** 2026-05-02  
 **Test Coverage:** 69 adversarial tests passing  
 **CVE Status:** Monitored daily via CI

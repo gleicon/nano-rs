@@ -1,7 +1,5 @@
 # NANO JavaScript API Reference
 
-**Version:** v2.0a  
-**Last Updated:** 2026-05-17
 
 ---
 

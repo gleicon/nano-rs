@@ -1,7 +1,5 @@
 # Node.js Compatibility and Migration Guide
 
-**Version:** 2.7.0  
-**Last Updated:** 2026-05-02
 
 ---
 

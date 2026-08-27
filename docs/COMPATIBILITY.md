@@ -1,7 +1,5 @@
 # NANO Runtime Compatibility Matrix
 
-**Version:** 2.7.0  
-**Last Updated:** 2026-08-08
 
 ---
 
@@ -37,19 +35,15 @@
 |-----|--------|------------|-------|
 | crypto.getRandomValues | ✅ Complete | All TypedArray types | |
 | crypto.subtle.digest | ✅ Complete | SHA-256, SHA-512 | |
-| crypto.subtle.generateKey | ✅ Complete | AES-GCM, HMAC | |
-| crypto.subtle.importKey | ✅ Complete | JWK format | AES-GCM, HMAC only |
-| crypto.subtle.exportKey | ✅ Complete | JWK format | AES-GCM, HMAC only |
-| crypto.subtle.encrypt | ✅ Complete | AES-GCM | |
-| crypto.subtle.decrypt | ✅ Complete | AES-GCM | |
-| crypto.subtle.sign | ✅ Complete | HMAC | |
-| crypto.subtle.verify | ✅ Complete | HMAC | |
-| crypto.subtle.deriveBits | ✅ Complete | PBKDF2 (HMAC-SHA-256/384/512) | length: positive multiple of 8, ≤ 8192 bits |
-| crypto.subtle.deriveKey | ❌ Not Implemented | | Not implemented |
-| RSA key operations | ❌ Not Implemented | | Not implemented |
-| ECDSA operations | ❌ Not Implemented | | Not implemented |
-
-**Coverage:** 10/13 implemented (77%)  
+| crypto.subtle.generateKey | ✅ Complete | AES-GCM, HMAC, RSA-OAEP, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA, ECDH | |
+| crypto.subtle.importKey | ✅ Complete | AES-GCM, HMAC, RSA-*, ECDSA, ECDH, PBKDF2 | |
+| crypto.subtle.exportKey | ✅ Complete | JWK format | AES-GCM, HMAC |
+| crypto.subtle.encrypt | ✅ Complete | AES-GCM, RSA-OAEP | |
+| crypto.subtle.decrypt | ✅ Complete | AES-GCM, RSA-OAEP | |
+| crypto.subtle.sign | ✅ Complete | HMAC, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA | |
+| crypto.subtle.verify | ✅ Complete | HMAC, RSA-PSS, RSASSA-PKCS1-v1_5, ECDSA | |
+| crypto.subtle.deriveBits | ✅ Complete | PBKDF2 (HMAC-SHA-256/384/512), ECDH | length: positive multiple of 8, ≤ 8192 bits |
+| crypto.subtle.deriveKey | ✅ Complete | PBKDF2, ECDH | |
 
 ---
 
@@ -214,11 +208,10 @@ globalThis.localStorage = {
 | Timer-based Termination | ✅ Implemented | Linux timer_create + V8 terminate |
 | Per-isolate heap cap + OOM | ✅ Implemented | V8 heap limit, terminate on approach, recycle after N requests |
 | Soft eviction (memory pressure) | ✅ Implemented | Per-worker `MemoryMonitor` recycles the isolate at Critical/Emergency pressure |
-| Cross-isolate LRU eviction | ⏳ Not wired | `EvictionManager` implemented + tested, not connected to the serving path |
 | Per-Tenant Metrics | ✅ Implemented | Auto-collected per hostname |
 | Prometheus Export | ✅ Implemented | /admin/metrics endpoint |
-| WASM Support | ✅ Implemented | Load, compile, execute |
-| WASM JS API | ✅ Implemented | WebAssembly.* full API |
+| WASM load / compile / instantiate | ✅ Implemented | `WebAssembly.*` API; synchronous exports execute |
+| WASM async execution | ⚠️ Partial | Prefer synchronous exports; async-heavy WASM flows may not resolve to completion |
 
 ---
 
@@ -228,7 +221,6 @@ globalThis.localStorage = {
 |--------|---------|
 | ✅ Complete | Fully implemented and tested |
 | ⚠️ Partial | Works for common cases, limitations documented |
-| 🚧 In Progress | Implementation underway |
 | ❌ Not Implemented | Not available |
 
 ---

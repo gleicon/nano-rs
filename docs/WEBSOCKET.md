@@ -1,8 +1,6 @@
 # WebSocket Support
 
-**Version:** v2.0a  
 **Status:** Implemented (v2.1.x)  
-**Last Updated:** 2026-05-17
 
 ---
 

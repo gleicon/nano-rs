@@ -1,6 +1,5 @@
 # NANO Admin API Reference
 
-**Version:** 2.7.0  
 **Base URL:** `http://localhost:8889` (default)  
 **Authentication:** API Key (X-API-Key header)
 

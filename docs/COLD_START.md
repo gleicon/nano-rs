@@ -1,7 +1,5 @@
 # Cold Start Terminology Guide
 
-**Version:** 2.7.0
-**Last Updated:** 2026-08-24
 
 "Cold start" is ambiguous — it can mean process boot, isolate creation, or the
 per-request context reset. This guide defines the distinct timing categories used
