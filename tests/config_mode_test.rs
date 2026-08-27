@@ -21,6 +21,7 @@ fn create_test_config() -> nano::config::NanoConfig {
         hostname: "test.example.com".to_string(),
         entrypoint: "/tmp/test.js".to_string(),
         sliver: None,
+        compat: Default::default(),
         env_vars: HashMap::new(),
         limits: nano::config::AppLimits::default(),
         vfs_backend: nano::config::VfsBackendType::Memory,
@@ -42,6 +43,7 @@ fn create_multi_app_config() -> nano::config::NanoConfig {
         hostname: "api.example.com".to_string(),
         entrypoint: "/apps/api.js".to_string(),
         sliver: None,
+        compat: Default::default(),
         env_vars: [("API_KEY".to_string(), "secret".to_string())]
             .into_iter()
             .collect(),
@@ -61,6 +63,7 @@ fn create_multi_app_config() -> nano::config::NanoConfig {
         hostname: "blog.example.com".to_string(),
         entrypoint: "/apps/blog.js".to_string(),
         sliver: None,
+        compat: Default::default(),
         env_vars: HashMap::new(),
         limits: nano::config::AppLimits {
             memory_mb: 128,
@@ -88,6 +91,7 @@ fn create_config_with_server(port: u16, host: &str) -> nano::config::NanoConfig 
         hostname: "app.example.com".to_string(),
         entrypoint: "/tmp/app.js".to_string(),
         sliver: None,
+        compat: Default::default(),
         env_vars: HashMap::new(),
         limits: nano::config::AppLimits::default(),
         vfs_backend: nano::config::VfsBackendType::Memory,

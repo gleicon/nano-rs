@@ -167,37 +167,6 @@ async fn test_isolate_id_changes_after_oom_recovery() {
     }
 }
 
-/// Test that isolate age is tracked correctly
-///
-/// This test verifies that:
-/// 1. New isolates start with age = 0
-/// 2. Age increases over time
-/// 3. After OOM recovery, age resets to 0
-#[test]
-fn test_isolate_age_tracking() {
-    use nano::worker::eviction::IsolateMetadata;
-    use std::thread;
-
-    // Create metadata for a new isolate
-    let meta = IsolateMetadata::new("test.local", 0);
-
-    // Age should be very small (just created)
-    let age = meta.age();
-    assert!(age.as_secs() < 1, "New isolate should have age < 1 second");
-
-    // Format should be in seconds
-    let age_str = meta.age_formatted();
-    assert!(
-        age_str.ends_with('s'),
-        "Age format should end with 's' for seconds"
-    );
-
-    // Wait a bit and check age increased
-    thread::sleep(Duration::from_millis(100));
-    let age2 = meta.age();
-    assert!(age2 > age, "Age should increase over time");
-}
-
 /// Test the complete request tracing combo: request_id + worker_id + isolate_id
 ///
 /// This test verifies the three-part combo allows full request tracing:

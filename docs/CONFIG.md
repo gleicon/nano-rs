@@ -198,6 +198,17 @@ Each app object configures one hosted application.
 - **Note:** Either `entrypoint` or `sliver` must be specified (not both)
 - **Benefit:** first request skips JavaScript parse+compile via precompiled bytecode
 
+### compat
+- **Type:** `"auto"` | `"gas"` | `"standard"`
+- **Default:** `"auto"`
+- **Description:** JavaScript compatibility flavor for the app — a declared property of the app, not an environment variable. `"auto"` detects the flavor from the entrypoint the same way ESM vs classic is detected from the source: a `.gs` entrypoint is treated as Google Apps Script and wrapped in the `nano:gas` shim. `"gas"` forces that shim regardless of extension; `"standard"` never applies it.
+- **Note:** GAS secrets (`GOOGLE_SERVICE_ACCOUNT_KEY`, `SPREADSHEET_ID`, …) still live in `env_vars` — `compat` only selects the flavor.
+
+### env_vars
+- **Type:** object (string → string)
+- **Default:** `{}`
+- **Description:** The app's environment and secrets, exposed to the app as `Nano.env`. Not a place for runtime feature flags (use `compat` for the JS flavor).
+
 ### limits
 - **Type:** object
 - **Default:** See `limits` defaults below

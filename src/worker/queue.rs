@@ -204,21 +204,23 @@ impl EntrypointWorkerPool {
             memory_limit_mb,
             vfs_backend,
             std::collections::HashMap::new(),
+            crate::config::CompatMode::default(),
         )
     }
 
-    /// Create a pool with an explicit VFS backend and environment variables.
+    /// Create a pool with an explicit VFS backend, environment, and compat flavor.
     ///
-    /// `env_vars` propagates runtime feature flags into each worker thread.
-    /// The canonical consumer is `GAS_COMPAT=true`, which switches the JS compile
-    /// path to wrap `.gs` source in the GAS shim before execution.
-    /// `with_backend` delegates here with an empty map.
+    /// `env_vars` carries the app's environment and secrets (e.g. a GAS service
+    /// account key). `compat` is the declared JS flavor (default `auto`, which
+    /// wraps a `.gs` entrypoint in the Google Apps Script shim). `with_backend`
+    /// delegates here with an empty env and the default flavor.
     pub fn with_backend_and_env(
         hostname: &str,
         worker_count: u32,
         memory_limit_mb: u32,
         vfs_backend: crate::vfs::VfsBackendEnum,
         env_vars: std::collections::HashMap<String, String>,
+        compat: crate::config::CompatMode,
     ) -> Self {
         use crate::worker::AppSource;
 
@@ -230,6 +232,7 @@ impl EntrypointWorkerPool {
             vfs_backend,
             source,
             env_vars,
+            compat,
         );
 
         tracing::info!(
@@ -457,6 +460,7 @@ impl WorkQueue {
                         self.workers_per_pool
                     };
                     let env_vars = app_config.env_vars.clone();
+                    let compat = app_config.compat;
                     let mk_pool = |backend| {
                         EntrypointWorkerPool::with_backend_and_env(
                             hostname,
@@ -464,6 +468,7 @@ impl WorkQueue {
                             memory_mb,
                             backend,
                             env_vars.clone(),
+                            compat,
                         )
                     };
                     match app_config.vfs_backend {
@@ -714,7 +719,10 @@ impl WorkQueue {
     pub fn shutdown(self) {
         tracing::info!("Shutting down WorkQueue with {} pools", self.pools.len());
         for (hostname, pool) in self.pools {
-            tracing::debug!("Shutting down EntrypointWorkerPool for hostname: {}", hostname);
+            tracing::debug!(
+                "Shutting down EntrypointWorkerPool for hostname: {}",
+                hostname
+            );
             pool.shutdown();
         }
     }
@@ -792,7 +800,10 @@ mod tests {
             crate::config::default_memory_limit(),
             "registry-less path must cap memory, not run uncapped (was 0)"
         );
-        assert_eq!(pool.worker_count, 3, "fallback uses the pool default worker count");
+        assert_eq!(
+            pool.worker_count, 3,
+            "fallback uses the pool default worker count"
+        );
     }
 
     /// Limit-enforcement matrix, config path: a pool for an app whose config sets
@@ -827,8 +838,14 @@ mod tests {
 
     #[test]
     fn canonical_hostname_is_case_insensitive() {
-        assert_eq!(canonical_hostname("Example.COM"), canonical_hostname("example.com"));
-        assert_eq!(canonical_hostname("EXAMPLE.COM"), canonical_hostname("example.com"));
+        assert_eq!(
+            canonical_hostname("Example.COM"),
+            canonical_hostname("example.com")
+        );
+        assert_eq!(
+            canonical_hostname("EXAMPLE.COM"),
+            canonical_hostname("example.com")
+        );
     }
 
     #[test]
@@ -837,8 +854,14 @@ mod tests {
         // distinct keys — otherwise two tenants share one isolate/KV/VFS/env.
         // `a.com` and `a-com` were a real collision under the old lossy scheme.
         assert_ne!(canonical_hostname("a.com"), canonical_hostname("a-com"));
-        assert_ne!(canonical_hostname("tenant-a.example"), canonical_hostname("tenant.a.example"));
-        assert_ne!(canonical_hostname("evil.com"), canonical_hostname("victim.com"));
+        assert_ne!(
+            canonical_hostname("tenant-a.example"),
+            canonical_hostname("tenant.a.example")
+        );
+        assert_ne!(
+            canonical_hostname("evil.com"),
+            canonical_hostname("victim.com")
+        );
     }
 
     #[tokio::test]
@@ -978,11 +1001,12 @@ mod tests {
 
     #[test]
     fn test_with_backend_and_env_propagates_flags() {
-        // Verify that with_backend_and_env constructs a pool without panic
-        // and that env_vars reach the inner WorkerPool (tested end-to-end
-        // by the GAS integration suite; here we test the construction path).
+        // Verify that with_backend_and_env constructs a pool without panic and
+        // that env_vars + the compat flavor reach the inner WorkerPool (GAS wrap
+        // is tested end-to-end by the GAS integration suite; here we test the
+        // construction path).
         let env_vars: std::collections::HashMap<String, String> =
-            [("GAS_COMPAT".to_string(), "true".to_string())]
+            [("GOOGLE_SERVICE_ACCOUNT_KEY".to_string(), "{}".to_string())]
                 .into_iter()
                 .collect();
 
@@ -992,6 +1016,7 @@ mod tests {
             0,
             crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::new()),
             env_vars,
+            crate::config::CompatMode::Gas,
         );
 
         assert_eq!(pool.hostname, "gas.test.local");
@@ -1014,6 +1039,7 @@ mod tests {
             0,
             crate::vfs::VfsBackendEnum::memory(crate::vfs::MemoryBackend::new()),
             std::collections::HashMap::new(),
+            crate::config::CompatMode::default(),
         );
 
         assert_eq!(pool_a.hostname, pool_b.hostname);

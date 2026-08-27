@@ -3,10 +3,13 @@
 //! Two usage modes:
 //!
 //! **Classic mode** (recommended for non-tech users):
-//! Set `env_vars.GAS_COMPAT=true` in your app config. Upload your `.gs` file
-//! unchanged. The runtime injects GAS_SHIM_PREFIX before and GAS_SHIM_SUFFIX
-//! after your code, making SpreadsheetApp, Logger, PropertiesService, etc. available.
-//! Functions must be `async` when they call Sheets/Docs/Drive APIs.
+//! Name your entrypoint `*.gs` — the runtime auto-detects the Google Apps Script
+//! flavor from the extension (app config `compat: "auto"`, the default) and it can
+//! be forced with `compat: "gas"`. Upload your `.gs` file unchanged. The runtime
+//! injects GAS_SHIM_PREFIX before and GAS_SHIM_SUFFIX after your code, making
+//! SpreadsheetApp, Logger, PropertiesService, etc. available. Functions must be
+//! `async` when they call Sheets/Docs/Drive APIs. The Google service-account key
+//! and spreadsheet id still come from `env_vars` (they are secrets, not flags).
 //!
 //! ```javascript
 //! // handler.js — your GAS script (no modification except adding async where needed)
@@ -38,7 +41,8 @@
 //! 4. Fallback → `main()` if defined
 
 // ── Classic-script prefix ────────────────────────────────────────────────────
-// Injected before the user's GAS script when env_vars.GAS_COMPAT=true.
+// Injected before the user's GAS script when the app's compat flavor resolves to
+// GAS (a `.gs` entrypoint under the default `auto`, or `compat: "gas"`).
 // Sets up all GAS globals using nano-rs primitives:
 //   __gasFetch  – original outbound fetch (captured before suffix could reassign)
 //   __nano_kv_* – synchronous KV globals from kv.rs bind_kv()

@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nano-rs Test Report — 2026-08-21T15:07:47.167Z</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px;line-height:1.5}
+h1{font-size:1.8rem;font-weight:700;margin-bottom:4px}
+.meta{color:#94a3b8;font-size:.85rem}
+.grade{font-size:3rem;font-weight:900;margin:12px 0}
+.grade.green{color:#22c55e}.grade.blue{color:#3b82f6}.grade.yellow{color:#f59e0b}.grade.red{color:#ef4444}
+.summary{background:#1e293b;border-radius:8px;padding:20px;margin:20px 0}
+.summary table{width:100%;border-collapse:collapse;font-size:.9rem}
+.summary th{text-align:left;color:#94a3b8;padding:6px 8px;border-bottom:1px solid #334155}
+.summary td{padding:6px 8px;border-bottom:1px solid #1e293b}
+.right{text-align:right}
+.bar-wrap{background:#334155;border-radius:4px;height:8px;width:120px;overflow:hidden}
+.bar{height:100%;border-radius:4px;transition:width .3s}
+details{background:#1e293b;border-radius:8px;margin:12px 0;overflow:hidden}
+summary{padding:14px 18px;cursor:pointer;display:flex;align-items:center;gap:10px;list-style:none;font-weight:600}
+summary::-webkit-details-marker{display:none}
+.suite-name{flex:1}
+.suite-pass summary{border-left:4px solid #22c55e}
+.suite-warn summary{border-left:4px solid #f59e0b}
+.suite-fail summary{border-left:4px solid #ef4444}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+thead th{text-align:left;color:#94a3b8;padding:8px 12px;background:#0f172a;position:sticky;top:0}
+tbody td{padding:7px 12px;border-top:1px solid #0f172a;vertical-align:top}
+.row-pass{background:#0f2a1a}.row-fail{background:#2a0f0f}.row-skip{background:#1a1a2a}
+.dot{font-weight:700;font-size:1rem}.dot.pass{color:#22c55e}.dot.fail{color:#ef4444}.dot.skip{color:#64748b}
+.mono{font-family:monospace;font-size:.8rem;max-width:260px;overflow-wrap:anywhere}
+.badge{padding:2px 8px;border-radius:12px;font-size:.78rem;font-weight:700}
+.badge.green{background:#14532d;color:#86efac}
+.badge.yellow{background:#451a03;color:#fde68a}
+.badge.red{background:#450a0a;color:#fca5a5}
+.badge.grey{background:#1e293b;color:#94a3b8}
+.timing{color:#94a3b8;font-size:.8rem;margin-left:auto}
+footer{margin-top:32px;color:#475569;font-size:.8rem;text-align:center}
+</style>
+</head>
+<body>
+<h1>nano-rs Test Report</h1>
+<p class="meta">nano-rs 2.6.0 (v8-crate: 147.4.0) · 2026-08-21T15:07:47.167Z · 9558 ms total</p>
+<div class="grade green">A</div>
+<p class="meta">104/104 tests passed · 3 skipped · 100%</p>
+
+<div class="summary">
+  <table>
+    <thead><tr><th>Suite</th><th class="right">Pass/Run</th><th>Progress</th><th class="right">%</th><th class="right">RSS</th><th class="right">Duration</th></tr></thead>
+    <tbody><tr>
+      <td>Foundation APIs</td>
+      <td class="right">20/20</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1053 ms</td>
+    </tr><tr>
+      <td>WinterTC / Fetch API</td>
+      <td class="right">17/17</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1015 ms</td>
+    </tr><tr>
+      <td>Node.js Compat</td>
+      <td class="right">13/13</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1015 ms</td>
+    </tr><tr>
+      <td>KV &amp; Storage</td>
+      <td class="right">6/6</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1014 ms</td>
+    </tr><tr>
+      <td>Crypto</td>
+      <td class="right">10/10</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1018 ms</td>
+    </tr><tr>
+      <td>WebAssembly</td>
+      <td class="right">10/10</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1026 ms</td>
+    </tr><tr>
+      <td>Google Apps Script (GAS_COMPAT)</td>
+      <td class="right">11/11</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1022 ms</td>
+    </tr><tr>
+      <td>Concurrency</td>
+      <td class="right">8/8</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1047 ms</td>
+    </tr><tr>
+      <td>Memory</td>
+      <td class="right">9/9</td>
+      <td><div class="bar-wrap"><div class="bar" style="width:100%;background:#22c55e"></div></div></td>
+      <td class="right">100%</td>
+      <td class="right">—</td>
+      <td class="right">1326 ms</td>
+    </tr></tbody>
+  </table>
+</div>
+
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">Foundation APIs</span>
+      <span class="badge green">20/20 ✓</span>
+      
+      
+      <span class="timing">1053 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>URL pathname</td>
+      <td class="mono">/path</td>
+      <td class="mono">/path</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>URL search</td>
+      <td class="mono">?a=1</td>
+      <td class="mono">?a=1</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>URLSearchParams.get</td>
+      <td class="mono">v</td>
+      <td class="mono">v</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>TextEncoder→Uint8Array</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>TextDecoder.decode</td>
+      <td class="mono">hi</td>
+      <td class="mono">hi</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Response type</td>
+      <td class="mono">function</td>
+      <td class="mono">function</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Request type</td>
+      <td class="mono">function</td>
+      <td class="mono">function</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Headers type</td>
+      <td class="mono">function</td>
+      <td class="mono">function</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>fetch type</td>
+      <td class="mono">function</td>
+      <td class="mono">function</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>console.log</td>
+      <td class="mono">ok</td>
+      <td class="mono">ok</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>JSON.parse</td>
+      <td class="mono">1</td>
+      <td class="mono">1</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>btoa</td>
+      <td class="mono">aGVsbG8=</td>
+      <td class="mono">aGVsbG8=</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>atob</td>
+      <td class="mono">hello</td>
+      <td class="mono">hello</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>setTimeout type</td>
+      <td class="mono">function</td>
+      <td class="mono">function</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>setInterval type</td>
+      <td class="mono">function</td>
+      <td class="mono">function</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Date.now</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>structuredClone</td>
+      <td class="mono">{&quot;a&quot;:1}</td>
+      <td class="mono">{&quot;a&quot;:1}</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Promise.resolve</td>
+      <td class="mono">resolved</td>
+      <td class="mono">resolved</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Uint8Array</td>
+      <td class="mono">3</td>
+      <td class="mono">3</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>ArrayBuffer</td>
+      <td class="mono">8</td>
+      <td class="mono">8</td>
+      <td class="right">—</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">WinterTC / Fetch API</span>
+      <span class="badge green">17/17 ✓</span>
+      
+      
+      <span class="timing">1015 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>request.method GET</td>
+      <td class="mono">GET</td>
+      <td class="mono">GET</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>request.method POST</td>
+      <td class="mono">POST</td>
+      <td class="mono">POST</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>request.headers.get</td>
+      <td class="mono">world</td>
+      <td class="mono">world</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>request.url contains /</td>
+      <td class="mono">ok</td>
+      <td class="mono">ok</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Response 200</td>
+      <td class="mono">body</td>
+      <td class="mono">body</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Response 404</td>
+      <td class="mono">nope</td>
+      <td class="mono">nope</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Response custom header</td>
+      <td class="mono">hello</td>
+      <td class="mono">hello</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Headers.append multi</td>
+      <td class="mono">1, 2</td>
+      <td class="mono">1, 2</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Headers.has true</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Headers.delete → false</td>
+      <td class="mono">false</td>
+      <td class="mono">false</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>request.text()</td>
+      <td class="mono">ping</td>
+      <td class="mono">ping</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>request.json()</td>
+      <td class="mono">7</td>
+      <td class="mono">7</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>request.clone()</td>
+      <td class="mono">GET:ok</td>
+      <td class="mono">GET:ok</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>new Request()</td>
+      <td class="mono">POST:/path</td>
+      <td class="mono">POST:/path</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Response.ok true</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Response.ok false</td>
+      <td class="mono">false</td>
+      <td class="mono">false</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Response.json()</td>
+      <td class="mono">42</td>
+      <td class="mono">42</td>
+      <td class="right">1 ms</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">Node.js Compat</span>
+      <span class="badge green">13/13 ✓</span>
+      
+      
+      <span class="timing">1015 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>path.join</td>
+      <td class="mono">/a/b/c.txt</td>
+      <td class="mono">/a/b/c.txt</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>path.dirname</td>
+      <td class="mono">/a/b</td>
+      <td class="mono">/a/b</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>path.basename</td>
+      <td class="mono">c.txt</td>
+      <td class="mono">c.txt</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>path.extname</td>
+      <td class="mono">.txt</td>
+      <td class="mono">.txt</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Buffer.from().toString()</td>
+      <td class="mono">hello</td>
+      <td class="mono">hello</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Buffer.isBuffer()</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Buffer.concat()</td>
+      <td class="mono">foo</td>
+      <td class="mono">foo</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Buffer hex encoding</td>
+      <td class="mono">dead</td>
+      <td class="mono">dead</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>process.version</td>
+      <td class="mono">v18.0.0</td>
+      <td class="mono">v&lt;semver&gt;</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>process.env absent</td>
+      <td class="mono">absent</td>
+      <td class="mono">absent</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>assert.ok / equal</td>
+      <td class="mono">ok</td>
+      <td class="mono">ok</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>assert throws on mismatch</td>
+      <td class="mono">threw</td>
+      <td class="mono">threw</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>EventEmitter</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">1 ms</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">KV &amp; Storage</span>
+      <span class="badge green">6/6 ✓</span>
+      <span class="badge grey">3 skipped</span>
+      
+      <span class="timing">1014 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>kv.set + get</td>
+      <td class="mono">myval</td>
+      <td class="mono">myval</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>kv.setJSON + getJSON</td>
+      <td class="mono">42</td>
+      <td class="mono">42</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>kv.delete</td>
+      <td class="mono">null</td>
+      <td class="mono">null</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>kv.list prefix</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>openKV namespace set/get</td>
+      <td class="mono">nv</td>
+      <td class="mono">nv</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>namespace isolation</td>
+      <td class="mono">default:namespaced</td>
+      <td class="mono">default:namespaced</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-skip">
+      <td><span class="dot skip" title="skipped">–</span></td>
+      <td>localStorage.setItem/getItem</td>
+      <td class="mono">unavailable-in-esm</td>
+      <td class="mono">localStorage not in global scope for ESM — import from nano:kv</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-skip">
+      <td><span class="dot skip" title="skipped">–</span></td>
+      <td>localStorage.removeItem</td>
+      <td class="mono">unavailable-in-esm</td>
+      <td class="mono">localStorage not in global scope for ESM — import from nano:kv</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-skip">
+      <td><span class="dot skip" title="skipped">–</span></td>
+      <td>localStorage.length</td>
+      <td class="mono">unavailable-in-esm</td>
+      <td class="mono">localStorage not in global scope for ESM — import from nano:kv</td>
+      <td class="right">—</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">Crypto</span>
+      <span class="badge green">10/10 ✓</span>
+      
+      
+      <span class="timing">1018 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>crypto.subtle type</td>
+      <td class="mono">object</td>
+      <td class="mono">object</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>getRandomValues length</td>
+      <td class="mono">16</td>
+      <td class="mono">16</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>getRandomValues non-zero</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>SHA-256 digest size</td>
+      <td class="mono">32</td>
+      <td class="mono">32</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>SHA-256 known value</td>
+      <td class="mono">ok</td>
+      <td class="mono">ok</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>AES-GCM keygen</td>
+      <td class="mono">ok</td>
+      <td class="mono">ok</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>AES-GCM encrypt→decrypt</td>
+      <td class="mono">secret</td>
+      <td class="mono">secret</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>HMAC sign+verify</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>PBKDF2 deriveBits</td>
+      <td class="mono">32</td>
+      <td class="mono">32</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>btoa→atob roundtrip</td>
+      <td class="mono">nano-rs</td>
+      <td class="mono">nano-rs</td>
+      <td class="right">—</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">WebAssembly</span>
+      <span class="badge green">10/10 ✓</span>
+      
+      
+      <span class="timing">1026 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>WebAssembly.compile</td>
+      <td class="mono">ok</td>
+      <td class="mono">ok</td>
+      <td class="right">3 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>WebAssembly.instantiate</td>
+      <td class="mono">ok</td>
+      <td class="mono">ok</td>
+      <td class="right">2 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>add(3,4)=7</td>
+      <td class="mono">7</td>
+      <td class="mono">7</td>
+      <td class="right">3 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>add(0,0)=0</td>
+      <td class="mono">0</td>
+      <td class="mono">0</td>
+      <td class="right">2 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>add(100,200)=300</td>
+      <td class="mono">300</td>
+      <td class="mono">300</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>add(-1,1)=0</td>
+      <td class="mono">0</td>
+      <td class="mono">0</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>module cache hit</td>
+      <td class="mono">cached</td>
+      <td class="mono">cached</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>exports object</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>10x burst correct</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>instantiate from bytes</td>
+      <td class="mono">30</td>
+      <td class="mono">30</td>
+      <td class="right">—</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">Google Apps Script (GAS_COMPAT)</span>
+      <span class="badge green">11/11 ✓</span>
+      
+      
+      <span class="timing">1022 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>PropertiesService.setProperty/getProperty</td>
+      <td class="mono">suite-val</td>
+      <td class="mono">suite-val</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>PropertiesService.deleteProperty</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>PropertiesService.getProperties</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Utilities.getUuid format</td>
+      <td class="mono">true</td>
+      <td class="mono">true</td>
+      <td class="right">2 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Utilities.base64Encode</td>
+      <td class="mono">aGVsbG8=</td>
+      <td class="mono">aGVsbG8=</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Utilities.base64Decode</td>
+      <td class="mono">hello</td>
+      <td class="mono">hello</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Logger.log</td>
+      <td class="mono">logged</td>
+      <td class="mono">logged</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Session.getEffectiveUser().getEmail()</td>
+      <td class="mono">service-account@nano.local</td>
+      <td class="mono">service-account@nano.local</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>CacheService.put/get</td>
+      <td class="mono">cv</td>
+      <td class="mono">cv</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Direct function dispatch</td>
+      <td class="mono">direct-called</td>
+      <td class="mono">direct-called</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>doPost JSON echo</td>
+      <td class="mono">{&quot;echo&quot;:{&quot;hello&quot;:&quot;world&quot;}}</td>
+      <td class="mono">{&quot;echo&quot;:{&quot;hello&quot;:&quot;world&quot;}}</td>
+      <td class="right">—</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">Concurrency</span>
+      <span class="badge green">8/8 ✓</span>
+      
+      
+      <span class="timing">1047 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Counter increments (6 sequential)</td>
+      <td class="mono">1,1,1,2,2,2</td>
+      <td class="mono">&gt;=1 each</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Counter all ≥ 1</td>
+      <td class="mono">1,1,1,2,2,2</td>
+      <td class="mono">≥1 each</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>20 parallel — all 200</td>
+      <td class="mono">20/20</td>
+      <td class="mono">20/20</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>20 parallel — correct body</td>
+      <td class="mono">20/20</td>
+      <td class="mono">20/20</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>50 parallel — ≥48 succeed</td>
+      <td class="mono">50/50</td>
+      <td class="mono">≥48/50</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>p95 latency &lt; 2000 ms</td>
+      <td class="mono">15ms</td>
+      <td class="mono">&lt;2000ms</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>Separate pool no contamination</td>
+      <td class="mono">separate pools ok</td>
+      <td class="mono">ok</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>RSS &lt; 256 MB per worker</td>
+      <td class="mono">24/36 MB</td>
+      <td class="mono">&lt; 256 MB</td>
+      <td class="right">—</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+  <details class="suite-pass" open>
+    <summary>
+      <span class="suite-name">Memory</span>
+      <span class="badge green">9/9 ✓</span>
+      
+      
+      <span class="timing">1326 ms</span>
+    </summary>
+    <table>
+      <thead><tr><th></th><th>Test</th><th>Got</th><th>Expected</th><th>Latency</th></tr></thead>
+      <tbody>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>small alloc (1k)</td>
+      <td class="mono">{&quot;ok&quot;:true,&quot;len&quot;:1000}</td>
+      <td class="mono">&quot;ok&quot;:true</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>medium alloc (100k)</td>
+      <td class="mono">{&quot;ok&quot;:true,&quot;len&quot;:100000}</td>
+      <td class="mono">&quot;ok&quot;:true</td>
+      <td class="right">2 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>string growth 10k chars</td>
+      <td class="mono">10000</td>
+      <td class="mono">10000</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>JSON roundtrip 1k items</td>
+      <td class="mono">1000</td>
+      <td class="mono">1000</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>large alloc — no process crash</td>
+      <td class="mono">status=200</td>
+      <td class="mono">not crash</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>runtime alive after large alloc</td>
+      <td class="mono">200</td>
+      <td class="mono">200</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>post-oom response valid</td>
+      <td class="mono">{&quot;alive&quot;:true}</td>
+      <td class="mono">&quot;alive&quot;:true</td>
+      <td class="right">1 ms</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>RSS measurement available</td>
+      <td class="mono">70 MB</td>
+      <td class="mono">a number</td>
+      <td class="right">—</td>
+    </tr>
+    <tr class="row-pass">
+      <td><span class="dot pass" title="pass">✓</span></td>
+      <td>RSS &lt; configured limit (128 MB)</td>
+      <td class="mono">70 MB</td>
+      <td class="mono">&lt; 384 MB</td>
+      <td class="right">—</td>
+    </tr></tbody>
+    </table>
+  </details>
+
+<footer>Generated by nano-rs test suite · <a href="https://github.com/gleicon/nano-rs" style="color:#60a5fa">github.com/gleicon/nano-rs</a></footer>
+</body>
+</html>

@@ -1,6 +1,6 @@
 'use strict';
-// GAS suite — PropertiesService, Logger, Utilities, Session, dispatch (GAS_COMPAT=true)
-// Uses .gs extension so nano-rs routes through the GAS shim.
+// GAS suite — PropertiesService, Logger, Utilities, Session, dispatch.
+// Uses a .gs extension so nano-rs auto-detects the flavor and routes through the GAS shim.
 
 const GS_CODE = `
 function doGet(e) {
@@ -90,8 +90,7 @@ module.exports = async function gas({ startServer, stopServer, request, delay })
   let srv;
   try {
     srv = await startServer(GS_CODE, PORT, {
-      ext: '.gs',
-      env_vars: { GAS_COMPAT: 'true' },
+      ext: '.gs', // .gs extension auto-selects the GAS shim (compat: auto)
     });
 
     const get = (q) => request(PORT, `/?t=${q}`);
@@ -134,5 +133,5 @@ module.exports = async function gas({ startServer, stopServer, request, delay })
     await stopServer(srv);
   }
 
-  return { name: 'Google Apps Script (GAS_COMPAT)', tests, memMb: null };
+  return { name: 'Google Apps Script (.gs auto-detect)', tests, memMb: null };
 };

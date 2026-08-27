@@ -726,9 +726,11 @@ mod tests {
         use crate::config::AppConfig;
 
         // App with non-default limits + env vars.
-        let mut limits = AppLimits::default();
-        limits.memory_mb = 999;
-        limits.workers = 7;
+        let limits = AppLimits {
+            memory_mb: 999,
+            workers: 7,
+            ..Default::default()
+        };
         let mut env_vars = HashMap::new();
         env_vars.insert("API_KEY".to_string(), "secret".to_string());
 
@@ -739,6 +741,7 @@ mod tests {
                 hostname: "real.example.com".to_string(),
                 entrypoint: "./real.js".to_string(),
                 sliver: None,
+                compat: Default::default(),
                 env_vars,
                 limits,
                 vfs_backend: Default::default(),
@@ -780,6 +783,7 @@ mod tests {
             hostname: "api.example.com".to_string(),
             entrypoint: "/app.js".to_string(),
             sliver: None,
+            compat: Default::default(),
             env_vars: HashMap::new(),
             limits: AppLimits::default(),
             vfs_backend: Default::default(),

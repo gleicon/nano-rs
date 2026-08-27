@@ -358,8 +358,8 @@ const ver    = process.version;                         // "v18.0.0"</pre>
 
                 <div class="grid md:grid-cols-2 gap-5 mb-8">
                     <div class="bg-green-500/5 border border-green-500/30 rounded-xl p-5">
-                        <div class="text-green-400 font-semibold text-sm mb-2">Classic mode — <code>GAS_COMPAT=true</code></div>
-                        <p class="text-xs text-slate-400">Set <code>GAS_COMPAT=true</code> in <code>env_vars</code>. Upload your <code>.gs</code> file unchanged. The runtime injects the shim prefix and suffix automatically — no import required.</p>
+                        <div class="text-green-400 font-semibold text-sm mb-2">Classic mode — a <code>.gs</code> entrypoint</div>
+                        <p class="text-xs text-slate-400">Point the app's <code>entrypoint</code> at a <code>.gs</code> file. The runtime auto-detects the Google Apps Script flavor from the extension (app config <code>compat: "auto"</code>, the default; force with <code>compat: "gas"</code>) and injects the shim prefix and suffix — no flag, no import required.</p>
                     </div>
                     <div class="bg-blue-500/5 border border-blue-500/30 rounded-xl p-5">
                         <div class="text-blue-400 font-semibold text-sm mb-2">ESM mode — <code>import 'nano:gas'</code></div>
@@ -406,7 +406,6 @@ async function processItem(id) {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-800 text-xs text-slate-400">
-                            <tr><td class="px-4 py-2 font-mono text-green-400">GAS_COMPAT</td><td class="px-4 py-2">Classic mode</td><td class="px-4 py-2">Set to <code>"true"</code> to enable shim injection.</td></tr>
                             <tr><td class="px-4 py-2 font-mono text-green-400">GOOGLE_SERVICE_ACCOUNT_KEY</td><td class="px-4 py-2 text-red-400">Required</td><td class="px-4 py-2">Full JSON string of the service account key file.</td></tr>
                             <tr><td class="px-4 py-2 font-mono text-green-400">SPREADSHEET_ID</td><td class="px-4 py-2">Conditional</td><td class="px-4 py-2">Needed if your script calls <code>SpreadsheetApp.getActiveSpreadsheet()</code>.</td></tr>
                             <tr><td class="px-4 py-2 font-mono text-green-400">SHEET_NAME</td><td class="px-4 py-2">Optional</td><td class="px-4 py-2">Active sheet for <code>getActiveSheet()</code>. Defaults to first sheet.</td></tr>

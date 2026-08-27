@@ -173,6 +173,7 @@ mod tests {
             hostname: hostname.to_string(),
             entrypoint: format!("./{}.js", hostname),
             sliver: None,
+            compat: Default::default(),
             env_vars: HashMap::new(),
             limits: crate::config::AppLimits::default(),
             vfs_backend: Default::default(),
@@ -285,6 +286,7 @@ mod tests {
             hostname: "ignored.example.com".to_string(), // Will be overridden
             entrypoint: "".to_string(),
             sliver: None,
+            compat: Default::default(),
             env_vars: [("KEY".to_string(), "VALUE".to_string())]
                 .into_iter()
                 .collect(),

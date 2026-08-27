@@ -3,7 +3,7 @@
  *
  * Reads rows from a Google Sheet, sends each to an LLM, writes results back.
  * This is a real .gs file: copy it to Google Apps Script and it works there too.
- * On nano-rs it runs via the GAS_COMPAT shim — no changes needed.
+ * On nano-rs the `.gs` extension auto-selects the GAS shim — no changes needed.
  *
  * Setup:
  *   1. Create a Google Cloud service account and download the JSON key file.

@@ -3,6 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Google Apps Script activation is now a typed app-config field, not an env var.** `GAS_COMPAT=true` in `env_vars` is removed; add `compat` to the app config instead. The default `"auto"` detects the flavor from the entrypoint the same way the runtime already picks ESM vs classic from the source — a `.gs` entrypoint is treated as Google Apps Script — with `"gas"` / `"standard"` as explicit overrides. Activation is a declared property of the app; `env_vars` is left for genuine app environment and secrets (the GAS service-account key and spreadsheet id still live there). Existing GAS apps with a `.gs` entrypoint keep working with no config; a non-`.gs` GAS app now needs `"compat": "gas"`.
+
+### Removed
+
+- Deleted the obsolete `test_isolate_age_tracking` test, which referenced the `worker::eviction` module removed in 2.8.0.
+
 ## [2.8.0] - 2026-08-27
 
 ### Security

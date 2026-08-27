@@ -255,7 +255,7 @@ await localStorage.setItem('theme', 'dark');</pre>
                 <div class="bg-slate-800/40 border border-slate-700 rounded-2xl p-8">
                     <div class="text-green-400 font-bold text-sm tracking-widest uppercase mb-3">Google Apps Script</div>
                     <h3 class="text-xl font-semibold text-white mb-4">.gs files, unchanged</h3>
-                    <p class="text-slate-400 text-sm mb-6">Set <code class="text-green-400">GAS_COMPAT=true</code> and upload your <code class="text-green-400">.gs</code> file. <code class="text-green-400">SpreadsheetApp</code>, <code class="text-green-400">PropertiesService</code>, <code class="text-green-400">Logger</code> and more — backed by a service account.</p>
+                    <p class="text-slate-400 text-sm mb-6">Point an app at a <code class="text-green-400">.gs</code> file — the runtime auto-detects Google Apps Script from the extension (no flag). <code class="text-green-400">SpreadsheetApp</code>, <code class="text-green-400">PropertiesService</code>, <code class="text-green-400">Logger</code> and more — backed by a service account.</p>
                     <pre class="bg-slate-900 rounded-lg p-4 text-xs text-slate-300 overflow-x-auto">async function doGet(e) {
   const sheet = SpreadsheetApp
     .getActiveSpreadsheet()

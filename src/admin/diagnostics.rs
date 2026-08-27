@@ -437,6 +437,7 @@ mod tests {
                 hostname: hostname.clone(),
                 entrypoint: "./app.js".to_string(),
                 sliver: None,
+                compat: Default::default(),
                 env_vars: HashMap::new(),
                 limits: AppLimits::default(),
                 vfs_backend: Default::default(),

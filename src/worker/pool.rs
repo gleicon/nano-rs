@@ -484,6 +484,7 @@ impl WorkerPool {
             vfs_backend,
             source,
             std::collections::HashMap::new(),
+            crate::config::CompatMode::default(),
         )
     }
 
@@ -494,6 +495,7 @@ impl WorkerPool {
         vfs_backend: crate::vfs::VfsBackendEnum,
         source: crate::worker::AppSource,
         env_vars: std::collections::HashMap<String, String>,
+        compat: crate::config::CompatMode,
     ) -> Self {
         use crate::worker::AppSource;
 
@@ -519,6 +521,7 @@ impl WorkerPool {
             let worker_vfs_backend = vfs_backend_for_workers.clone();
             let worker_source = source_for_workers.clone();
             let worker_env_vars = env_vars_for_workers.clone();
+            let worker_compat = compat;
             let (task_tx, task_rx) =
                 mpsc::sync_channel::<HandlerTask>(QUEUE_DEPTH_PER_WORKER.load(Ordering::Relaxed));
 
@@ -788,16 +791,13 @@ impl WorkerPool {
                                 };
 
                                 let is_esm = crate::v8::module::is_esm_module(&code);
-                                // Wrap classic GAS scripts when GAS_COMPAT=true in env_vars.
+                                // Wrap classic Google Apps Script per the app's `compat`
+                                // flavor (default: auto-detect a `.gs` entrypoint), the
+                                // same way `is_esm_module` classifies ESM vs classic.
                                 // ESM scripts with `import 'nano:gas'` are not wrapped here.
-                                let code = if !is_esm
-                                    && worker_env_vars
-                                        .get("GAS_COMPAT")
-                                        .map(|v| v == "true")
-                                        .unwrap_or(false)
-                                {
+                                let code = if !is_esm && worker_compat.wraps_gas(&entrypoint) {
                                     info!(
-                                        "Worker {}: GAS_COMPAT mode — wrapping '{}' with nano:gas shim",
+                                        "Worker {}: GAS compat — wrapping '{}' with nano:gas shim",
                                         id, entrypoint
                                     );
                                     std::sync::Arc::from(format!(
@@ -1361,8 +1361,10 @@ impl WorkerPool {
                             if let Some(ref mut mon) = memory_monitor {
                                 let snap = unsafe { mon.check_after(&mut *iso_ptr) };
                                 if snap.pressure_level.requires_eviction() {
-                                    crate::metrics::TENANT_METRICS
-                                        .record_pressure_event(&worker_hostname, snap.pressure_level);
+                                    crate::metrics::TENANT_METRICS.record_pressure_event(
+                                        &worker_hostname,
+                                        snap.pressure_level,
+                                    );
                                     info!(
                                         "Worker {}: memory pressure {:?} ({} MiB used) — recycling isolate",
                                         id,

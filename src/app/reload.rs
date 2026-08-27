@@ -161,6 +161,7 @@ mod tests {
                     hostname: h.to_string(),
                     entrypoint: format!("./{}.js", h),
                     sliver: None,
+                    compat: Default::default(),
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
                     vfs_backend: Default::default(),

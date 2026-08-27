@@ -2,10 +2,7 @@
   "apps": [
     {
       "hostname": "localhost",
-      "entrypoint": "examples/gas-notes.gs",
-      "env_vars": {
-        "GAS_COMPAT": "true"
-      }
+      "entrypoint": "examples/gas-notes.gs"
     }
   ],
   "server": {

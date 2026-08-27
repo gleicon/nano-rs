@@ -41,6 +41,43 @@ pub enum VfsBackendType {
     S3,
 }
 
+/// JavaScript compatibility flavor for an app.
+///
+/// The runtime cannot tell a plain WinterTC app from a Google Apps Script app by
+/// source alone (both are just JavaScript), so the flavor is a declared property
+/// of the app — the same way ESM vs classic is detected from the source. `Auto`
+/// keys off the entrypoint extension (`.gs` → Google Apps Script), matching how
+/// `is_esm_module` classifies a script; `Gas`/`Standard` force the choice.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CompatMode {
+    /// Detect from the entrypoint: `.gs` → Google Apps Script, otherwise standard.
+    #[default]
+    Auto,
+    /// Force the Google Apps Script shim regardless of extension.
+    Gas,
+    /// Plain WinterTC/JS; never inject the GAS shim.
+    Standard,
+}
+
+impl CompatMode {
+    /// Resolve to whether the GAS shim should wrap this entrypoint's classic script.
+    ///
+    /// `Auto` mirrors the runtime's other flavor detection (`is_esm_module`): the
+    /// `.gs` extension is the signal. `Gas`/`Standard` are explicit overrides.
+    pub fn wraps_gas(self, entrypoint: &str) -> bool {
+        match self {
+            CompatMode::Auto => entrypoint
+                .rsplit('/')
+                .next()
+                .unwrap_or(entrypoint)
+                .ends_with(".gs"),
+            CompatMode::Gas => true,
+            CompatMode::Standard => false,
+        }
+    }
+}
+
 /// Configuration for disk VFS backend
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -82,9 +119,14 @@ pub struct AppConfig {
     /// Path to sliver file for snapshot-based loading (alternative to entrypoint)
     #[serde(default)]
     pub sliver: Option<String>,
-    /// Environment variables for this app
+    /// Environment variables for this app (app environment + secrets, e.g. a GAS
+    /// service-account key — not a place for feature flags; see `compat`).
     #[serde(default)]
     pub env_vars: HashMap<String, String>,
+    /// JavaScript compatibility flavor (default: `auto` — detect `.gs` as Google
+    /// Apps Script). This is a declared property of the app, not an env var.
+    #[serde(default)]
+    pub compat: CompatMode,
     /// Resource limits
     #[serde(default)]
     pub limits: AppLimits,
@@ -106,6 +148,7 @@ impl Default for AppConfig {
             entrypoint: String::new(),
             sliver: None,
             env_vars: HashMap::new(),
+            compat: CompatMode::default(),
             limits: AppLimits::default(),
             vfs_backend: VfsBackendType::default(),
             vfs_disk: None,
@@ -290,7 +333,6 @@ pub struct NanoConfig {
     #[serde(default)]
     pub server: ServerConfigSection,
 }
-
 
 impl NanoConfig {
     /// Create a new empty configuration
@@ -575,6 +617,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn compat_auto_detects_gs_by_extension() {
+        // Auto mirrors is_esm-style flavor detection: `.gs` → Google Apps Script.
+        assert!(CompatMode::Auto.wraps_gas("/apps/notes.gs"));
+        assert!(CompatMode::Auto.wraps_gas("Code.gs"));
+        assert!(!CompatMode::Auto.wraps_gas("/apps/index.js"));
+        assert!(!CompatMode::Auto.wraps_gas("main.mjs"));
+        // Not fooled by `.gs` appearing mid-path.
+        assert!(!CompatMode::Auto.wraps_gas("/x.gs/index.js"));
+    }
+
+    #[test]
+    fn compat_explicit_overrides_extension() {
+        assert!(CompatMode::Gas.wraps_gas("index.js")); // force on for a .js file
+        assert!(!CompatMode::Standard.wraps_gas("notes.gs")); // force off for a .gs file
+    }
+
+    #[test]
+    fn compat_defaults_to_auto_and_deserializes() {
+        assert_eq!(CompatMode::default(), CompatMode::Auto);
+        let app: AppConfig =
+            serde_json::from_str(r#"{"hostname":"h","entrypoint":"a.gs","compat":"gas"}"#).unwrap();
+        assert_eq!(app.compat, CompatMode::Gas);
+        // Omitted → auto.
+        let app2: AppConfig =
+            serde_json::from_str(r#"{"hostname":"h","entrypoint":"a.js"}"#).unwrap();
+        assert_eq!(app2.compat, CompatMode::Auto);
+    }
+
+    #[test]
     fn test_config_validation_empty() {
         let config = NanoConfig::new();
         assert!(config.validate().is_err());
@@ -588,6 +659,7 @@ mod tests {
                     hostname: "example.com".to_string(),
                     entrypoint: "/app1.js".to_string(),
                     sliver: None,
+                    compat: Default::default(),
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
                     vfs_backend: VfsBackendType::default(),
@@ -598,6 +670,7 @@ mod tests {
                     hostname: "example.com".to_string(),
                     entrypoint: "/app2.js".to_string(),
                     sliver: None,
+                    compat: Default::default(),
                     env_vars: HashMap::new(),
                     limits: AppLimits::default(),
                     vfs_backend: VfsBackendType::default(),
@@ -623,6 +696,7 @@ mod tests {
                 hostname: "example.com".to_string(),
                 entrypoint: "".to_string(),
                 sliver: None,
+                compat: Default::default(),
                 env_vars: HashMap::new(),
                 limits: AppLimits::default(),
                 vfs_backend: VfsBackendType::default(),

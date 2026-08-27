@@ -37,7 +37,8 @@
  *   → {"notes":0,"user":"service-account@nano.local","runtime":"nano-rs"}
  *
  * This file runs unchanged in real Google Apps Script (deploy as Web App).
- * On nano-rs: set GAS_COMPAT=true in env_vars — no other config needed.
+ * On nano-rs: point an app's entrypoint at this .gs file — the runtime
+ * auto-detects Google Apps Script from the extension (no flag needed).
  */
 
 var PROPS = PropertiesService.getScriptProperties();  // synchronous
