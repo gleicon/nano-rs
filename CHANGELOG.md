@@ -3,6 +3,21 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-08-27
+
+### Security
+
+- **Closed three cross-tenant isolation leaks** in the shared-process multi-tenant model (threat model B: hostile tenants on shared V8 isolates). All three shared one root cause — a lossy projection of the tenant hostname used as an isolation key.
+  - **Pool identity** (`worker/queue.rs`) — worker pools were keyed by a `u64` SipHash of the hostname, so by pigeonhole two distinct hostnames could collide into one slot and silently share an isolate, KV namespace, VFS, and env. Pools are now keyed by the canonical hostname string (`canonical_hostname` replaces `hash_hostname`); a digest can no longer stand in for tenant identity.
+  - **VFS namespace** (`vfs/isolate.rs`) — `from_hostname` mapped both `.` and `-` to `_`, so `a.com` and `a-com` shared a namespace. The mapping is now injective (DNS charset kept verbatim, other bytes hex-escaped) with the traversal cases (`.`, `..`, empty) escaped.
+  - **Disk fallback root** (`worker/queue.rs`) — the global disk config gave one `base_path` for every hostname and the disk backend skips the namespace prefix, so all tenants shared one directory. Each tenant is now rooted at `base_path/{namespace}`.
+- **Added standing adversarial guards** — collision-pair (`a.com` / `a-com`) tests at the pool, VFS-namespace, and disk-backend layers; namespace injectivity + traversal-escape tests; and KV-boundary tests proving an attacker-controlled `openKV()` name cannot forge another host's namespace and that EdgeStore isolates by the full namespace byte string.
+
+### Changed
+
+- **Removed all forward-plans and backlog from the tree** — deleted the architecture-unification roadmap, the `config-mode-entrypoint-note` "Phase 19.2" note, and every "planned / roadmap / Phase N / TBD" marker from docs, website, and examples. Public-site future-plans (heap-snapshot "roadmap item", the "Phase 23 / Plan 05" WebSocket banner, and the `nano:indexeddb` / `nano:cache` / `require('util')` "Planned" rows) are gone.
+- **Documentation accuracy pass** — the WebCrypto matrix was wrong in the *underselling* direction: RSA-OAEP/PSS/PKCS1, ECDSA, ECDH (P-256/384), `deriveBits`/`deriveKey`, and SHA-384 are all implemented but were marked "Not Implemented" or omitted; README, `COMPATIBILITY.md`, and the site now list the real algorithm surface, and the site's overclaims (AES-CTR/CBC, HKDF) were removed. `require('events')` and `WebSocketPair` were shipped but shown "Planned/In Progress" — corrected to Complete. Deleted stale point-in-time reports (`TEST_REPORT.md`, the two `*_TEST_SCRIPT.md`, `WASM_ASYNC_LIMITATION.md`) and stripped perishable per-doc version headers.
+
 ## [2.7.0] - 2026-08-24
 
 ### Added
