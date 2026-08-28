@@ -3,6 +3,20 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.2] - 2026-08-28
+
+### Fixed
+
+- **Releases now publish binaries.** `v2.8.0` and `v2.8.1` shipped with no attached binaries: the workflow built all three targets, but the final `gh release create` hard-failed with *"a release with the same tag name already exists"* because the release object already existed by the time CI ran, so the built archives were never uploaded. The publish step is now idempotent — it falls back to `gh release upload --clobber` when the release already exists — so assets always land on the release. (`v2.8.1`'s binaries were backfilled from the original run's artifacts.)
+
+### Changed
+
+- **GitHub Actions is now the sole release owner.** Pushing a `v*` tag builds `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, and `aarch64-apple-darwin`, publishes the release with notes extracted from the matching `CHANGELOG.md` section (commit-log fallback), and uploads the binaries — no local tooling required. Removed `.goreleaser.yaml`, which declared a second, conflicting release owner that never matched the published CHANGELOG-based releases.
+
+### Removed
+
+- Dropped a run of narrating comments in `src/v8/script.rs` that restated the adjacent call; the non-obvious `v150 API` notes are kept. Comment-only, no behavior change.
+
 ## [2.8.1] - 2026-08-27
 
 ### Changed
