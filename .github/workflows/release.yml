@@ -86,15 +86,26 @@ jobs:
           merge-multiple: true
           path: dist/
 
-      - name: Generate changelog
+      - name: Generate release notes
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          PREV=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
-          if [ -n "$PREV" ]; then
-            git log "${PREV}..${TAG}" --pretty=format:'- %s (%h)' --no-merges > dist/notes.md
-          else
-            git log --pretty=format:'- %s (%h)' --no-merges | head -20 > dist/notes.md
+          mkdir -p dist
+          VERSION="${TAG#v}"
+          # Prefer the matching CHANGELOG.md section (literal match — the version
+          # string contains regex metachars), fall back to the commit log.
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { flag=1; next }
+            flag && index($0, "## [") == 1 { exit }
+            flag { print }
+          ' CHANGELOG.md | sed '/./,$!d' > dist/notes.md
+          if [ ! -s dist/notes.md ]; then
+            PREV=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
+            if [ -n "$PREV" ]; then
+              git log "${PREV}..${TAG}" --pretty=format:'- %s (%h)' --no-merges > dist/notes.md
+            else
+              git log --pretty=format:'- %s (%h)' --no-merges | head -20 > dist/notes.md
+            fi
           fi
 
       - name: Create or update GitHub release
