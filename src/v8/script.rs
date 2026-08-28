@@ -47,7 +47,6 @@ pub fn execute_script(isolate: &mut crate::v8::isolate::NanoIsolate, code: &str)
     let scope = std::pin::pin!(v8::HandleScope::new(isolate.isolate()));
     let mut scope = scope.init();
 
-    // Create context within the scope
     let context = v8::Context::new(&scope, Default::default());
 
     // Scope 2: ContextScope to enter the context
@@ -69,7 +68,6 @@ pub fn execute_script(isolate: &mut crate::v8::isolate::NanoIsolate, code: &str)
 
         match script.run(&nested_scope) {
             Some(value) => {
-                // Convert to string within this scope
                 value
                     .to_string(&nested_scope)
                     .map(|s| s.to_rust_string_lossy(&nested_scope))
@@ -78,7 +76,6 @@ pub fn execute_script(isolate: &mut crate::v8::isolate::NanoIsolate, code: &str)
         }
     };
 
-    // Return result or error
     match result_string {
         Some(s) => Ok(s),
         None => Err(anyhow!("Script execution failed or returned None")),
@@ -96,23 +93,18 @@ fn bind_console_log(
     scope: &mut v8::ContextScope<'_, '_, v8::HandleScope<'_, v8::Context>>,
     context: v8::Local<'_, v8::Context>,
 ) {
-    // Get the global object
     // v150 API: Dereference ContextScope to get PinnedRef
     let global = context.global(&**scope);
 
-    // Create the console object
     let console = v8::Object::new(&**scope);
 
-    // Create the log function
     // v150 API: Function::new expects &mut PinnedRef and a callback with matching signature
     let log_fn = v8::Function::new(scope, console_log_callback);
 
     if let Some(log_fn) = log_fn {
-        // Set console.log = log_fn
         let log_key = v8::String::new(&**scope, "log").unwrap();
         console.set(&**scope, log_key.into(), log_fn.into());
 
-        // Set global.console = console
         let console_key = v8::String::new(&**scope, "console").unwrap();
         global.set(&**scope, console_key.into(), console.into());
     }
@@ -131,7 +123,6 @@ fn console_log_callback(
     args: v8::FunctionCallbackArguments,
     _retval: v8::ReturnValue,
 ) {
-    // Collect all arguments as strings
     let mut output = Vec::new();
     for i in 0..args.length() {
         let arg = args.get(i);
@@ -142,7 +133,6 @@ fn console_log_callback(
         }
     }
 
-    // Print to stdout
     if !output.is_empty() {
         println!("{}", output.join(" "));
     }
