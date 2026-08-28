@@ -38,7 +38,7 @@ jobs:
     steps:
     # Step 1: Checkout nano-rs repository
     - name: Checkout nano-rs
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -50,19 +50,19 @@ jobs:
 
     # Step 3: Cache Rust dependencies
     - name: Cache cargo registry
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Cache cargo index
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Cache cargo build
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -80,7 +80,7 @@ jobs:
 
     # Step 6: Checkout nano-rs-test-suite
     - name: Checkout test suite
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: gleicon/nano-rs-test-suite
         path: test-suite
@@ -115,7 +115,7 @@ jobs:
 
     # Step 10: Upload test reports as artifacts
     - name: Upload test reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       if: always()  # Upload even if tests fail
       with:
         name: test-reports-${{ matrix.os }}
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout nano-rs
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -158,7 +158,7 @@ jobs:
       timeout-minutes: 10
 
     - name: Checkout test suite
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: gleicon/nano-rs-test-suite
         path: test-suite
