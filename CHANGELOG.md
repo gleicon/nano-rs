@@ -3,6 +3,12 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.3] - 2026-09-05
+
+### Security
+
+- **Upgraded the V8 engine to close CVE-2026-85046** — an actively-exploited V8 type-confusion vulnerability (CVSS 8.8) that permits memory corruption and potential remote code execution from crafted JavaScript. Because nano-rs executes untrusted tenant JavaScript in shared V8 isolates, this was reachable at the engine level and below the logical cross-tenant isolation hardened in 2.8.0 — a memory-corruption primitive is not contained by isolation-key correctness. Bumped the `v8` crate from `150.4.0` (V8 15.0) to `152.2.0` (V8 15.2.124.1), the milestone that carries the fix. The upgrade is drop-in: no source changes were required beyond syncing the reported crate-version string. Deployments running only trusted first-party JavaScript were at low practical risk; multi-tenant deployments running hostile tenant code should upgrade.
+
 ## [2.8.2] - 2026-08-28
 
 ### Fixed

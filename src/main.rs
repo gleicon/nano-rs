@@ -10,7 +10,7 @@ mod cli;
 #[derive(Debug, Parser)]
 #[command(name = "nano-rs")]
 #[command(about = "Multi-tenant JavaScript edge runtime (Rust + rusty_v8)")]
-#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (v8-crate: 150.4.0)"))]
+#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (v8-crate: 152.2.0)"))]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
             v8::V8::initialize();
 
             let v8_engine_version = v8::V8::get_version();
-            let v8_crate_version = "150.4.0"; // From Cargo.lock
+            let v8_crate_version = "152.2.0"; // From Cargo.lock
             let app_version = env!("CARGO_PKG_VERSION");
 
             println!(
