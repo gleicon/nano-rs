@@ -5,16 +5,15 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use nano::sliver::{pack_sliver, unpack_sliver, SliverMetadata, UnpackedSliver};
-use nano::vfs::{IsolateVfs, MemoryBackend, VfsFile, VfsNamespace, VfsPath};
-use std::sync::Arc;
+use nano::vfs::{IsolateVfs, MemoryBackend, VfsBackendEnum, VfsFile, VfsNamespace, VfsPath};
 
 /// Create a test sliver with various sizes
 fn create_test_sliver(file_count: usize) -> UnpackedSliver {
     let hostname = format!("bench{}.example.com", file_count);
     let metadata = SliverMetadata::new(&hostname, "1.1.0");
 
-    // Create heap data (simulate ~1MB snapshot)
-    let heap_data = vec![0xABu8; 1024 * 1024];
+    // Pre-compiled V8 bytecode (simulate ~1MB cache blob)
+    let bytecode = vec![0xABu8; 1024 * 1024];
 
     // Create VFS entries
     let vfs_entries: Vec<(VfsPath, VfsFile)> = (0..file_count)
@@ -26,8 +25,8 @@ fn create_test_sliver(file_count: usize) -> UnpackedSliver {
         })
         .collect();
 
-    let archive =
-        pack_sliver(&metadata, &heap_data, Some(&vfs_entries)).expect("Failed to pack sliver");
+    let archive = pack_sliver(&metadata, Some(&bytecode), Some(&vfs_entries))
+        .expect("Failed to pack sliver");
 
     unpack_sliver(&archive).expect("Failed to unpack sliver")
 }
@@ -49,9 +48,10 @@ fn bench_sliver_cold_start(c: &mut Criterion) {
                     let sliver = unpacked.clone();
 
                     // Create a fresh VFS
-                    let backend = Arc::new(MemoryBackend::default());
-                    let vfs =
-                        IsolateVfs::new(VfsNamespace::from_hostname("bench.example.com"), backend);
+                    let vfs = IsolateVfs::new(
+                        VfsNamespace::from_hostname("bench.example.com"),
+                        VfsBackendEnum::memory(MemoryBackend::default()),
+                    );
 
                     // Restore VFS entries (this is what happens during cold start)
                     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -59,9 +59,9 @@ fn bench_sliver_cold_start(c: &mut Criterion) {
                         sliver.restore_to_vfs(&vfs).await.unwrap();
                     });
 
-                    // Simulate V8 snapshot restoration check
+                    // Simulate V8 bytecode-cache restoration check
                     // (In real scenario, this would create the isolate)
-                    assert!(!sliver.heap_data.is_empty());
+                    assert!(sliver.bytecode.as_ref().is_some_and(|b| !b.is_empty()));
                 });
             },
         );
@@ -83,9 +83,10 @@ fn bench_vfs_restore_only(c: &mut Criterion) {
             file_count,
             |b, _| {
                 // Pre-create the VFS
-                let backend = Arc::new(MemoryBackend::default());
-                let vfs =
-                    IsolateVfs::new(VfsNamespace::from_hostname("bench.example.com"), backend);
+                let vfs = IsolateVfs::new(
+                    VfsNamespace::from_hostname("bench.example.com"),
+                    VfsBackendEnum::memory(MemoryBackend::default()),
+                );
 
                 b.iter(|| {
                     let sliver = unpacked.clone();
@@ -110,7 +111,7 @@ fn bench_sliver_unpack(c: &mut Criterion) {
         // Re-pack to get the archive bytes
         let archive = pack_sliver(
             &unpacked.metadata,
-            &unpacked.heap_data,
+            unpacked.bytecode.as_deref(),
             Some(&unpacked.vfs_entries),
         )
         .expect("Failed to re-pack sliver");
