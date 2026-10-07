@@ -11,6 +11,7 @@
 //! and exposed via Prometheus and JSON endpoints.
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -477,101 +478,35 @@ impl TenantMetricsCollector {
 
     /// Export all tenant metrics as Prometheus format
     pub fn to_prometheus(&self) -> String {
+        use crate::metrics::exporter::format_label_one;
+
+        // (metric name, help, type, value selector). One row per exported
+        // series; the header + per-tenant line shape lives in a single place
+        // and label formatting/escaping is shared with the registry exporter.
+        type Selector = fn(&TenantMetrics) -> u64;
+        let series: &[(&str, &str, &str, Selector)] = &[
+            ("nano_tenant_requests_total", "Total requests per tenant", "counter", |m| m.requests_total.get()),
+            ("nano_tenant_requests_success", "Successful requests per tenant", "counter", |m| m.requests_success.get()),
+            ("nano_tenant_requests_error", "Errored requests per tenant", "counter", |m| m.requests_error.get()),
+            ("nano_tenant_requests_timeout", "Timed-out requests per tenant", "counter", |m| m.requests_timeout.get()),
+            ("nano_tenant_cpu_seconds_total", "Total CPU seconds per tenant", "counter", |m| m.cpu_seconds_total.get()),
+            ("nano_tenant_memory_used_bytes", "Current memory usage per tenant", "gauge", |m| m.memory_used_bytes.get()),
+            ("nano_tenant_memory_external_bytes", "External memory usage per tenant", "gauge", |m| m.memory_external_bytes.get()),
+            ("nano_tenant_requests_active", "Active requests per tenant", "gauge", |m| m.requests_active.get()),
+            ("nano_tenant_context_resets_total", "Total context resets per tenant", "counter", |m| m.context_resets_total.get()),
+        ];
+
         let mut output = String::with_capacity(8192);
-
-        // Write HELP and TYPE lines
-        output.push_str("# HELP nano_tenant_requests_total Total requests per tenant\n");
-        output.push_str("# TYPE nano_tenant_requests_total counter\n");
-
-        // Write request counters
-        for entry in self.tenants.iter() {
-            let m = entry.value().read().unwrap();
-            let hostname = entry.key();
-
-            output.push_str(&format!(
-                "nano_tenant_requests_total{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.requests_total.get()
-            ));
-            output.push_str(&format!(
-                "nano_tenant_requests_success{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.requests_success.get()
-            ));
-            output.push_str(&format!(
-                "nano_tenant_requests_error{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.requests_error.get()
-            ));
-            output.push_str(&format!(
-                "nano_tenant_requests_timeout{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.requests_timeout.get()
-            ));
+        for (name, help, typ, select) in series {
+            writeln!(output, "# HELP {} {}", name, help).unwrap();
+            writeln!(output, "# TYPE {} {}", name, typ).unwrap();
+            for entry in self.tenants.iter() {
+                let m = entry.value().read().unwrap();
+                let labels = format_label_one("hostname", entry.key());
+                writeln!(output, "{}{} {}", name, labels, select(&m)).unwrap();
+            }
+            writeln!(output).unwrap();
         }
-        output.push('\n');
-
-        // CPU metrics
-        output.push_str("# HELP nano_tenant_cpu_seconds_total Total CPU seconds per tenant\n");
-        output.push_str("# TYPE nano_tenant_cpu_seconds_total counter\n");
-        for entry in self.tenants.iter() {
-            let m = entry.value().read().unwrap();
-            let hostname = entry.key();
-            output.push_str(&format!(
-                "nano_tenant_cpu_seconds_total{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.cpu_seconds_total.get()
-            ));
-        }
-        output.push('\n');
-
-        // Memory metrics
-        output.push_str("# HELP nano_tenant_memory_used_bytes Current memory usage per tenant\n");
-        output.push_str("# TYPE nano_tenant_memory_used_bytes gauge\n");
-        for entry in self.tenants.iter() {
-            let m = entry.value().read().unwrap();
-            let hostname = entry.key();
-            output.push_str(&format!(
-                "nano_tenant_memory_used_bytes{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.memory_used_bytes.get()
-            ));
-            output.push_str(&format!(
-                "nano_tenant_memory_external_bytes{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.memory_external_bytes.get()
-            ));
-        }
-        output.push('\n');
-
-        // Active requests
-        output.push_str("# HELP nano_tenant_requests_active Active requests per tenant\n");
-        output.push_str("# TYPE nano_tenant_requests_active gauge\n");
-        for entry in self.tenants.iter() {
-            let m = entry.value().read().unwrap();
-            let hostname = entry.key();
-            output.push_str(&format!(
-                "nano_tenant_requests_active{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.requests_active.get()
-            ));
-        }
-        output.push('\n');
-
-        // Context resets
-        output
-            .push_str("# HELP nano_tenant_context_resets_total Total context resets per tenant\n");
-        output.push_str("# TYPE nano_tenant_context_resets_total counter\n");
-        for entry in self.tenants.iter() {
-            let m = entry.value().read().unwrap();
-            let hostname = entry.key();
-            output.push_str(&format!(
-                "nano_tenant_context_resets_total{{hostname=\"{}\"}} {}\n",
-                hostname,
-                m.context_resets_total.get()
-            ));
-        }
-
         output
     }
 

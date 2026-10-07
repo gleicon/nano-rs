@@ -7,7 +7,6 @@
 //! - Virtual host routing by hostname
 //!
 
-pub mod client;
 pub mod config;
 pub mod headers;
 pub mod router;
@@ -17,7 +16,6 @@ pub mod types;
 pub mod url;
 pub mod v8_bridge;
 
-pub use client::{HttpClient, HttpClientError, HttpClientResponse};
 pub use config::ServerConfig;
 pub use headers::NanoHeaders;
 pub use router::{AppState, HandlerType, RouteTarget, VirtualHostRouter};

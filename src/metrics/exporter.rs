@@ -15,6 +15,41 @@ use std::fmt::Write;
 
 use crate::metrics::collector::MetricsRegistry;
 
+/// Escape a Prometheus label value (`\`, `"`, and newlines).
+///
+/// Single source of truth for label-value escaping; used by every metric
+/// renderer so no exposition path can emit an unescaped value.
+pub(crate) fn escape_label_value(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+}
+
+/// Format a label set as `{name="value",...}` with escaped values, or an
+/// empty string when there are no labels.
+pub(crate) fn format_labels(names: &[String], values: &[String]) -> String {
+    if names.is_empty() || values.is_empty() {
+        return String::new();
+    }
+
+    let mut result = String::with_capacity(128);
+    result.push('{');
+    for (i, (name, value)) in names.iter().zip(values.iter()).enumerate() {
+        if i > 0 {
+            result.push(',');
+        }
+        write!(result, "{}=\"{}\"", name, escape_label_value(value)).unwrap();
+    }
+    result.push('}');
+    result
+}
+
+/// Format a single-label set `{name="value"}` with the value escaped.
+pub(crate) fn format_label_one(name: &str, value: &str) -> String {
+    format!("{{{}=\"{}\"}}", name, escape_label_value(value))
+}
+
 /// Prometheus text format exporter
 ///
 /// Renders metrics from a [`MetricsRegistry`] into the Prometheus text format.
@@ -171,7 +206,7 @@ impl PrometheusExporter {
             writeln!(output, "{} 0", name).unwrap();
         } else {
             for (labels, value) in entries {
-                let label_str = self.format_labels(&counter_vec.label_names(), &labels);
+                let label_str = format_labels(&counter_vec.label_names(), &labels);
                 writeln!(output, "{}{} {}", name, label_str, value).unwrap();
             }
         }
@@ -198,7 +233,7 @@ impl PrometheusExporter {
             writeln!(output, "{} 0", name).unwrap();
         } else {
             for (labels, value) in entries {
-                let label_str = self.format_labels(&gauge_vec.label_names(), &labels);
+                let label_str = format_labels(&gauge_vec.label_names(), &labels);
                 writeln!(output, "{}{} {}", name, label_str, value).unwrap();
             }
         }
@@ -231,7 +266,7 @@ impl PrometheusExporter {
         } else {
             for (labels, bucket_counts, sum, count) in entries {
                 let label_names = hist_vec.label_names();
-                let base_labels = self.format_labels(&label_names, &labels);
+                let base_labels = format_labels(&label_names, &labels);
 
                 // Get bucket boundaries
                 let buckets: Vec<f64> = hist_vec.buckets().to_vec();
@@ -289,33 +324,6 @@ impl PrometheusExporter {
         writeln!(output).unwrap();
     }
 
-    /// Format labels as Prometheus label string
-    ///
-    /// Returns formatted string like `{hostname="api.example.com",status="200"}`
-    /// or empty string if there are no labels.
-    fn format_labels(&self, names: &[String], values: &[String]) -> String {
-        if names.is_empty() || values.is_empty() {
-            return String::new();
-        }
-
-        let mut result = String::with_capacity(128);
-        result.push('{');
-
-        for (i, (name, value)) in names.iter().zip(values.iter()).enumerate() {
-            if i > 0 {
-                result.push(',');
-            }
-            // Escape special characters in value
-            let escaped = value
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace('\n', "\\n");
-            write!(result, "{}=\"{}\"", name, escaped).unwrap();
-        }
-
-        result.push('}');
-        result
-    }
 
     /// Format a bucket boundary for the `le` label
     fn format_bucket_label(&self, bound: &f64) -> String {
@@ -397,24 +405,20 @@ mod tests {
 
     #[test]
     fn test_format_labels() {
-        let exporter = PrometheusExporter::new();
-
         let names = vec!["hostname".to_string(), "status".to_string()];
         let values = vec!["api.example.com".to_string(), "200".to_string()];
 
-        let formatted = exporter.format_labels(&names, &values);
+        let formatted = format_labels(&names, &values);
         assert!(formatted.contains("hostname=\"api.example.com\""));
         assert!(formatted.contains("status=\"200\""));
     }
 
     #[test]
     fn test_format_labels_escaping() {
-        let exporter = PrometheusExporter::new();
-
         let names = vec!["hostname".to_string()];
         let values = vec!["api\"example.com".to_string()];
 
-        let formatted = exporter.format_labels(&names, &values);
+        let formatted = format_labels(&names, &values);
         assert!(formatted.contains("hostname=\"api\\\"example.com\""));
     }
 
