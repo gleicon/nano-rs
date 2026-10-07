@@ -155,6 +155,7 @@
 
 pub mod app_source;
 pub mod cpu_tracker;
+mod handler_compile;
 pub mod limits;
 pub mod memory_monitor;
 pub mod oom;
