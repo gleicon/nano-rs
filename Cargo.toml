@@ -131,7 +131,7 @@ dashmap = "6.1"
 # Static initialization
 
 # Async blocking for timer callbacks
-pollster = "0.4"
+pollster = "1.0"
 
 # Signal handling for timeout timer (async-safe)
 
